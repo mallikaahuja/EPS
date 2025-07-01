@@ -33,8 +33,8 @@ if uploaded_file is not None:
         st.pyplot(fig)
 
         st.success("✅ Visual generated. Next: Add logic for shapes + DXF export.")
-
+    
     except Exception as e:
-        st.error(f"❌ Failed to read Excel file: {e}")
+        st.error(f"❌ Failed to process Excel file: {e}")
 else:
     st.warning("📎 Upload an Excel file to get started.")
