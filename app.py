@@ -7,7 +7,6 @@ from io import BytesIO
 st.set_page_config(layout="wide")
 st.title("EPS Auto P&ID Generator")
 
-# Upload Excel file
 uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
 if uploaded_file:
@@ -27,17 +26,16 @@ if uploaded_file:
         "A": "Receiver Tank"
     }
 
-    # ✅ Apply mapping to a new column
+    # ✅ Map readable names
     df["Component"] = df["Text"].astype(str).map(component_mapping).fillna(df["Text"].astype(str))
 
-    # ✅ Show preview
     st.subheader("Preview Data (with Component Names)")
     st.dataframe(df[["Component", "X", "Y", "Layer", "Type"]])
 
-    # ✅ Filter coordinates
+    # ✅ Filter valid coordinates
     filtered_df = df[df["X"].notna() & df["Y"].notna()]
 
-    # ✅ Create matplotlib preview
+    # ✅ Try plotting safely
     try:
         fig, ax = plt.subplots()
         ax.scatter(filtered_df["X"], filtered_df["Y"], color="blue", s=10)
@@ -48,16 +46,16 @@ if uploaded_file:
         ax.grid(True)
         st.pyplot(fig)
     except Exception as e:
-        st.error(f"Plotting failed: {e}")
+        st.error(f"Plot failed: {e}")
 
-    # ✅ Download DXF button
-    if st.button("Download DXF"):
-        try:
+    # ✅ Try DXF export
+    try:
+        if st.button("Download DXF"):
             doc = ezdxf.new(dxfversion="R2010")
             msp = doc.modelspace()
             for _, row in filtered_df.iterrows():
-                label = str(row["Component"])
                 x, y = row["X"], row["Y"]
+                label = str(row["Component"])
                 msp.add_text(label, dxfattribs={"height": 5}).set_pos((x, y))
 
             buffer = BytesIO()
@@ -68,5 +66,5 @@ if uploaded_file:
                 file_name="EPS_PnID.dxf",
                 mime="application/dxf"
             )
-        except Exception as e:
-            st.error(f"DXF generation failed: {e}")
+    except Exception as e:
+        st.error(f"DXF generation failed: {e}")
