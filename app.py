@@ -1,60 +1,64 @@
 import streamlit as st
 import pandas as pd
-import ezdxf
-import io
 import matplotlib.pyplot as plt
+import ezdxf
+from io import BytesIO
 
-st.set_page_config(page_title="EPS Auto P&ID Generator")
+st.set_page_config(page_title="EPS Auto P&ID Generator", layout="centered")
+
 st.title("📊 EPS Auto P&ID Generator")
+st.markdown("Upload Excel File with Coordinates")
 
-uploaded_file = st.file_uploader("Upload Excel File with Coordinates", type=["xlsx"])
+uploaded_file = st.file_uploader("Drag and drop file here", type=["xlsx"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
 
-    st.subheader("Choose components")
-    unique_components = df['Text'].astype(str).unique()
-    selected_components = st.multiselect("Filter components to include", unique_components, default=unique_components)
+    # Decode and clean label names
+    df['Text'] = df['Text'].astype(str).apply(lambda x: x.encode('latin1', errors='ignore').decode('latin1'))
 
-    df = df[df['Text'].astype(str).isin(selected_components)]
+    all_labels = sorted(df['Text'].unique())
+    selected_labels = st.multiselect("Choose components", all_labels, default=all_labels)
+
+    filtered_df = df[df['Text'].isin(selected_labels)]
 
     st.subheader("Preview")
-    st.dataframe(df)
+    st.dataframe(filtered_df)
 
-    # Optional: Visual preview in Streamlit
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.scatter(df["X"], df["Y"], c='blue')
-    for _, row in df.iterrows():
-        ax.text(row["X"] + 5, row["Y"] + 5, str(row["Text"]), fontsize=9)
-    ax.set_title("P&ID Component Layout Preview")
+    # Visual plot
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.scatter(filtered_df['X'], filtered_df['Y'], alpha=0.6)
+    for _, row in filtered_df.iterrows():
+        ax.text(row['X'] + 10, row['Y'] + 2, row['Text'], fontsize=8)
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
+    ax.set_title("P&ID Components by Coordinates")
+    ax.grid(True)
     st.pyplot(fig)
 
-    # DXF generation
-    doc = ezdxf.new()
-    msp = doc.modelspace()
+    st.success("✅ Visual generated. Next: Add logic for shapes + DXF export.")
 
-    for i, row in df.iterrows():
-        x, y = float(row["X"]), float(row["Y"])
-        label = str(row["Text"])
+    # DXF Export button
+    if st.button("📁 Generate DXF File"):
+        doc = ezdxf.new(dxfversion='R2010')
+        msp = doc.modelspace()
 
-        # Add a circle for the component
-        msp.add_circle((x, y), radius=10)
+        for _, row in filtered_df.iterrows():
+            label = row["Text"]
+            x = row["X"]
+            y = row["Y"]
+            msp.add_text(
+                label,
+                dxfattribs={"height": 5, "insert": (x + 12, y + 2)}
+            )
 
-        # Add label next to the component
-        msp.add_text(label, dxfattribs={"height": 5}).set_pos((x + 12, y + 2))
+        buffer = BytesIO()
+        doc.write(buffer)
+        buffer.seek(0)
 
-        # Add line to next component
-        if i < len(df) - 1:
-            next_x = float(df.iloc[i + 1]["X"])
-            next_y = float(df.iloc[i + 1]["Y"])
-            msp.add_lwpolyline([(x, y), (next_x, next_y)], dxfattribs={"layer": "FlowLine"})
-
-    # Save DXF to BytesIO
-    dxf_io = io.BytesIO()
-    doc.write(dxf_io)
-    dxf_io.seek(0)
-
-    st.success("✅ DXF file generated! Download below:")
-    st.download_button("⬇️ Download DXF", data=dxf_io, file_name="EPS_PnID.dxf", mime="application/dxf")
+        st.download_button(
+            label="⬇️ Download DXF File",
+            data=buffer,
+            file_name="EPS_PnID_Generated.dxf",
+            mime="application/dxf"
+        )
