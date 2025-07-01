@@ -2,24 +2,40 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 
-st.title("📐 Auto P&ID Generator")
+st.title("📊 EPS Auto P&ID Generator")
 
 uploaded_file = st.file_uploader("Upload Excel File with Coordinates", type=["xlsx"])
 
-if uploaded_file:
-    df = pd.read_excel(uploaded_file)
-    st.write("### Preview", df.head())
+if uploaded_file is not None:
+    try:
+        df = pd.read_excel(uploaded_file)
 
-    # Plotting
-    fig, ax = plt.subplots()
-    for _, row in df.iterrows():
-        ax.text(row["X"], row["Y"], str(row["Text"]), fontsize=8, ha='center')
-        ax.plot(row["X"], row["Y"], 'o', markersize=3)
+        # Component multiselect
+        all_components = sorted(df["Text"].astype(str).unique())
+        selected_components = st.multiselect("Choose components", options=all_components, default=all_components)
 
-    ax.set_title("P&ID Components by Coordinates")
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.invert_yaxis()  # DXF-style top-down
-    st.pyplot(fig)
+        # Filter based on selection
+        df = df[df["Text"].astype(str).isin(selected_components)]
 
-    st.success("Visual generated. Next: Add logic for shapes + DXF export")
+        # Show preview
+        st.write("### Preview", df.head())
+
+        # Plotting
+        fig, ax = plt.subplots()
+        for _, row in df.iterrows():
+            ax.text(row["X"], row["Y"], str(row["Text"]), fontsize=8, ha='center')
+            ax.plot(row["X"], row["Y"], 'o', markersize=3)
+
+        ax.set_title("P&ID Components by Coordinates")
+        ax.set_xlabel("X")
+        ax.set_ylabel("Y")
+        ax.invert_yaxis()  # top-down drawing style
+        st.pyplot(fig)
+
+        st.success("✅ Visual generated. Next: Add logic for shapes + DXF export.")
+
+    except Exception as e:
+        st.error(f"❌ Failed to process file: {e}")
+
+else:
+    st.warning("📎 Upload an Excel file to get started.")
