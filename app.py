@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+from io import BytesIO
 
 st.title("📊 EPS Auto P&ID Generator")
 
@@ -8,16 +9,15 @@ uploaded_file = st.file_uploader("Upload Excel File with Coordinates", type=["xl
 
 if uploaded_file is not None:
     try:
-        df = pd.read_excel(uploaded_file)
+        # Read file from memory buffer
+        bytes_data = uploaded_file.read()
+        df = pd.read_excel(BytesIO(bytes_data))
 
-        # Component multiselect
+        # Component dropdown
         all_components = sorted(df["Text"].astype(str).unique())
         selected_components = st.multiselect("Choose components", options=all_components, default=all_components)
 
-        # Filter based on selection
         df = df[df["Text"].astype(str).isin(selected_components)]
-
-        # Show preview
         st.write("### Preview", df.head())
 
         # Plotting
@@ -29,13 +29,12 @@ if uploaded_file is not None:
         ax.set_title("P&ID Components by Coordinates")
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
-        ax.invert_yaxis()  # top-down drawing style
+        ax.invert_yaxis()
         st.pyplot(fig)
 
         st.success("✅ Visual generated. Next: Add logic for shapes + DXF export.")
 
     except Exception as e:
-        st.error(f"❌ Failed to process file: {e}")
-
+        st.error(f"❌ Failed to read Excel file: {e}")
 else:
     st.warning("📎 Upload an Excel file to get started.")
