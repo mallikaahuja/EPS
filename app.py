@@ -1,86 +1,45 @@
- import streamlit as st
+import streamlit as st
 import pandas as pd
-import ezdxf
 import matplotlib.pyplot as plt
-from io import BytesIO
 
-# Force headless rendering for Streamlit
-plt.switch_backend('Agg')
-
-st.set_page_config(layout="wide")
 st.title("EPS Auto P&ID Generator")
 
 uploaded_file = st.file_uploader("Upload Excel File", type=["xlsx"])
 
-if uploaded_file:
+if uploaded_file is not None:
     try:
+        # Read and clean the Excel file
         df = pd.read_excel(uploaded_file)
+        df.columns = df.columns.str.strip()  # Remove extra spaces
 
-        # ✅ Validate required columns
-        required_cols = {"X", "Y", "Text", "Layer", "Type"}
-        if not required_cols.issubset(df.columns):
-            st.error(f"❌ Excel must have the following columns: {', '.join(required_cols)}")
-            st.stop()
+        # Display data preview
+        st.subheader("Excel Data Preview")
+        st.dataframe(df)
 
-        # ✅ Component mapping
-        component_mapping = {
-            "1": "Dry Pump",
-            "2": "Liquid Ring Pump",
-            "3": "Filter",
-            "4": "Cooler",
-            "5": "Condenser",
-            "6": "Vacuum Gauge",
-            "7": "Temperature Gauge",
-            "8": "Check Valve",
-            "9": "Ball Valve",
-            "A": "Receiver Tank"
-        }
+        # Filter rows with valid X and Y coordinates
+        if "X" in df.columns and "Y" in df.columns:
+            filtered_df = df[df["X"].notna() & df["Y"].notna()]
 
-        # ✅ Map readable names
-        df["Component"] = df["Text"].astype(str).map(component_mapping).fillna(df["Text"].astype(str))
-
-        st.subheader("Preview Data (with Component Names)")
-        st.dataframe(df[["Component", "X", "Y", "Layer", "Type"]])
-
-        # ✅ Filter valid coordinates
-        filtered_df = df[df["X"].notna() & df["Y"].notna()]
-
-        # ✅ Plotting
-        try:
+            # Plot the points
             fig, ax = plt.subplots(figsize=(10, 8))
-            ax.scatter(filtered_df["X"], filtered_df["Y"], c="blue", s=10)
+            ax.scatter(filtered_df["X"], filtered_df["Y"], color="blue", s=10)
 
+            # Annotate with tag names
             for _, row in filtered_df.iterrows():
-                ax.text(row["X"] + 10, row["Y"] + 10, str(row["Component"]), fontsize=6)
+                ax.annotate(str(row["Text"]), (row["X"], row["Y"]), fontsize=8)
 
             ax.set_title("P&ID Preview")
-            ax.set_aspect("equal")
+            ax.set_xlabel("X Coordinate")
+            ax.set_ylabel("Y Coordinate")
             ax.grid(True)
+
             st.pyplot(fig)
-        except Exception as plot_err:
-            st.error(f"⚠️ Plotting failed: {plot_err}")
-            st.stop()
 
-        # ✅ DXF download
-        if st.button("Download DXF"):
-            try:
-                doc = ezdxf.new(dxfversion="R2010")
-                msp = doc.modelspace()
-                for _, row in filtered_df.iterrows():
-                    x, y = row["X"], row["Y"]
-                    label = str(row["Component"])
-                    msp.add_text(label, dxfattribs={"height": 5}).set_pos((x, y))
+            # Optional: download button
+            st.download_button("Download Filtered Data", filtered_df.to_csv(index=False), file_name="filtered_pid_data.csv")
 
-                buffer = BytesIO()
-                doc.write(buffer)
-                st.download_button(
-                    label="Click to Download DXF",
-                    data=buffer.getvalue(),
-                    file_name="EPS_PnID.dxf",
-                    mime="application/dxf"
-                )
-            except Exception as dxf_err:
-                st.error(f"⚠️ DXF generation failed: {dxf_err}")
+        else:
+            st.error("The uploaded file must contain 'X' and 'Y' columns.")
 
-    except Exception as file_err:
-        st.error(f"❌ Failed to read or process file: {file_err}")
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
