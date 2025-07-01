@@ -1,5 +1,6 @@
 
-streamlit
 ezdxf
+streamlit
 pandas
+matplotlib
 openpyxl
