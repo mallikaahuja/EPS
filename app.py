@@ -1,18 +1,15 @@
-# app.py - FINAL version using the 'imagepath' Graphviz attribute for maximum reliability
+# app.py - Final Clean Version for Your Standardized Project Structure
 
 import streamlit as st
 import pandas as pd
 from graphviz import Digraph
-import os
 
 st.set_page_config(layout="wide")
 st.title("Interactive P&ID Generator")
 st.write("Follow the steps below to build your P&ID interactively.")
 
-# <<< NEW: Define the absolute path to the symbols folder >>>
-# This is the most important line. It gets the full, unambiguous server path.
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-SYMBOLS_FOLDER_ABSOLUTE_PATH = os.path.join(PROJECT_ROOT, "PN&D-Symbols-library")
+# This code assumes your symbol images are in a folder named "PN&D-Symbols-library"
+# at the same level as this app.py script.
 
 ### --- MASTER COMPONENT LIST --- ###
 AVAILABLE_COMPONENTS = {
@@ -109,24 +106,20 @@ if st.button("Generate Detailed P&ID", type="primary"):
     else:
         with st.spinner("Drawing detailed P&ID..."):
             dot = Digraph(comment='Sequential P&ID')
-            
-            # <<< THIS IS THE ULTIMATE FIX >>>
-            # Set the search path for images for the entire graph.
-            dot.attr('graph', imagepath=SYMBOLS_FOLDER_ABSOLUTE_PATH)
-            
             dot.attr(rankdir='LR', splines='ortho', nodesep='0.5', ranksep='1.0')
             dot.attr('node', shape='none', fixedsize='true', width='1.0', height='1.0', fontsize='10')
             dot.attr('edge', arrowhead='none')
-
+            
             all_nodes_in_order = st.session_state.equipment_list[:1] + st.session_state.inline_list + st.session_state.equipment_list[1:]
             
             for node in all_nodes_in_order:
                 tag = node.get('Tag')
                 image_filename = node['Symbol_Image']
                 
-                # Now we ONLY pass the filename, not the full path.
-                # Graphviz will find it because of the 'imagepath' attribute we set.
-                dot.node(name=tag, label=tag, image=image_filename)
+                # This simple path will work with the clean file structure
+                image_path = f"PN&D-Symbols-library/{image_filename}"
+                
+                dot.node(name=tag, label=tag, image=image_path)
             
             tags_in_order = [node.get('Tag') for node in all_nodes_in_order]
             for i in range(len(tags_in_order) - 1):
