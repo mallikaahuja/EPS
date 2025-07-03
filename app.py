@@ -1,19 +1,18 @@
-# app.py - FINAL version using Absolute Paths for 100% Reliability
+# app.py - FINAL version using the 'imagepath' Graphviz attribute for maximum reliability
 
 import streamlit as st
 import pandas as pd
 from graphviz import Digraph
-import os  # Import the 'os' library
+import os
 
 st.set_page_config(layout="wide")
 st.title("Interactive P&ID Generator")
 st.write("Follow the steps below to build your P&ID interactively.")
 
-# <<< NEW: Define the absolute path to the project root >>>
-# This makes the file paths foolproof on any server.
+# <<< NEW: Define the absolute path to the symbols folder >>>
+# This is the most important line. It gets the full, unambiguous server path.
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-SYMBOLS_FOLDER_PATH = os.path.join(PROJECT_ROOT, "PN&D-Symbols-library")
-
+SYMBOLS_FOLDER_ABSOLUTE_PATH = os.path.join(PROJECT_ROOT, "PN&D-Symbols-library")
 
 ### --- MASTER COMPONENT LIST --- ###
 AVAILABLE_COMPONENTS = {
@@ -69,7 +68,6 @@ AVAILABLE_COMPONENTS = {
 
 ### --- APP LOGIC --- ###
 if 'equipment_list' not in st.session_state: st.session_state.equipment_list = []
-if 'piping_list' not in st.session_state: st.session_state.piping_list = []
 if 'inline_list' not in st.session_state: st.session_state.inline_list = []
 
 st.header("Step 1: Define Process Start and End Points")
@@ -82,7 +80,6 @@ with col3:
             {"Tag": start_tag, "Description": "Start Point", "Symbol_Image": "General.png"},
             {"Tag": end_tag, "Description": "End Point", "Symbol_Image": "General.png"},
         ]
-        st.session_state.piping_list = [{"PipeTag": "P-MAIN", "From_Tag": start_tag, "To_Tag": end_tag}]
         st.session_state.inline_list = []
         st.rerun()
 
@@ -93,7 +90,7 @@ if st.session_state.inline_list:
 else:
     st.info("Your P&ID is currently empty. Add components below.")
 
-if st.session_state.piping_list:
+if st.session_state.equipment_list:
     st.header("Step 2: Add Components to the Main Pipe")
     with st.form("component_form", clear_on_submit=True):
         comp_type = st.selectbox("Component Type", options=sorted(list(AVAILABLE_COMPONENTS.keys())))
@@ -101,7 +98,7 @@ if st.session_state.piping_list:
         submitted = st.form_submit_button("Add Component")
         if submitted and comp_label:
             st.session_state.inline_list.append({
-                "Component_Tag": comp_label, "Description": comp_type, "On_PipeTag": "P-MAIN",
+                "Tag": comp_label, "Description": comp_type,
                 "Symbol_Image": AVAILABLE_COMPONENTS[comp_type], "Label": comp_label
             })
             st.rerun()
@@ -112,6 +109,11 @@ if st.button("Generate Detailed P&ID", type="primary"):
     else:
         with st.spinner("Drawing detailed P&ID..."):
             dot = Digraph(comment='Sequential P&ID')
+            
+            # <<< THIS IS THE ULTIMATE FIX >>>
+            # Set the search path for images for the entire graph.
+            dot.attr('graph', imagepath=SYMBOLS_FOLDER_ABSOLUTE_PATH)
+            
             dot.attr(rankdir='LR', splines='ortho', nodesep='0.5', ranksep='1.0')
             dot.attr('node', shape='none', fixedsize='true', width='1.0', height='1.0', fontsize='10')
             dot.attr('edge', arrowhead='none')
@@ -119,21 +121,14 @@ if st.button("Generate Detailed P&ID", type="primary"):
             all_nodes_in_order = st.session_state.equipment_list[:1] + st.session_state.inline_list + st.session_state.equipment_list[1:]
             
             for node in all_nodes_in_order:
-                tag = node.get('Tag') or node.get('Component_Tag')
+                tag = node.get('Tag')
                 image_filename = node['Symbol_Image']
                 
-                # <<< THIS IS THE CRITICAL FIX >>>
-                # Build the absolute path to the image
-                image_path = os.path.join(SYMBOLS_FOLDER_PATH, image_filename)
-                
-                # We still keep the check, just in case.
-                if not os.path.exists(image_path):
-                    print(f"!!! CRITICAL WARNING: Absolute path not found for node '{tag}': Path was '{image_path}'")
-                    dot.node(name=tag, label=f"{tag}\n(ABSPATH FAIL)", shape='box', style='dashed', color='red')
-                else:
-                    dot.node(name=tag, label=tag, image=image_path)
+                # Now we ONLY pass the filename, not the full path.
+                # Graphviz will find it because of the 'imagepath' attribute we set.
+                dot.node(name=tag, label=tag, image=image_filename)
             
-            tags_in_order = [node.get('Tag') or node.get('Component_Tag') for node in all_nodes_in_order]
+            tags_in_order = [node.get('Tag') for node in all_nodes_in_order]
             for i in range(len(tags_in_order) - 1):
                 dot.edge(tags_in_order[i], tags_in_order[i+1])
 
@@ -141,5 +136,5 @@ if st.button("Generate Detailed P&ID", type="primary"):
             st.graphviz_chart(dot)
 
 if st.button("Start Over / Clear All"):
-    st.session_state.equipment_list = []; st.session_state.piping_list = []; st.session_state.inline_list = []
+    st.session_state.equipment_list = []; st.session_state.inline_list = []
     st.rerun()
