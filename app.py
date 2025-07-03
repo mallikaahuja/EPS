@@ -1,16 +1,21 @@
-# app.py - FINAL Interactive P&ID Builder with SELF-DEBUGGING LOGIC
+# app.py - FINAL version using Absolute Paths for 100% Reliability
 
 import streamlit as st
 import pandas as pd
 from graphviz import Digraph
-import os  # Import the 'os' library to check for files
+import os  # Import the 'os' library
 
 st.set_page_config(layout="wide")
 st.title("Interactive P&ID Generator")
 st.write("Follow the steps below to build your P&ID interactively.")
 
+# <<< NEW: Define the absolute path to the project root >>>
+# This makes the file paths foolproof on any server.
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+SYMBOLS_FOLDER_PATH = os.path.join(PROJECT_ROOT, "PN&D-Symbols-library")
+
+
 ### --- MASTER COMPONENT LIST --- ###
-# This list MUST match your file names in the 'PN&D-Symbols-library' folder exactly.
 AVAILABLE_COMPONENTS = {
     "50mm Fitting": "50.png", "ACG Filter (Suction)": "ACG filter at suction .PNG", "ACG Filter (Suction, underscore)": "ACG filter at suction_PNG",
     "Air Cooler": "Air_Cooled.png", "Averaging Pitot Tube": "Averaging_Pitot_Tube.png", "Averaging PHot Tube": "Averaging_PHot_Tube.png",
@@ -63,13 +68,10 @@ AVAILABLE_COMPONENTS = {
 }
 
 ### --- APP LOGIC --- ###
-
-# Initialize Session State
 if 'equipment_list' not in st.session_state: st.session_state.equipment_list = []
 if 'piping_list' not in st.session_state: st.session_state.piping_list = []
 if 'inline_list' not in st.session_state: st.session_state.inline_list = []
 
-# Simplified UI
 st.header("Step 1: Define Process Start and End Points")
 col1, col2, col3 = st.columns(3)
 with col1: start_tag = st.text_input("Start Point Tag", "INLET")
@@ -114,23 +116,23 @@ if st.button("Generate Detailed P&ID", type="primary"):
             dot.attr('node', shape='none', fixedsize='true', width='1.0', height='1.0', fontsize='10')
             dot.attr('edge', arrowhead='none')
 
-            # Create a combined list of all nodes in order
             all_nodes_in_order = st.session_state.equipment_list[:1] + st.session_state.inline_list + st.session_state.equipment_list[1:]
             
-            # Add all nodes to the graph with debugging
             for node in all_nodes_in_order:
                 tag = node.get('Tag') or node.get('Component_Tag')
                 image_filename = node['Symbol_Image']
-                image_path = f"PN&D-Symbols-library/{image_filename}"
                 
-                # <<< THIS IS THE NEW DEBUGGING CODE >>>
+                # <<< THIS IS THE CRITICAL FIX >>>
+                # Build the absolute path to the image
+                image_path = os.path.join(SYMBOLS_FOLDER_PATH, image_filename)
+                
+                # We still keep the check, just in case.
                 if not os.path.exists(image_path):
-                    print(f"!!! WARNING: Image not found for node '{tag}': Path was '{image_path}'")
-                    dot.node(name=tag, label=f"{tag}\n(img missing)", shape='box', style='dashed')
+                    print(f"!!! CRITICAL WARNING: Absolute path not found for node '{tag}': Path was '{image_path}'")
+                    dot.node(name=tag, label=f"{tag}\n(ABSPATH FAIL)", shape='box', style='dashed', color='red')
                 else:
                     dot.node(name=tag, label=tag, image=image_path)
             
-            # Add all sequential connections
             tags_in_order = [node.get('Tag') or node.get('Component_Tag') for node in all_nodes_in_order]
             for i in range(len(tags_in_order) - 1):
                 dot.edge(tags_in_order[i], tags_in_order[i+1])
