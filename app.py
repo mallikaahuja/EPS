@@ -1,8 +1,10 @@
-# app.py - FINAL, Simplified version
+# app.py - FINAL, FINAL version using Embedded Base64 Image Data
 
 import streamlit as st
 import pandas as pd
 from graphviz import Digraph
+import base64
+import os
 
 st.set_page_config(layout="wide")
 st.title("Interactive P&ID Generator")
@@ -58,10 +60,29 @@ AVAILABLE_COMPONENTS = {
     "Vertical Vessel": "Vertical vessel.jpg", "Y-Strainer": "Y-strainer.png",
 }
 
+# --- NEW HELPER FUNCTION TO ENCODE IMAGES ---
+def get_image_as_data_uri(filename):
+    """Reads an image file and returns it as a base64-encoded data URI."""
+    filepath = os.path.join("PN&D-Symbols-library", filename)
+    try:
+        with open(filepath, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode()
+        # Determine the correct mime type
+        if filename.lower().endswith(".png"):
+            mime_type = "image/png"
+        elif filename.lower().endswith((".jpg", ".jpeg")):
+            mime_type = "image/jpeg"
+        else:
+            mime_type = "application/octet-stream" # Fallback
+        return f"data:{mime_type};base64,{encoded_string}"
+    except FileNotFoundError:
+        print(f"!!! FILE NOT FOUND ERROR: Cannot find {filepath}")
+        return None
+
 if 'component_list' not in st.session_state: st.session_state.component_list = []
 
 st.header("Step 1: Add Components in Sequence")
-
+# ... (The rest of the UI code is the same)
 col1, col2 = st.columns(2)
 with col1:
     with st.form("component_form", clear_on_submit=True):
@@ -95,9 +116,16 @@ if st.button("Generate P&ID", type="primary"):
             all_tags = ["INLET"] + [c['Tag'] for c in st.session_state.component_list] + ["OUTLET"]
             
             for component in st.session_state.component_list:
-                # This is the path the code will try to use.
-                image_path = f"PN&D-Symbols-library/{component['Symbol_Image']}"
-                dot.node(name=component['Tag'], label=component['Tag'], image=image_path)
+                # --- THIS IS THE CRITICAL FIX ---
+                # We now get the encoded image data directly
+                data_uri = get_image_as_data_uri(component['Symbol_Image'])
+                
+                if data_uri:
+                    # Pass the data URI to the image attribute
+                    dot.node(name=component['Tag'], label=component['Tag'], image=data_uri)
+                else:
+                    # Fallback if the image file is truly missing
+                    dot.node(name=component['Tag'], label=f"{component['Tag']}\n(FILE MISSING)", shape='box', style='dashed', color='red')
 
             for i in range(len(all_tags) - 1):
                 dot.edge(all_tags[i], all_tags[i+1])
