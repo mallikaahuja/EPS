@@ -4,28 +4,28 @@ from graphviz import Digraph
 from pathlib import Path
 import os
 import openai
+from streamlit_elements import elements, mui
 from PIL import Image, ImageDraw, ImageFont
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="Intelligent P&ID Generator", page_icon="🧠")
+st.set_page_config(layout="wide", page_title="EPS P&ID Generator", page_icon="⚙️")
 SYMBOLS_DIR = Path("symbols")
 TEMP_DIR = Path("temp_placeholders")
 TEMP_DIR.mkdir(exist_ok=True)
 
-# --- COMPONENT LIBRARY ---
-# This dictionary MUST match the standardized filenames in your "symbols" folder.
+# --- COMPLETE COMPONENT LIBRARY ---
+# Ensure this dictionary matches your standardized filenames in the "symbols" folder.
 AVAILABLE_COMPONENTS = {
-    # This should be your full, standardized list
     "Vertical Vessel": "vertical_vessel.png",
     "Butterfly Valve": "butterfly_valve.png",
     "Gate Valve": "gate_valve.png",
-    # etc...
+    "Dry Pump Model": "dry_pump_model.png",
+    "Discharge Condenser": "discharge_condenser.png",
+    # (Your full list of components should be here)
 }
-EQUIPMENT_TYPES = sorted(["Vertical Vessel", "Dry Pump Model", "Discharge Condenser", "Scrubber"])
-INLINE_TYPES = sorted([comp for comp in AVAILABLE_COMPONENTS if comp not in EQUIPMENT_TYPES])
 
+# --- HELPER & GENERATION FUNCTIONS ---
 
-# --- HELPER FUNCTIONS ---
 def create_placeholder_image(text, path):
     try:
         img = Image.new('RGB', (100, 75), color=(240, 240, 240))
@@ -38,89 +38,105 @@ def create_placeholder_image(text, path):
     except Exception:
         return None
 
-def get_ai_suggestions():
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        return "⚠️ AI suggestions disabled. `OPENAI_API_KEY` not found in Railway variables."
-    client = openai.OpenAI(api_key=api_key)
-    description = "Review P&ID data: " + str(st.session_state.get('p_and_id_data', {}))
-    prompt = f"You are a senior process engineer. Review this P&ID data and provide 3 concise, actionable recommendations for improving safety or operability. Focus on missing items like isolation valves or basic instrumentation.\n\nP&ID DATA:\n{description}"
-    try:
-        with st.spinner("🤖 AI Engineer is analyzing..."):
-            response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}], temperature=0.5, max_tokens=200)
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Could not get AI suggestions. Error: {e}"
-
-def generate_graphviz_dot(dfs):
+def generate_pnid_graph(component_list):
+    if not component_list: return None
     dot = Digraph('P&ID')
-    dot.attr(rankdir='LR', splines='ortho', nodesep='0.5', ranksep='1.2', label='P&ID Live Preview', labelloc='t', fontsize='16')
-    equipment_df = dfs.get('Equipment', pd.DataFrame())
-    piping_df = dfs.get('Piping', pd.DataFrame())
-    inline_df = dfs.get('In-Line_Components', pd.DataFrame())
-    if equipment_df.empty: return dot
+    dot.attr(rankdir='LR', ranksep='1.0', nodesep='0.5')
+    dot.attr('node', shape='none', imagepos='tc', labelloc='b', fontsize='10')
+    
+    dot.node("INLET", "INLET", shape='point', width='0.1')
+    last_node = "INLET"
+    
+    for comp in component_list:
+        tag = comp['tag']
+        comp_type = comp['type']
+        img_filename = AVAILABLE_COMPONENTS.get(comp_type)
 
-    with dot.subgraph(name='cluster_main_process') as c:
-        c.attr(label='Main Process Flow', style='dashed')
-        for _, equip in equipment_df.iterrows():
-            tag = equip['Tag']; img_filename = equip['Symbol_Image']; img_path = SYMBOLS_DIR / img_filename
-            if not img_path.exists():
-                img_path = create_placeholder_image(equip['Type'], TEMP_DIR / img_filename)
-            c.node(tag, label=tag, image=str(img_path), shape='none', imagepos='tc', labelloc='b')
-
-    for _, pipe in piping_df.iterrows():
-        components_on_pipe = inline_df[inline_df['On_PipeTag'] == pipe['PipeTag']]
-        last_node = pipe['From_Tag']
-        for _, comp in components_on_pipe.iterrows():
-            comp_name = f"{comp['Component_Tag']}_{pipe['PipeTag']}"
-            img_filename = comp['Symbol_Image']; img_path = SYMBOLS_DIR / img_filename
-            if not img_path.exists():
-                img_path = create_placeholder_image(comp['Description'], TEMP_DIR / img_filename)
-            dot.node(comp_name, label=comp['Component_Tag'], image=str(img_path), shape='none', imagepos='tc', labelloc='b')
-            dot.edge(last_node, comp_name, label=pipe['PipeTag'])
-            last_node = comp_name
-        dot.edge(last_node, pipe['To_Tag'])
+        if img_filename:
+            img_path = SYMBOLS_DIR / img_filename
+            if os.path.exists(img_path):
+                dot.node(tag, label=tag, image=str(img_path))
+            else:
+                placeholder_path = TEMP_DIR / img_filename
+                create_placeholder_image(comp_type, placeholder_path)
+                dot.node(tag, label=tag, image=str(placeholder_path))
+        else:
+            dot.node(tag, label=f"{tag}\n({comp_type})", shape='box', style='dashed')
+        
+        dot.edge(last_node, tag)
+        last_node = tag
+        
+    dot.node("OUTLET", "OUTLET", shape='point', width='0.1')
+    dot.edge(last_node, "OUTLET")
     return dot
 
-# --- UI ---
-st.title("🧠 Intelligent P&ID Generator")
+# --- INITIALIZE SESSION STATE ---
+if 'components' not in st.session_state:
+    st.session_state.components = []
+if "show_modal" not in st.session_state:
+    st.session_state.show_modal = False
+
+# --- UI DEFINITION ---
+st.title("EPS P&ID Generator")
+st.markdown("Use the sidebar to add components. The preview will update automatically.")
 
 with st.sidebar:
-    st.header("1. Load P&ID Data")
-    uploaded_file = st.file_uploader("Upload your standardized P&ID Excel file.", type=["xlsx"])
-    if uploaded_file:
-        if 'p_and_id_data' not in st.session_state or st.session_state.get('file_name') != uploaded_file.name:
-            try:
-                st.session_state.p_and_id_data = pd.read_excel(uploaded_file, sheet_name=None)
-                st.session_state.file_name = uploaded_file.name
-                st.success(f"Loaded `{uploaded_file.name}` successfully!")
-            except Exception as e:
-                st.error(f"Failed to read Excel file: {e}")
+    st.subheader("P&ID Builder")
+    if st.button("➕ Add New Component", use_container_width=True):
+        st.session_state.show_modal = True
 
-if 'p_and_id_data' in st.session_state:
-    data_frames = st.session_state.p_and_id_data
-    preview_tab, ai_tab, data_tab = st.tabs(["P&ID Preview", "AI Suggestions", "Data Tables"])
+# This `elements` frame WRAPS the modal, which fixes the ElementsFrameError
+with elements("ui_elements"):
+    with mui.Modal(
+        "Add a New Component to the Sequence",
+        open=st.session_state.show_modal,
+        onClose=lambda: setattr(st.session_state, 'show_modal', False),
+    ):
+        with mui.Box(sx={"p": 4, "bgcolor": "background.paper"}):
+            ctype = st.selectbox("Component Type", options=sorted(AVAILABLE_COMPONENTS.keys()), key="modal_ctype")
+            tag = st.text_input("Tag / Label (must be unique)", value=f"Comp-{len(st.session_state.components)+1}", key="modal_tag")
+            
+            if st.button("Save Component", key="modal_save"):
+                if tag and not any(c['tag'] == tag for c in st.session_state.components):
+                    st.session_state.components.append({"type": ctype, "tag": tag})
+                    st.session_state.show_modal = False
+                    st.rerun()
+                else:
+                    st.warning("Tag is empty or already exists.")
 
-    with preview_tab:
-        st.subheader("P&ID Live Preview")
-        with st.container(height=600, border=True):
-            dot = generate_graphviz_dot(data_frames)
-            st.graphviz_chart(dot)
-            try:
-                png_data = dot.pipe(format='png')
-                st.download_button("Download as PNG", png_data, "p_and_id.png", "image/png", use_container_width=True)
-            except Exception as e:
-                st.error(f"PNG Export failed: {e}")
+# --- MAIN PAGE DISPLAY ---
+col1, col2 = st.columns([1, 2])
 
-    with ai_tab:
-        st.subheader("🤖 AI Engineer Co-pilot")
-        if st.button("Analyze P&ID"):
-            suggestions = get_ai_suggestions()
-            st.markdown(suggestions)
+with col1:
+    with st.container(border=True):
+        st.subheader("Component Sequence")
+        if st.session_state.components:
+            df = pd.DataFrame(st.session_state.components)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            if st.button("Clear All", use_container_width=True, type="secondary"):
+                st.session_state.components = []
+                st.rerun()
+        else:
+            st.info("No components added yet.")
 
-    with data_tab:
-        st.subheader("P&ID Data from Excel")
-        for name, df in data_frames.items():
-            st.write(f"**Sheet: `{name}`**"); st.dataframe(df)
-else:
-    st.info("Upload an Excel file in the sidebar to begin.")
+with col2:
+    with st.container(border=True):
+        st.subheader("Live P&ID Preview")
+        if st.session_state.components:
+            p_and_id_graph = generate_pnid_graph(st.session_state.components)
+            if p_and_id_graph:
+                st.graphviz_chart(p_and_id_graph)
+                
+                try:
+                    png_data = p_and_id_graph.pipe(format='png')
+                    st.download_button(
+                        label="⬇️ Download P&ID as PNG",
+                        data=png_data,
+                        file_name="generated_pnid.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"Could not render PNG for download. Error: {e}")
+        else:
+            st.info("Your diagram will appear here once you add components.")
