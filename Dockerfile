@@ -1,30 +1,23 @@
-# Use a minimal base image with Python 3.11
+# Use an official Python base image
 FROM python:3.11-slim
 
-# Install OS dependencies required by cairosvg, graphviz, and other libraries
-RUN apt-get update && apt-get install -y \
-    libcairo2 \
-    libpango-1.0-0 \
-    libgdk-pixbuf2.0-0 \
-    libffi-dev \
-    graphviz \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set working directory inside the container
+# Set the working directory in the container
 WORKDIR /app
 
-# Copy Python dependencies file and install them
+# Install system dependencies for Graphviz, DXF, and PDF/PNG generation
+RUN apt-get update && apt-get install -y \
+    graphviz-dev \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the requirements file
 COPY requirements.txt .
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the entire app code
+# Copy the rest of your app's source code
 COPY . .
 
-# Copy symbol images explicitly
-COPY symbols/ symbols/
-
-# Expose default Streamlit port
-EXPOSE 8501
-
 # Command to run your Streamlit app
-CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "app.py", "--server.port", "${PORT}", "--server.address", "0.0.0.0"]
