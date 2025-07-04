@@ -3,222 +3,237 @@ import pandas as pd
 from graphviz import Digraph
 from pathlib import Path
 import os
+from streamlit_elements import elements, mui
 
-# --- CONFIGURATION (USING YOUR EXACT FOLDER NAME) ---
-SYMBOLS_DIR = Path("PN&D-Symbols-library")
-DEFAULT_IMAGE = "General.png"  # Ensure this file exists in your library
+# --- CONFIGURATION ---
+st.set_page_config(layout="wide", page_title="EPS P&ID Generator", page_icon="⚙️")
+SYMBOLS_DIR = Path("symbols") 
 
-# --- YOUR COMPLETE COMPONENT LIBRARY ---
-# This uses your exact filenames. Please ensure they match what's on GitHub.
+# --- COMPLETE COMPONENT LIBRARY (STANDARDIZED) ---
+# All filenames are lowercase, use underscores for spaces, and are .png
 AVAILABLE_COMPONENTS = {
     "50mm Fitting": "50.png",
-    "ACG Filter (Suction)": "ACG filter at suction .PNG",
-    "Air Cooler": "Air_Cooled.png",
-    "Averaging Pitot Tube": "Averaging_Pitot_Tube.png",
-    "Axial Flow Fan": "Axial_flow_fan.png",
-    "Bag Filter/Separator": "Bag.png",
-    "Bin/Silo": "Bin.png",
-    "Briquetting Machine": "Briquetting_Machine.png",
-    "Butterfly Valve": "Butterfly valve.PNG",
-    "Catch Pot (Auto, for Condenser)": "Catch pot with Auto drain for condenser.PNG",
-    "Catch Pot (Auto Drain)": "Catch pot with auto drain.PNG",
-    "Check Valve": "Check valve.PNG",
-    "Column / Tower": "Column.png",
-    "Combustion Chamber": "Combustion.png",
-    "Compressor (Centrifugal Type)": "Compressor_Centrifugal.png",
-    "Compressor Silencer": "Compressor_silencers.png",
-    "Cone Crusher": "Cone_Crusher.png",
-    "Control Panel": "Control panel.PNG",
-    "Control Valve": "Control valve.PNG",
-    "Conveyor": "Conveyor.png",
-    "Cooler": "Cooler.png",
-    "Crane/Hoist": "Crane.png",
-    "Diaphragm Meter": "Diaphragm_D_Meter.png",
-    "Discharge Condenser": "Discharge condenser.jpg",
-    "Discharge Silencer": "Discharge silencer.PNG",
-    "Double Pipe Heat Exchanger": "Double_Pipe_Heat.png",
-    "Dry Pump Model": "Dry pump model.PNG",
-    "Dryer": "Dryer.png",
-    "EPO Valve": "EPO valve.PNG",
-    "Ejector": "Ejector.png",
-    "FLP Control Panel": "FLP control panel.PNG",
-    "Fan": "Fan.png",
-    "Feeder": "Feeder.png",
-    "Filter": "Filter.png",
-    "Fin-Fan Cooler": "Fin-fan_Cooler.png",
-    "Finned Tube Exchanger": "Finned_Tubes.png",
-    "Flame Arrestor (Discharge)": "Flame arrestor at discharge.PNG",
-    "Flame Arrestor (Suction)": "Flame arrestor at suction.PNG",
-    "Flexible Connection (Discharge)": "Flexible connection at discharge.PNG",
-    "Flexible Connection (Suction)": "Flexible connection at suction.PNG",
-    "Floating Head Exchanger": "Floating_Head.png",
-    "Flow Switch (Cooling Water)": "Flow switch for cooling water line.PNG",
-    "Flowmeter": "Flowmeter.png",
-    "Gate Valve": "Gate valve.PNG",
-    "General Connection": "General.png",
-    "Globe Valve": "Globe valve.PNG",
-    "Hammer Crusher": "Hammer_Crusher.png",
-    "Heater": "Heater.png",
-    "Hose": "Hose.png",
-    "Impact Crusher": "Impact_Crusher.png",
-    "Kettle Heat Exchanger": "Kettle_Heat.png",
-    "Level Switch (Purge Tank)": "Level switch for liquid purge tank.PNG",
-    "Lift": "Lift.png",
-    "Liquid Flushing Assembly": "Liquid flushing assembly.PNG",
-    "Liquid Ring Pump": "Liquid_ring.png",
-    "Mixer": "Mixer.png",
-    "Motor": "Motor.PNG",
-    "N2 Purge Assembly": "N2 Purge assembly.PNG",
-    "Needle Valve": "Needel_Valve.png",
-    "One-to-Many Splitter": "One-to-Many.png",
-    "Open Tank": "Open_tank.png",
-    "Overhead Conveyor": "Overhead.png",
-    "Panel": "Panel.png",
-    "Peristaltic Pump": "Peristaltic_pump.png",
-    "Plate Heat Exchanger": "Plate_Heat.png",
-    "Pressure Switch (N2 Purge)": "Pressure switch at nitrogen purge line.PNG",
-    "Pressure Transmitter (Discharge)": "Pressure transmitter at discharge.PNG",
-    "Pressure Transmitter (Suction)": "Pressure transmitter at suction.PNG",
-    "Pressure Gauge": "Pressure_Gauges.png",
-    "Reboiler Heat Exchanger": "Reboiler_Heat.png",
-    "Reciprocating Compressor": "Reciprocating_Compressor_2.png",
-    "Reciprocating Pump": "Reciprocating_pump.png",
-    "Roller Conveyor": "Roller_Conveyor.png",
-    "Roller Crusher": "Roller_Crusher.png",
-    "Roller Press": "Roller_Press.png",
-    "Rotary Equipment": "Rotary.png",
-    "Rotary Meter": "Rotary_Meter_R.png",
-    "Rotometer": "Rotometer.png",
-    "Scraper": "Scraper.png",
-    "Screening Machine": "Screening.png",
-    "Screw Conveyor": "Screw_Conveyor.png",
-    "Screw Pump": "Screw_pump.png",
-    "Scrubber": "Scrubber.PNG",
-    "Section Filter": "Section filter.PNG",
-    "Selectable Compressor": "Selectable_Compressor.png",
-    "Shell and Tube Exchanger": "Shell_and_Tube.png",
-    "Silencer": "Silencer.png",
-    "Single Pass Heat Exchanger": "Single_Pass_Heat.png",
-    "Solenoid Valve": "Solenoid valve.PNG",
-    "Spray Nozzle": "Spray.png",
-    "Steam Traced Line": "Steam_Traced.png",
-    "Strainer (Cooling Water)": "Strainer for cooling water line.PNG",
-    "Submersible Pump": "Submersible_pump.png",
-    "Suction Filter": "Suction filter.PNG",
-    "T-Junction": "T.png",
-    "TCV (Thermostatic Valve)": "TCV.PNG",
-    "TEMA Type AEL Exchanger": "TEMA_TYPE_AEL.png",
-    "TEMA Type AEM Exchanger": "TEMA_TYPE_AEM.png",
-    "TEMA Type BEU Exchanger": "TEMA_TYPE_BEU.png",
-    "TEMA Type NEN Exchanger": "TEMA_TYPE_NEN.png",
-    "Temperature Gauge (Discharge)": "Temperature gauge at discharge.PNG",
-    "Temperature Gauge (Suction)": "Temperature gauge at suction .PNG",
-    "Temperature Transmitter (Discharge)": "Temperature transmitter at discharge.jpg",
-    "Temperature Transmitter (Suction)": "Temperature transmitter at suction.PNG",
-    "Thermometer": "Thermometers.png",
-    "Thin-Film Dryer": "Thin-Film.png",
-    "Traced Line": "Traced_Line.png",
-    "U-Tube Heat Exchanger": "U-tube_Heat.png",
-    "VFD Panel": "VFD.jpg",
-    "Valves (General Symbol)": "Valves.png",
-    "Vertical Pump": "Vertical_pump.png",
-    "Vertical Vessel": "Vertical vessel.jpg",
-    "Y-Strainer": "Y-strainer.png"
+    "ACG Filter (Suction)": "acg_filter_at_suction.png",
+    "Air Cooler": "air_cooled.png",
+    "Averaging Pitot Tube": "averaging_pitot_tube.png",
+    "Axial Flow Fan": "axial_flow_fan.png",
+    "Bag Filter/Separator": "bag.png",
+    "Base Plate": "base_plate.png",
+    "Bin/Silo": "bin.png",
+    "Briquetting Machine": "briquetting_machine.png",
+    "Butterfly Valve": "butterfly_valve.png",
+    "Catch Pot (Auto, for Condenser)": "catch_pot_with_auto_drain_for_condenser.png",
+    "Catch Pot (Auto Drain)": "catch_pot_with_auto_drain.png",
+    "Check Valve": "check_valve.png",
+    "Column / Tower": "column.png",
+    "Combustion Chamber": "combustion.png",
+    "Compressor (Centrifugal Type)": "compressor_centrifugal.png",
+    "Compressor Silencer": "compressor_silencers.png",
+    "Cone Crusher": "cone_crusher.png",
+    "Control Panel": "control_panel.png",
+    "Control Valve": "control_valve.png",
+    "Conveyor": "conveyor.png",
+    "Cooler": "cooler.png",
+    "Crane/Hoist": "crane.png",
+    "Diaphragm Meter": "diaphragm_d_meter.png",
+    "Discharge Condenser": "discharge_condenser.png",
+    "Discharge Silencer": "discharge_silencer.png",
+    "Double Pipe Heat Exchanger": "double_pipe_heat.png",
+    "Dry Pump Model": "dry_pump_model.png",
+    "Dryer": "dryer.png",
+    "EPO Valve": "epo_valve.png",
+    "Ejector": "ejector.png",
+    "FLP Control Panel": "flp_control_panel.png",
+    "Fan": "fan.png",
+    "Feeder": "feeder.png",
+    "Filter": "filter.png",
+    "Fin-Fan Cooler": "fin-fan_cooler.png",
+    "Finned Tube Exchanger": "finned_tubes.png",
+    "Flame Arrestor (Discharge)": "flame_arrestor_at_discharge.png",
+    "Flame Arrestor (Suction)": "flame_arrestor_at_suction.png",
+    "Flexible Connection (Discharge)": "flexible_connection_at_discharge.png",
+    "Flexible Connection (Suction)": "flexible_connection_at_suction.png",
+    "Floating Head Exchanger": "floating_head.png",
+    "Flow Switch (Cooling Water)": "flow_switch_for_cooling_water_line.png",
+    "Flowmeter": "flowmeter.png",
+    "Gate Valve": "gate_valve.png",
+    "General Connection": "general.png",
+    "Globe Valve": "globe_valve.png",
+    "Hammer Crusher": "hammer_crusher.png",
+    "Heater": "heater.png",
+    "Hose": "hose.png",
+    "Impact Crusher": "impact_crusher.png",
+    "Kettle Heat Exchanger": "kettle_heat.png",
+    "Level Switch (Purge Tank)": "level_switch_for_liquid_purge_tank.png",
+    "Lift": "lift.png",
+    "Liquid Flushing Assembly": "liquid_flushing_assembly.png",
+    "Liquid Ring Pump": "liquid_ring.png",
+    "Mixer": "mixer.png",
+    "Motor": "motor.png",
+    "N2 Purge Assembly": "n2_purge_assembly.png",
+    "Needle Valve": "needel_valve.png",
+    "One-to-Many Splitter": "one-to-many.png",
+    "Open Tank": "open_tank.png",
+    "Overhead Conveyor": "overhead.png",
+    "Panel": "panel.png",
+    "Peristaltic Pump": "peristaltic_pump.png",
+    "Plate Heat Exchanger": "plate_heat.png",
+    "Pressure Switch (N2 Purge)": "pressure_switch_at_nitrogen_purge_line.png",
+    "Pressure Transmitter (Discharge)": "pressure_transmitter_at_discharge.png",
+    "Pressure Transmitter (Suction)": "pressure_transmitter_at_suction.png",
+    "Pressure Gauge": "pressure_gauges.png",
+    "Reboiler Heat Exchanger": "reboiler_heat.png",
+    "Reciprocating Compressor": "reciprocating_compressor_2.png",
+    "Reciprocating Pump": "reciprocating_pump.png",
+    "Roller Conveyor": "roller_conveyor.png",
+    "Roller Crusher": "roller_crusher.png",
+    "Roller Press": "roller_press.png",
+    "Rotary Equipment": "rotary.png",
+    "Rotary Meter": "rotary_meter_r.png",
+    "Rotometer": "rotometer.png",
+    "Scraper": "scraper.png",
+    "Screening Machine": "screening.png",
+    "Screw Conveyor": "screw_conveyor.png",
+    "Screw Pump": "screw_pump.png",
+    "Scrubber": "scrubber.png",
+    "Section Filter": "section_filter.png",
+    "Selectable Compressor": "selectable_compressor.png",
+    "Shell and Tube Exchanger": "shell_and_tube.png",
+    "Silencer": "silencer.png",
+    "Single Pass Heat Exchanger": "single_pass_heat.png",
+    "Solenoid Valve": "solenoid_valve.png",
+    "Spray Nozzle": "spray.png",
+    "Steam Traced Line": "steam_traced.png",
+    "Strainer (Cooling Water)": "strainer_for_cooling_water_line.png",
+    "Submersible Pump": "submersible_pump.png",
+    "Suction Filter": "suction_filter.png",
+    "T-Junction": "t.png",
+    "TCV (Thermostatic Valve)": "tcv.png",
+    "TEMA Type AEL Exchanger": "tema_type_ael.png",
+    "TEMA Type AEM Exchanger": "tema_type_aem.png",
+    "TEMA Type BEU Exchanger": "tema_type_beu.png",
+    "TEMA Type NEN Exchanger": "tema_type_nen.png",
+    "Temperature Gauge (Discharge)": "temperature_gauge_at_discharge.png",
+    "Temperature Gauge (Suction)": "temperature_gauge_at_suction.png",
+    "Temperature Transmitter (Discharge)": "temperature_transmitter_at_discharge.png",
+    "Temperature Transmitter (Suction)": "temperature_transmitter_at_suction.png",
+    "Thermometer": "thermometers.png",
+    "Thin-Film Dryer": "thin-film.png",
+    "Traced Line": "traced_line.png",
+    "U-Tube Heat Exchanger": "u-tube_heat.png",
+    "VFD Panel": "vfd_panel.png",
+    "Valves (General Symbol)": "valves.png",
+    "Vertical Pump": "vertical_pump.png",
+    "Vertical Vessel": "vertical_vessel.png",
+    "Y-Strainer": "y-strainer.png"
 }
 
-# --- APP LAYOUT AND LOGIC ---
-st.set_page_config(layout="wide", page_title="EPS P&ID Generator", page_icon="⚙️")
-
-# Initialize session state
-if 'component_list' not in st.session_state:
-    st.session_state.component_list = []
+# --- INITIALIZE SESSION STATE ---
+if 'components' not in st.session_state:
+    st.session_state.components = []
+if "show_modal" not in st.session_state:
+    st.session_state.show_modal = False
 if 'generated_dot' not in st.session_state:
     st.session_state.generated_dot = None
 
-st.title("EPS Interactive P&ID Generator")
-st.markdown("Build your process flow diagram by adding components in sequence, then generate the P&ID.")
-
-# --- Step 1: Component Input Panel ---
-with st.container(border=True):
-    st.subheader("⚙️ Step 1: Build Your Process Flow")
-    col1, col2 = st.columns([1, 1.5]) # Give more space to the list
-
-    with col1:
-        st.caption("Select a component, give it a unique tag, and add it to the sequence.")
-        with st.form("component_form", clear_on_submit=True):
-            comp_type = st.selectbox("Component Type", options=sorted(AVAILABLE_COMPONENTS.keys()))
-            comp_tag = st.text_input("Component Tag (UNIQUE)", value=f"Comp-{len(st.session_state.component_list) + 1}")
-            
-            if st.form_submit_button("Add Component", use_container_width=True):
-                if any(c['Tag'] == comp_tag for c in st.session_state.component_list):
-                    st.error(f"Tag '{comp_tag}' already exists!")
-                else:
-                    st.session_state.component_list.append({
-                        "Tag": comp_tag,
-                        "Type": comp_type,
-                        "Image": AVAILABLE_COMPONENTS[comp_type]
-                    })
-                    st.session_state.generated_dot = None # Clear old diagram on change
+# --- P&ID GENERATION FUNCTION ---
+def generate_pnid_graph(component_list):
+    """Generates a Graphviz object from a list of components."""
+    if not component_list:
+        return None
+        
+    dot = Digraph('P&ID')
+    dot.attr(rankdir='LR', ranksep='0.75', nodesep='0.5')
+    dot.attr('node', shape='none', imagepos='tc', labelloc='b', fontsize='10')
     
-    with col2:
-        st.write("##### Current Sequence")
-        if st.session_state.component_list:
-            df_display = pd.DataFrame(st.session_state.component_list)
-            st.dataframe(df_display[['Tag', 'Type']], use_container_width=True, hide_index=True)
-            if st.button("Clear All Components", use_container_width=True):
-                st.session_state.component_list = []
+    dot.node("INLET", "INLET", shape='point', width='0.1')
+    last_node = "INLET"
+    
+    for i, component in enumerate(component_list):
+        tag = component['Tag']
+        img_path = str(SYMBOLS_DIR / component['Image'])
+
+        if os.path.exists(img_path):
+            dot.node(tag, label=tag, image=img_path)
+        else:
+            # Fallback for missing images
+            st.warning(f"Image not found: '{img_path}'. Using placeholder.")
+            dot.node(tag, label=f"{tag}\n(img missing)", shape='box', style='dashed')
+        
+        dot.edge(last_node, tag)
+        last_node = tag
+        
+    dot.node("OUTLET", "OUTLET", shape='point', width='0.1')
+    dot.edge(last_node, "OUTLET")
+    return dot
+
+# --- SIDEBAR & MODAL FOR ADDING COMPONENTS ---
+with st.sidebar:
+    st.subheader("P&ID Builder")
+    if st.button("➕ Add New Component", use_container_width=True):
+        st.session_state.show_modal = True
+
+with mui.Modal(
+    "Add a New Component to the Sequence",
+    open=st.session_state.show_modal,
+    onClose=lambda: setattr(st.session_state, 'show_modal', False),
+):
+    with elements(f"add_component_modal_{len(st.session_state.components)}"):
+        with mui.Box(sx={"p": 2}):
+            ctype = st.selectbox("Component Type", options=sorted(AVAILABLE_COMPONENTS.keys()), key="ctype_modal")
+            tag = st.text_input("Component Tag / Label (must be unique)", value=f"Comp-{len(st.session_state.components) + 1}", key="tag_modal")
+            
+            if st.button("Save Component", key="save_modal"):
+                if any(c['Tag'] == tag for c in st.session_state.components):
+                    st.error(f"Tag '{tag}' already exists!")
+                else:
+                    st.session_state.components.append({
+                        "Tag": tag,
+                        "Type": ctype,
+                        "Image": AVAILABLE_COMPONENTS[ctype]
+                    })
+                    st.session_state.show_modal = False
+                    st.rerun()
+
+# --- MAIN PAGE LAYOUT ---
+st.title("EPS Interactive P&ID Generator")
+st.markdown("Use the sidebar to add components, then view the live preview and download the final diagram.")
+
+col1, col2 = st.columns([1, 1.5])
+
+with col1:
+    with st.container(border=True):
+        st.subheader("Component Sequence")
+        if st.session_state.components:
+            df = pd.DataFrame(st.session_state.components)
+            st.dataframe(df[['Tag', 'Type']], use_container_width=True, hide_index=True)
+            if st.button("Clear All", use_container_width=True, type="secondary"):
+                st.session_state.components = []
                 st.session_state.generated_dot = None
                 st.rerun()
         else:
-            st.info("No components added yet. Add a component to begin. ⬅️")
+            st.info("No components added. Click 'Add New Component' in the sidebar to start.")
 
-# --- Step 2: Generation Panel ---
-with st.container(border=True):
-    st.subheader("✨ Step 2: Generate and Download")
-    if not st.session_state.component_list:
-        st.warning("Please add at least one component in Step 1 to generate a P&ID.")
-    else:
-        if st.button("Generate P&ID", type="primary", use_container_width=True):
-            with st.spinner("Generating diagram..."):
-                dot = Digraph('P&ID')
-                dot.attr(rankdir='LR', ranksep='0.75', nodesep='0.5')
-                dot.attr('node', shape='none', imagepos='tc', labelloc='b', fontsize='10')
-                
-                dot.node("INLET", "INLET", shape='point', width='0.1')
-                dot.node("OUTLET", "OUTLET", shape='point', width='0.1')
-                
-                last_node = "INLET"
-                
-                for component in st.session_state.component_list:
-                    tag = component['Tag']
-                    img_path_str = str(SYMBOLS_DIR / component['Image'])
-
-                    if os.path.exists(img_path_str):
-                        dot.node(tag, label=tag, image=img_path_str)
-                    else:
-                        st.warning(f"Image not found: '{img_path_str}'. Using placeholder.")
-                        dot.node(tag, label=f"{tag}\n(img missing)", shape='box', style='dashed')
-                    
-                    dot.edge(last_node, tag)
-                    last_node = tag
-                
-                dot.edge(last_node, "OUTLET")
-                st.session_state.generated_dot = dot
-
-# --- Display Panel ---
-if st.session_state.generated_dot:
+with col2:
     with st.container(border=True):
-        st.subheader("🖼️ Generated Diagram")
-        st.graphviz_chart(st.session_state.generated_dot)
-        
-        try:
-            png_data = st.session_state.generated_dot.pipe(format='png')
-            st.download_button(
-                "Download as PNG",
-                data=png_data,
-                file_name="generated_pnid.png",
-                mime="image/png",
-                use_container_width=True
-            )
-        except Exception as e:
-            st.error(f"Could not render PNG. This can happen if an image format (like .jpg) is not supported by the Graphviz engine. Error: {e}")
+        st.subheader("Live P&ID Preview")
+        if st.session_state.components:
+            # Generate the graph immediately for live preview
+            p_and_id_graph = generate_pnid_graph(st.session_state.components)
+            if p_and_id_graph:
+                st.graphviz_chart(p_and_id_graph)
+                
+                # --- Download Button Logic ---
+                try:
+                    png_data = p_and_id_graph.pipe(format='png')
+                    st.download_button(
+                        label="⬇️ Download P&ID as PNG",
+                        data=png_data,
+                        file_name="generated_pnid.png",
+                        mime="image/png",
+                        use_container_width=True
+                    )
+                except Exception as e:
+                    st.error(f"Could not render PNG. This can happen if an image format (like .jpg) is not supported by the Graphviz engine. Error: {e}")
+        else:
+            st.info("Your diagram will appear here once you add components.")
