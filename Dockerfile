@@ -1,23 +1,22 @@
-# Use official Python image
+# Use the official Python image
 FROM python:3.10-slim
 
-# Set environment vars
+# Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV OPENAI_API_KEY=sk-xxx # Replace with your key directly or manage via Railway
 
-# Set work directory
+# Set working directory
 WORKDIR /app
 
 # Install dependencies
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+COPY requirements.txt /app/
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app files
-COPY . .
+# Copy app source code
+COPY . /app/
 
-# Expose Streamlit default port
+# Expose port for Streamlit
 EXPOSE 8080
 
-# Start Streamlit
+# Run the Streamlit app
 CMD ["streamlit", "run", "app.py", "--server.port=8080", "--server.address=0.0.0.0"]
