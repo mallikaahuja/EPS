@@ -3,11 +3,11 @@ FROM python:3.11-slim
 
 # Install OS dependencies required by cairosvg, graphviz, and other libraries
 RUN apt-get update && apt-get install -y \
-    libgtk2.0-0 \
-    libpangocairo-1.0-0 \
+    libcairo2 \
+    libpango-1.0-0 \
     libgdk-pixbuf2.0-0 \
     libffi-dev \
-    graphviz \                  # ✅ This line installs the missing Graphviz executables
+    graphviz \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory inside the container
