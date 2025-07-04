@@ -4,4 +4,3 @@ pandas==2.1.0
 python-dotenv==1.0.0
 pygraphviz==1.11
 Pillow==10.1.0
-ezdxf==1.1.0
