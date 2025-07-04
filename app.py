@@ -4,165 +4,123 @@ from graphviz import Digraph
 from pathlib import Path
 import os
 import openai
+from PIL import Image, ImageDraw, ImageFont
 
 # --- CONFIGURATION ---
 st.set_page_config(layout="wide", page_title="Intelligent P&ID Generator", page_icon="🧠")
-SYMBOLS_DIR = Path("symbols") 
+SYMBOLS_DIR = Path("symbols")
+TEMP_DIR = Path("temp_placeholders")
+TEMP_DIR.mkdir(exist_ok=True)
 
-# This uses your standardized filenames.
+# --- COMPONENT LIBRARY ---
+# This dictionary MUST match the standardized filenames in your "symbols" folder.
 AVAILABLE_COMPONENTS = {
-    # Major Equipment
+    # This should be your full, standardized list
     "Vertical Vessel": "vertical_vessel.png",
-    "Dry Pump Model": "dry_pump_model.png",
-    "Discharge Condenser": "discharge_condenser.png",
-    "Scrubber": "scrubber.png",
-    # In-Line Components
     "Butterfly Valve": "butterfly_valve.png",
     "Gate Valve": "gate_valve.png",
-    "Check Valve": "check_valve.png",
-    "Globe Valve": "globe_valve.png",
-    "Flexible Connection": "flexible_connection_suction.png",
-    "Pressure Transmitter": "pressure_transmitter_suction.png",
-    "Temperature Gauge": "temperature_gauge_suction.png",
-    "Strainer": "y-strainer.png"
+    # etc...
 }
 EQUIPMENT_TYPES = sorted(["Vertical Vessel", "Dry Pump Model", "Discharge Condenser", "Scrubber"])
 INLINE_TYPES = sorted([comp for comp in AVAILABLE_COMPONENTS if comp not in EQUIPMENT_TYPES])
 
-# --- INITIALIZE SESSION STATE ---
-if 'equipment' not in st.session_state:
-    st.session_state.equipment = []
-if 'pipelines' not in st.session_state:
-    st.session_state.pipelines = []
-if 'inline_components' not in st.session_state:
-    st.session_state.inline_components = []
 
-# --- AI SUGGESTION FUNCTION ---
+# --- HELPER FUNCTIONS ---
+def create_placeholder_image(text, path):
+    try:
+        img = Image.new('RGB', (100, 75), color=(240, 240, 240))
+        d = ImageDraw.Draw(img)
+        font = ImageFont.load_default()
+        d.rectangle([0,0,99,74], outline="black")
+        d.text((10,30), f"MISSING:\n{text}", fill=(0,0,0), font=font)
+        img.save(path)
+        return str(path)
+    except Exception:
+        return None
+
 def get_ai_suggestions():
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         return "⚠️ AI suggestions disabled. `OPENAI_API_KEY` not found in Railway variables."
-
     client = openai.OpenAI(api_key=api_key)
-    
-    description = "Review this P&ID data:\n"
-    description += "Equipment: " + ", ".join([f"{e['tag']} ({e['type']})" for e in st.session_state.equipment]) + "\n"
-    description += "Pipelines: " + ", ".join([f"{p['tag']} (from {p['from']} to {p['to']})" for p in st.session_state.pipelines]) + "\n"
-    description += "Inline Items: " + ", ".join([f"{c['tag']} ({c['type']}) on {c['pipe_tag']}" for c in st.session_state.inline_components]) + "\n"
-    
-    prompt = f"You are an expert process engineer. Based on the following P&ID data, provide 3 concise, actionable recommendations for improving safety or operability. Focus on missing items like isolation valves, check valves, or basic instrumentation.\n\nP&ID DATA:\n{description}"
-    
+    description = "Review P&ID data: " + str(st.session_state.get('p_and_id_data', {}))
+    prompt = f"You are a senior process engineer. Review this P&ID data and provide 3 concise, actionable recommendations for improving safety or operability. Focus on missing items like isolation valves or basic instrumentation.\n\nP&ID DATA:\n{description}"
     try:
-        with st.spinner("🤖 AI Engineer is analyzing the P&ID..."):
+        with st.spinner("🤖 AI Engineer is analyzing..."):
             response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}], temperature=0.5, max_tokens=200)
         return response.choices[0].message.content
     except Exception as e:
         return f"Could not get AI suggestions. Error: {e}"
 
-# --- DRAWING FUNCTION ---
-def generate_p_and_id():
+def generate_graphviz_dot(dfs):
     dot = Digraph('P&ID')
-    dot.attr(rankdir='LR', splines='ortho', nodesep='0.5', ranksep='1.5')
-    dot.attr('node', shape='box', style='rounded')
+    dot.attr(rankdir='LR', splines='ortho', nodesep='0.5', ranksep='1.2', label='P&ID Live Preview', labelloc='t', fontsize='16')
+    equipment_df = dfs.get('Equipment', pd.DataFrame())
+    piping_df = dfs.get('Piping', pd.DataFrame())
+    inline_df = dfs.get('In-Line_Components', pd.DataFrame())
+    if equipment_df.empty: return dot
 
-    # Group equipment in a subgraph
     with dot.subgraph(name='cluster_main_process') as c:
-        c.attr(label='Main Process Area', style='filled', color='lightgrey')
-        for item in st.session_state.equipment:
-            img_path = str(SYMBOLS_DIR / AVAILABLE_COMPONENTS.get(item['type'], "general.png"))
-            if os.path.exists(img_path):
-                c.node(item['tag'], label=item['tag'], image=img_path, shape='none')
-            else:
-                c.node(item['tag'], f"{item['tag']}\n({item['type']})")
+        c.attr(label='Main Process Flow', style='dashed')
+        for _, equip in equipment_df.iterrows():
+            tag = equip['Tag']; img_filename = equip['Symbol_Image']; img_path = SYMBOLS_DIR / img_filename
+            if not img_path.exists():
+                img_path = create_placeholder_image(equip['Type'], TEMP_DIR / img_filename)
+            c.node(tag, label=tag, image=str(img_path), shape='none', imagepos='tc', labelloc='b')
 
-    # Connect pipelines and insert inline components
-    for pipe in st.session_state.pipelines:
-        components_on_this_pipe = [c for c in st.session_state.inline_components if c['pipe_tag'] == pipe['tag']]
-        
-        last_node_in_chain = pipe['from']
-        
-        for comp in components_on_this_pipe:
-            comp_node_name = f"{comp['tag']}_{pipe['tag']}"
-            img_path = str(SYMBOLS_DIR / AVAILABLE_COMPONENTS.get(comp['type'], "general.png"))
-            if os.path.exists(img_path):
-                dot.node(comp_node_name, label=comp['tag'], image=img_path, shape='none')
-            else:
-                dot.node(comp_node_name, f"{comp['tag']}\n({comp['type']})")
-            
-            dot.edge(last_node_in_chain, comp_node_name, label=pipe['tag'])
-            last_node_in_chain = comp_node_name
-            
-        dot.edge(last_node_in_chain, pipe['to'])
-
+    for _, pipe in piping_df.iterrows():
+        components_on_pipe = inline_df[inline_df['On_PipeTag'] == pipe['PipeTag']]
+        last_node = pipe['From_Tag']
+        for _, comp in components_on_pipe.iterrows():
+            comp_name = f"{comp['Component_Tag']}_{pipe['PipeTag']}"
+            img_filename = comp['Symbol_Image']; img_path = SYMBOLS_DIR / img_filename
+            if not img_path.exists():
+                img_path = create_placeholder_image(comp['Description'], TEMP_DIR / img_filename)
+            dot.node(comp_name, label=comp['Component_Tag'], image=str(img_path), shape='none', imagepos='tc', labelloc='b')
+            dot.edge(last_node, comp_name, label=pipe['PipeTag'])
+            last_node = comp_name
+        dot.edge(last_node, pipe['To_Tag'])
     return dot
 
-# --- UI LAYOUT ---
+# --- UI ---
 st.title("🧠 Intelligent P&ID Generator")
 
 with st.sidebar:
-    st.subheader("P&ID Builder")
-    with st.expander("1. Add Major Equipment", expanded=True):
-        with st.form("add_equipment", clear_on_submit=True):
-            eq_type = st.selectbox("Equipment Type", EQUIPMENT_TYPES)
-            eq_tag = st.text_input("Equipment Tag (e.g., P-101)")
-            if st.form_submit_button("Add Equipment", use_container_width=True):
-                if eq_tag and not any(e['tag'] == eq_tag for e in st.session_state.equipment):
-                    st.session_state.equipment.append({'tag': eq_tag, 'type': eq_type})
-                else:
-                    st.warning("Tag is empty or already exists.")
+    st.header("1. Load P&ID Data")
+    uploaded_file = st.file_uploader("Upload your standardized P&ID Excel file.", type=["xlsx"])
+    if uploaded_file:
+        if 'p_and_id_data' not in st.session_state or st.session_state.get('file_name') != uploaded_file.name:
+            try:
+                st.session_state.p_and_id_data = pd.read_excel(uploaded_file, sheet_name=None)
+                st.session_state.file_name = uploaded_file.name
+                st.success(f"Loaded `{uploaded_file.name}` successfully!")
+            except Exception as e:
+                st.error(f"Failed to read Excel file: {e}")
 
-    equipment_tags = [e['tag'] for e in st.session_state.equipment]
-    if len(equipment_tags) >= 2:
-        with st.expander("2. Define Pipelines"):
-            with st.form("add_pipeline", clear_on_submit=True):
-                pipe_tag = st.text_input("Pipeline Tag (e.g., 100-B-1)")
-                pipe_from = st.selectbox("From Equipment", equipment_tags)
-                pipe_to = st.selectbox("To Equipment", equipment_tags)
-                if st.form_submit_button("Add Pipeline", use_container_width=True):
-                    if pipe_tag and pipe_from != pipe_to:
-                        st.session_state.pipelines.append({'tag': pipe_tag, 'from': pipe_from, 'to': pipe_to})
-                    else:
-                        st.warning("Tag is empty or 'From' and 'To' are the same.")
+if 'p_and_id_data' in st.session_state:
+    data_frames = st.session_state.p_and_id_data
+    preview_tab, ai_tab, data_tab = st.tabs(["P&ID Preview", "AI Suggestions", "Data Tables"])
 
-    pipeline_tags = [p['tag'] for p in st.session_state.pipelines]
-    if pipeline_tags:
-        with st.expander("3. Add In-Line Components"):
-            with st.form("add_inline", clear_on_submit=True):
-                inline_type = st.selectbox("Component Type", INLINE_TYPES)
-                inline_pipe = st.selectbox("On Pipeline", pipeline_tags)
-                inline_tag = st.text_input("Component Tag (e.g., HV-101)")
-                if st.form_submit_button("Add In-Line Component", use_container_width=True):
-                    if inline_tag:
-                         st.session_state.inline_components.append({'tag': inline_tag, 'type': inline_type, 'pipe_tag': inline_pipe})
-                    else:
-                        st.warning("Please provide a tag for the component.")
+    with preview_tab:
+        st.subheader("P&ID Live Preview")
+        with st.container(height=600, border=True):
+            dot = generate_graphviz_dot(data_frames)
+            st.graphviz_chart(dot)
+            try:
+                png_data = dot.pipe(format='png')
+                st.download_button("Download as PNG", png_data, "p_and_id.png", "image/png", use_container_width=True)
+            except Exception as e:
+                st.error(f"PNG Export failed: {e}")
 
-# Main display area
-st.subheader("Current P&ID Data")
-col1, col2, col3 = st.columns(3)
-with col1:
-    with st.container(border=True):
-        st.write("**Equipment**")
-        st.dataframe(pd.DataFrame(st.session_state.equipment), use_container_width=True, hide_index=True)
-with col2:
-    with st.container(border=True):
-        st.write("**Pipelines**")
-        st.dataframe(pd.DataFrame(st.session_state.pipelines), use_container_width=True, hide_index=True)
-with col3:
-    with st.container(border=True):
-        st.write("**In-Line Components**")
-        st.dataframe(pd.DataFrame(st.session_state.inline_components), use_container_width=True, hide_index=True)
-
-st.markdown("---")
-st.subheader("Generated P&ID Preview")
-if st.session_state.equipment:
-    final_dot = generate_p_and_id()
-    st.graphviz_chart(final_dot)
-    
-    with st.container(border=True):
-        st.subheader("🤖 AI Engineer Suggestions")
-        if st.button("Get Suggestions"):
+    with ai_tab:
+        st.subheader("🤖 AI Engineer Co-pilot")
+        if st.button("Analyze P&ID"):
             suggestions = get_ai_suggestions()
-            st.info(suggestions)
+            st.markdown(suggestions)
+
+    with data_tab:
+        st.subheader("P&ID Data from Excel")
+        for name, df in data_frames.items():
+            st.write(f"**Sheet: `{name}`**"); st.dataframe(df)
 else:
-    st.info("Add equipment in the sidebar to begin building your P&ID.")
+    st.info("Upload an Excel file in the sidebar to begin.")
