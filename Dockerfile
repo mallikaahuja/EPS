@@ -1,29 +1,23 @@
-# Use the official Streamlit image as the base
-FROM python:3.11-slim
+# Use official Python image
+FROM python:3.10-slim
 
-# Set environment variables
+# Set environment vars
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV OPENAI_API_KEY=sk-xxx # Replace with your key directly or manage via Railway
 
-# Set working directory
+# Set work directory
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    libgl1-mesa-glx \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy requirements and install Python packages
+# Install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# Copy all files to working directory
+# Copy app files
 COPY . .
 
-# Streamlit-specific port binding for Railway
-EXPOSE 8501
+# Expose Streamlit default port
+EXPOSE 8080
 
-# Run the app
-CMD ["streamlit", "run", "app.py", "--server.port=$PORT", "--server.enableCORS=false"]
+# Start Streamlit
+CMD ["streamlit", "run", "app.py", "--server.port=8080", "--server.address=0.0.0.0"]
