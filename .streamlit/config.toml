@@ -1,4 +1,6 @@
 [server]
-maxUploadSize = 1000
-enableCORS = false
-enableXsrfProtection = false
+headless = true
+[theme]
+primaryColor = "#2563eb"
+backgroundColor = "#f5f7fa"
+font = "sans serif"
