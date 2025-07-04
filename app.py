@@ -3,18 +3,18 @@ import pandas as pd
 from graphviz import Digraph
 from pathlib import Path
 import os
-from streamlit_elements import elements, mui, dashboard
-import ezdxf
-from ezdxf.addons.drawing import Frontend, RenderContext, svg
 import tempfile
+import ezdxf
+from ezdxf.addons.drawing import RenderContext, Frontend
+from ezdxf.addons.drawing.backends import svg
 import cairosvg
-import io
+from streamlit_elements import elements, mui, dashboard
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="EPS P&ID Generator", page_icon="⚙️")
+st.set_page_config(layout="wide", page_title="EPS Interactive P&ID Generator", page_icon="⚙️")
 SYMBOLS_DIR = Path("symbols")
 
-# --- COMPONENTS ---
+# --- COMPLETE COMPONENT LIBRARY ---
 AVAILABLE_COMPONENTS = {
     "50mm Fitting": "50.png",
     "ACG Filter (Suction)": "acg_filter_at_suction.png",
@@ -51,7 +51,7 @@ AVAILABLE_COMPONENTS = {
     "Fan": "fan.png",
     "Feeder": "feeder.png",
     "Filter": "filter.png",
-    "Fin-Fan Cooler": "fin-fan_cooler.png",
+    "Fin-Fan Cooler": "fin_fan_cooler.png",
     "Finned Tube Exchanger": "finned_tubes.png",
     "Flame Arrestor (Discharge)": "flame_arrestor_at_discharge.png",
     "Flame Arrestor (Suction)": "flame_arrestor_at_suction.png",
@@ -76,7 +76,7 @@ AVAILABLE_COMPONENTS = {
     "Motor": "motor.png",
     "N2 Purge Assembly": "n2_purge_assembly.png",
     "Needle Valve": "needel_valve.png",
-    "One-to-Many Splitter": "one-to-many.png",
+    "One-to-Many Splitter": "one_to_many.png",
     "Open Tank": "open_tank.png",
     "Overhead Conveyor": "overhead.png",
     "Panel": "panel.png",
@@ -122,23 +122,23 @@ AVAILABLE_COMPONENTS = {
     "Temperature Transmitter (Discharge)": "temperature_transmitter_at_discharge.png",
     "Temperature Transmitter (Suction)": "temperature_transmitter_at_suction.png",
     "Thermometer": "thermometers.png",
-    "Thin-Film Dryer": "thin-film.png",
+    "Thin-Film Dryer": "thin_film.png",
     "Traced Line": "traced_line.png",
-    "U-Tube Heat Exchanger": "u-tube_heat.png",
+    "U-Tube Heat Exchanger": "u_tube_heat.png",
     "VFD Panel": "vfd_panel.png",
     "Valves (General Symbol)": "valves.png",
     "Vertical Pump": "vertical_pump.png",
     "Vertical Vessel": "vertical_vessel.png",
-    "Y-Strainer": "y-strainer.png"
+    "Y-Strainer": "y_strainer.png"
 }
 
-# --- SESSION STATE ---
+# --- INITIALIZE SESSION STATE ---
 if 'components' not in st.session_state:
     st.session_state.components = []
 if "show_modal" not in st.session_state:
     st.session_state.show_modal = False
 
-# --- GRAPHVIZ FUNCTION ---
+# --- P&ID GENERATION FUNCTION ---
 def generate_graphviz_dot(component_list):
     dot = Digraph('P&ID')
     dot.attr(rankdir='LR', ranksep='0.75', nodesep='0.5')
@@ -158,17 +158,18 @@ def generate_graphviz_dot(component_list):
     dot.edge(last_node, "OUTLET")
     return dot
 
-# --- EXPORTS ---
+# --- EXPORT FUNCTIONS ---
 def create_dxf_data(component_list):
     doc = ezdxf.new()
     msp = doc.modelspace()
     for idx, c in enumerate(component_list):
         y = -idx * 2
-        msp.add_lwpolyline([(0, y), (2, y), (2, y+1), (0, y+1), (0, y)], dxfattribs={"layer": "Component"})
-        msp.add_text(f"{c['tag']}: {c['type']}", dxfattribs={'height': 0.3}).set_pos((2.5, y + 0.5))
-    stream = io.StringIO()
-    doc.write(stream)
-    return stream.getvalue().encode('utf-8')
+        msp.add_lwpolyline([(0, y), (2, y), (2, y+1), (0, y+1), (0, y)])
+        msp.add_text(f"{c['tag']}: {c['type']}", dxfattribs={'height': 0.3, 'insert': (2.5, y + 0.5)})
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".dxf") as tmpfile:
+        doc.saveas(tmpfile.name)
+        with open(tmpfile.name, "rb") as f:
+            return f.read()
 
 def create_pdf_data(component_list):
     doc = ezdxf.new()
@@ -176,21 +177,17 @@ def create_pdf_data(component_list):
     for idx, c in enumerate(component_list):
         y = -idx * 2
         msp.add_lwpolyline([(0, y), (2, y), (2, y+1), (0, y+1), (0, y)])
-        msp.add_text(f"{c['tag']}: {c['type']}", dxfattribs={'height': 0.3}).set_pos((2.5, y + 0.5))
-    
+        msp.add_text(f"{c['tag']}: {c['type']}", dxfattribs={'height': 0.3, 'insert': (2.5, y + 0.5)})
     context = RenderContext(doc)
     backend = svg.SVGBackend()
     Frontend(context, backend).draw_layout(msp)
-    svg_string = backend.getvalue()
-    
+    svg_string = backend.get_string()
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
         cairosvg.svg2pdf(bytestring=svg_string.encode('utf-8'), write_to=tmpfile.name)
         with open(tmpfile.name, "rb") as f:
-            pdf_bytes = f.read()
-    os.unlink(tmpfile.name)
-    return pdf_bytes
+            return f.read()
 
-# --- UI ---
+# --- MAIN UI ---
 st.title("EPS Interactive P&ID Generator")
 
 with elements("main_frame"):
@@ -199,15 +196,10 @@ with elements("main_frame"):
         if mui.Button("➕ Add New Component", variant="contained", sx={"width": "100%"}):
             st.session_state.show_modal = True
 
-    with mui.Modal(
-        "Add a New Component",
-        open=st.session_state.show_modal,
-        onClose=lambda: setattr(st.session_state, 'show_modal', False)
-    ):
+    if st.session_state.show_modal:
         with mui.Box(sx={"p": 4}):
             ctype = st.selectbox("Component Type", options=sorted(AVAILABLE_COMPONENTS.keys()), key="modal_ctype")
             tag = st.text_input("Tag / Label (must be unique)", value=f"Comp-{len(st.session_state.components)+1}", key="modal_tag")
-            
             if st.button("Save Component", key="modal_save"):
                 if any(c['tag'] == tag for c in st.session_state.components):
                     st.error(f"Tag '{tag}' already exists!")
@@ -216,17 +208,14 @@ with elements("main_frame"):
                     st.session_state.show_modal = False
                     st.rerun()
 
-    st.subheader("Component Sequence (Drag to Reorder)")
-    layout = [
-        dashboard.Item(c["tag"], 0, i, 12, 1) for i, c in enumerate(st.session_state.components)
-    ]
-    
+    st.subheader("Component Sequence")
+    layout = [dashboard.Item(c["tag"], 0, i, 12, 1) for i, c in enumerate(st.session_state.components)]
     with dashboard.Grid(layout):
         for c in st.session_state.components:
             mui.Paper(f"{c['tag']} — {c['type']}", key=c["tag"], sx={"p": 1, "textAlign": "center"})
-    
+
     st.markdown("---")
-    
+
     if st.session_state.components:
         st.subheader("Live Preview & Export")
         dot = generate_graphviz_dot(st.session_state.components)
