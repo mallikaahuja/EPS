@@ -1,4 +1,6 @@
 streamlit
 pandas
-Pillow
+graphviz
+openai
 ezdxf
+pillow
