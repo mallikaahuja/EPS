@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy your full Streamlit app code
 COPY . .
+COPY symbols/ symbols/  # <-- Ensures symbol images are included
 
 # Expose default Streamlit port
 EXPOSE 8501
