@@ -3,13 +3,17 @@ import pandas as pd
 from graphviz import Digraph
 from pathlib import Path
 import os
-from PIL import Image, ImageDraw  # For creating default images
+import base64
+import sys  # Added for path resolution
+
+# Fix path issues on deployment platforms
+sys.path.append('/opt/render/project/src')
 
 # --- CONFIGURATION ---
-SYMBOLS_DIR = Path("PN&D-Symbols-library")  # Keep exact name with &
+SYMBOLS_DIR = Path("PN&D-Symbols-library")
 DEFAULT_IMAGE = "default_component.png"
 
-# --- COMPONENT LIBRARY (COMPLETE LIST) ---
+# --- COMPLETE COMPONENT LIBRARY ---
 AVAILABLE_COMPONENTS = {
     "50mm Fitting": "50.png",
     "ACG Filter (Suction)": "ACG filter at suction .PNG",
@@ -127,27 +131,23 @@ AVAILABLE_COMPONENTS = {
 }
 
 # --- INITIALIZATION ---
-def create_default_image():
-    """Create a simple default image if missing"""
-    try:
-        img = Image.new('RGB', (200, 100), color='lightgray')
-        draw = ImageDraw.Draw(img)
-        draw.text((10, 40), "MISSING COMPONENT", fill='black')
-        img.save(SYMBOLS_DIR / DEFAULT_IMAGE)
-    except Exception as e:
-        st.error(f"Could not create default image: {str(e)}")
+def verify_environment():
+    """Check if symbols directory exists"""
+    if not SYMBOLS_DIR.exists():
+        st.error(f"❌ Symbols directory not found at: {SYMBOLS_DIR}")
+        st.error("Please verify:")
+        st.error("1. Folder is named EXACTLY 'PN&D-Symbols-library'")
+        st.error("2. It's in the same directory as app.py")
+        return False
+    return True
 
 # --- STREAMLIT APP ---
 st.set_page_config(layout="wide")
 st.title("Interactive P&ID Generator")
 
-# Verify environment
-if not SYMBOLS_DIR.exists():
-    st.error(f"Symbols directory not found at: {SYMBOLS_DIR.absolute()}")
+# Environment check
+if not verify_environment():
     st.stop()
-
-if not (SYMBOLS_DIR / DEFAULT_IMAGE).exists():
-    create_default_image()
 
 # Initialize session state
 if 'component_list' not in st.session_state:
@@ -159,8 +159,16 @@ col1, col2 = st.columns([1, 2])
 
 with col1:
     with st.form("component_form"):
-        comp_type = st.selectbox("Component Type", sorted(AVAILABLE_COMPONENTS.keys()))
-        comp_tag = st.text_input("Tag (MUST BE UNIQUE)", f"Comp-{len(st.session_state.component_list)+1}")
+        comp_type = st.selectbox(
+            "Component Type",
+            options=sorted(AVAILABLE_COMPONENTS.keys()),
+            key="comp_type"
+        )
+        comp_tag = st.text_input(
+            "Component Tag (UNIQUE)",
+            value=f"Comp-{len(st.session_state.component_list) + 1}",
+            key="comp_tag"
+        )
         
         if st.form_submit_button("Add Component"):
             if any(c['Tag'] == comp_tag for c in st.session_state.component_list):
@@ -188,42 +196,47 @@ with col2:
 st.header("Step 2: Generate P&ID")
 
 def generate_pnid():
-    dot = Digraph(comment='P&ID')
-    dot.attr(rankdir='LR', ranksep='0.5')
-    dot.attr('node', shape='none', margin='0')
-    
-    # Add inlet/outlet
-    dot.node("INLET", "INLET", shape='plaintext')
-    dot.node("OUTLET", "OUTLET", shape='plaintext')
-    
-    # Add components
-    for component in st.session_state.component_list:
-        img_path = SYMBOLS_DIR / component['Image']
-        if not img_path.exists():
-            img_path = SYMBOLS_DIR / DEFAULT_IMAGE
-            
-        dot.node(
-            component['Tag'],
-            label='',
-            image=str(img_path.absolute()),
-            labelloc='b',
-            labeljust='c'
-        )
-    
-    # Connect components
-    nodes = ["INLET"] + [c['Tag'] for c in st.session_state.component_list] + ["OUTLET"]
-    for i in range(len(nodes)-1):
-        dot.edge(nodes[i], nodes[i+1])
-    
-    return dot
+    """Generate the diagram with error handling"""
+    try:
+        dot = Digraph(comment='P&ID')
+        dot.attr(rankdir='LR', ranksep='0.5')
+        dot.attr('node', shape='none', margin='0')
+        
+        # Add inlet/outlet
+        dot.node("INLET", "INLET", shape='plaintext')
+        dot.node("OUTLET", "OUTLET", shape='plaintext')
+        
+        # Add components
+        for component in st.session_state.component_list:
+            img_path = SYMBOLS_DIR / component['Image']
+            if not img_path.exists():
+                img_path = SYMBOLS_DIR / DEFAULT_IMAGE
+                
+            dot.node(
+                component['Tag'],
+                label='',
+                image=str(img_path.absolute()),
+                labelloc='b',
+                labeljust='c'
+            )
+        
+        # Connect components
+        nodes = ["INLET"] + [c['Tag'] for c in st.session_state.component_list] + ["OUTLET"]
+        for i in range(len(nodes)-1):
+            dot.edge(nodes[i], nodes[i+1])
+        
+        return dot
+    except Exception as e:
+        st.error(f"Diagram generation failed: {str(e)}")
+        return None
 
 if st.button("Generate P&ID", type="primary"):
     if not st.session_state.component_list:
         st.error("Please add components first!")
     else:
         with st.spinner("Generating diagram..."):
-            try:
-                dot = generate_pnid()
+            dot = generate_pnid()
+            if dot:
                 st.graphviz_chart(dot)
                 
                 # Export functionality
@@ -235,8 +248,6 @@ if st.button("Generate P&ID", type="primary"):
                         file_name="pnid_diagram.png",
                         mime="image/png"
                     )
-            except Exception as e:
-                st.error(f"Generation failed: {str(e)}")
 
 if st.button("Start Over", type="secondary"):
     st.session_state.component_list = []
