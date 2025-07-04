@@ -14,7 +14,7 @@ import io
 st.set_page_config(layout="wide", page_title="EPS P&ID Generator", page_icon="⚙️")
 SYMBOLS_DIR = Path("symbols")
 
-# --- FULL COMPONENT LIBRARY ---
+# --- COMPONENTS ---
 AVAILABLE_COMPONENTS = {
     "50mm Fitting": "50.png",
     "ACG Filter (Suction)": "acg_filter_at_suction.png",
@@ -132,14 +132,13 @@ AVAILABLE_COMPONENTS = {
     "Y-Strainer": "y-strainer.png"
 }
 
-
-# --- INITIALIZE SESSION STATE ---
+# --- SESSION STATE ---
 if 'components' not in st.session_state:
     st.session_state.components = []
 if "show_modal" not in st.session_state:
     st.session_state.show_modal = False
 
-# --- GRAPHVIZ PREVIEW ---
+# --- GRAPHVIZ FUNCTION ---
 def generate_graphviz_dot(component_list):
     dot = Digraph('P&ID')
     dot.attr(rankdir='LR', ranksep='0.75', nodesep='0.5')
@@ -148,7 +147,7 @@ def generate_graphviz_dot(component_list):
     last_node = "INLET"
     for comp in component_list:
         tag = comp['tag']
-        img_path = f"./symbols/{AVAILABLE_COMPONENTS.get(comp['type'], 'general.png')}"
+        img_path = str(SYMBOLS_DIR / AVAILABLE_COMPONENTS.get(comp['type'], "general.png"))
         if os.path.exists(img_path):
             dot.node(tag, label=tag, image=img_path)
         else:
@@ -159,39 +158,31 @@ def generate_graphviz_dot(component_list):
     dot.edge(last_node, "OUTLET")
     return dot
 
-# --- DXF EXPORT ---
+# --- EXPORTS ---
 def create_dxf_data(component_list):
     doc = ezdxf.new()
     msp = doc.modelspace()
     for idx, c in enumerate(component_list):
         y = -idx * 2
         msp.add_lwpolyline([(0, y), (2, y), (2, y+1), (0, y+1), (0, y)], dxfattribs={"layer": "Component"})
-        msp.add_text(f"{c['tag']}: {c['type']}", dxfattribs={
-            'height': 0.3,
-            'insert': (2.5, y + 0.5)
-        })
+        msp.add_text(f"{c['tag']}: {c['type']}", dxfattribs={'height': 0.3}).set_pos((2.5, y + 0.5))
     stream = io.StringIO()
     doc.write(stream)
     return stream.getvalue().encode('utf-8')
 
-# --- PDF EXPORT ---
 def create_pdf_data(component_list):
     doc = ezdxf.new()
     msp = doc.modelspace()
     for idx, c in enumerate(component_list):
         y = -idx * 2
         msp.add_lwpolyline([(0, y), (2, y), (2, y+1), (0, y+1), (0, y)])
-        msp.add_text(f"{c['tag']}: {c['type']}", dxfattribs={
-            'height': 0.3,
-            'insert': (2.5, y + 0.5)
-        })
-
+        msp.add_text(f"{c['tag']}: {c['type']}", dxfattribs={'height': 0.3}).set_pos((2.5, y + 0.5))
+    
     context = RenderContext(doc)
-svg_io = io.StringIO()
-backend = svg.SVGBackend(svg_io)
-Frontend(context, backend).draw_layout(msp)
-svg_string = svg_io.getvalue()
-
+    backend = svg.SVGBackend()
+    Frontend(context, backend).draw_layout(msp)
+    svg_string = backend.getvalue()
+    
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
         cairosvg.svg2pdf(bytestring=svg_string.encode('utf-8'), write_to=tmpfile.name)
         with open(tmpfile.name, "rb") as f:
@@ -199,7 +190,7 @@ svg_string = svg_io.getvalue()
     os.unlink(tmpfile.name)
     return pdf_bytes
 
-# --- MAIN UI ---
+# --- UI ---
 st.title("EPS Interactive P&ID Generator")
 
 with elements("main_frame"):
@@ -216,7 +207,7 @@ with elements("main_frame"):
         with mui.Box(sx={"p": 4}):
             ctype = st.selectbox("Component Type", options=sorted(AVAILABLE_COMPONENTS.keys()), key="modal_ctype")
             tag = st.text_input("Tag / Label (must be unique)", value=f"Comp-{len(st.session_state.components)+1}", key="modal_tag")
-
+            
             if st.button("Save Component", key="modal_save"):
                 if any(c['tag'] == tag for c in st.session_state.components):
                     st.error(f"Tag '{tag}' already exists!")
@@ -229,13 +220,13 @@ with elements("main_frame"):
     layout = [
         dashboard.Item(c["tag"], 0, i, 12, 1) for i, c in enumerate(st.session_state.components)
     ]
-
+    
     with dashboard.Grid(layout):
         for c in st.session_state.components:
             mui.Paper(f"{c['tag']} — {c['type']}", key=c["tag"], sx={"p": 1, "textAlign": "center"})
-
+    
     st.markdown("---")
-
+    
     if st.session_state.components:
         st.subheader("Live Preview & Export")
         dot = generate_graphviz_dot(st.session_state.components)
