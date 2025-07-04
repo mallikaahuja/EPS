@@ -1,5 +1,0 @@
-# .streamlit/config.toml
-[server]
-port = $PORT
-enableCORS = false
-headless = true
