@@ -22,4 +22,4 @@ COPY . .
 # The command to run your Streamlit application
 # Railway provides the ${PORT} environment variable automatically.
 # We do NOT set the OPENAI_API_KEY here.
-CMD ["streamlit", "run", "app.py", "--server.port", "${PORT}", "--server.address", "0.0.0.0"]
+CMD streamlit run app.py --server.port ${PORT} --server.address 0.0.0.0
