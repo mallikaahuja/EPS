@@ -187,9 +187,10 @@ def create_pdf_data(component_list):
         })
 
     context = RenderContext(doc)
-    backend = svg.SVGBackend()
-    Frontend(context, backend).draw_layout(msp)
-    svg_string = backend.getvalue()
+svg_io = io.StringIO()
+backend = svg.SVGBackend(svg_io)
+Frontend(context, backend).draw_layout(msp)
+svg_string = svg_io.getvalue()
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
         cairosvg.svg2pdf(bytestring=svg_string.encode('utf-8'), write_to=tmpfile.name)
