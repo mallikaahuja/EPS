@@ -3,178 +3,194 @@ import pandas as pd
 from graphviz import Digraph
 from pathlib import Path
 import os
-import openai # We will use the OpenAI library for suggestions
+import openai
+import ezdxf
+from PIL import Image, ImageDraw, ImageFont
+import io
 
 # --- CONFIGURATION ---
 st.set_page_config(layout="wide", page_title="Intelligent P&ID Generator", page_icon="🧠")
-SYMBOLS_DIR = Path("symbols") 
+SYMBOLS_DIR = Path("symbols")
+TEMP_DIR = Path("temp_placeholders")
+TEMP_DIR.mkdir(exist_ok=True) # Create a temporary directory for placeholders
 
-# This uses your standardized filenames.
-AVAILABLE_COMPONENTS = {
-    # Major Equipment
-    "Vertical Vessel": "vertical_vessel.png",
-    "Dry Pump Model": "dry_pump_model.png",
-    "Discharge Condenser": "discharge_condenser.png",
-    "Scrubber": "scrubber.png",
-    # In-Line Components
-    "Butterfly Valve": "butterfly_valve.png",
-    "Gate Valve": "gate_valve.png",
-    "Check Valve": "check_valve.png",
-    "Globe Valve": "globe_valve.png",
-    "Flexible Connection": "flexible_connection_suction.png",
-    "Pressure Transmitter": "pressure_transmitter_suction.png", # Using a generic one
-    "Temperature Gauge": "temperature_gauge_suction.png", # Using a generic one
-    "Strainer": "y-strainer.png"
-}
-EQUIPMENT_TYPES = ["Vertical Vessel", "Dry Pump Model", "Discharge Condenser", "Scrubber"]
-INLINE_TYPES = [comp for comp in AVAILABLE_COMPONENTS if comp not in EQUIPMENT_TYPES]
+# --- HELPER FUNCTIONS ---
 
-# --- INITIALIZE SESSION STATE ---
-if 'equipment' not in st.session_state:
-    st.session_state.equipment = []
-if 'pipelines' not in st.session_state:
-    st.session_state.pipelines = []
-if 'inline_components' not in st.session_state:
-    st.session_state.inline_components = []
+def create_placeholder_image(text, path):
+    """✅ 7. Creates a placeholder image with text if a symbol is missing."""
+    try:
+        img = Image.new('RGB', (100, 75), color = (255, 255, 255))
+        d = ImageDraw.Draw(img)
+        # Use a built-in font if available, otherwise default
+        try:
+            font = ImageFont.truetype("arial.ttf", 10)
+        except IOError:
+            font = ImageFont.load_default()
+        d.rectangle([0,0,99,74], outline="black")
+        d.text((10,30), f"MISSING:\n{text}", fill=(0,0,0), font=font)
+        img.save(path)
+        return str(path)
+    except Exception as e:
+        st.error(f"Failed to create placeholder image: {e}")
+        return None
 
-# --- AI SUGGESTION FUNCTION ---
-# NOTE: This requires you to set up an OpenAI API key in your Streamlit secrets.
-# In your app settings on Streamlit Cloud or Railway, add a secret named "OPENAI_API_KEY".
-def get_ai_suggestions(p_and_id_data):
-    if not st.secrets.get("OPENAI_API_KEY"):
-        return "AI suggestions disabled. Please add OPENAI_API_KEY to your secrets."
+def get_ai_suggestions(dfs):
+    """✅ 4. Fetches engineering suggestions from OpenAI."""
+    api_key = os.environ.get("OPENAI_API_KEY") # ✅ 1. Uses os.environ for Railway
+    if not api_key:
+        return "⚠️ AI suggestions disabled. `OPENAI_API_KEY` not found in environment variables."
 
-    client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+    client = openai.OpenAI(api_key=api_key)
     
-    # Create a simple text description of the P&ID for the AI
-    description = "This P&ID contains the following:\n"
-    description += "Equipment: " + ", ".join([f"{e['tag']} ({e['type']})" for e in p_and_id_data['equipment']]) + "\n"
-    description += "Pipelines: " + ", ".join([f"{p['tag']} from {p['from']} to {p['to']}" for p in p_and_id_data['pipelines']]) + "\n"
+    # Create a detailed text description of the P&ID for the AI
+    description = "Review this P&ID data for standard engineering practice:\n"
+    description += "EQUIPMENT:\n" + "\n".join([f"- {e['Tag']} ({e['Type']})" for _, e in dfs['Equipment'].iterrows()]) + "\n"
+    description += "PIPELINES:\n" + "\n".join([f"- {p['PipeTag']} (from {p['From_Tag']} to {p['To_Tag']})" for _, p in dfs['Piping'].iterrows()]) + "\n"
+    if 'In-Line_Components' in dfs and not dfs['In-Line_Components'].empty:
+        description += "IN-LINE ITEMS:\n" + "\n".join([f"- {c['Component_Tag']} ({c['Description']}) on {c['On_PipeTag']}" for _, c in dfs['In-Line_Components'].iterrows()])
     
     prompt = (
-        "You are an expert chemical process engineer reviewing a P&ID. "
-        "Based on the following description, provide 2-3 actionable suggestions for standard, missing components "
-        "that would improve safety or operability. Be concise. For example, 'Add isolation valves around Pump-101' "
-        "or 'Consider a check valve on the discharge of Pump-101'.\n\n"
-        f"P&ID Description:\n{description}"
+        "You are an expert senior process engineer. Based on the following P&ID data, provide 3 concise, "
+        "actionable recommendations for improving safety, operability, or adhering to standards. "
+        "Focus on missing items like isolation valves, check valves, vents, drains, or instrumentation.\n\n"
+        f"P&ID DATA:\n{description}"
     )
     
     try:
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=150
-        )
+        with st.spinner("🤖 AI Engineer is analyzing the P&ID..."):
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.5, max_tokens=200
+            )
         return response.choices[0].message.content
     except Exception as e:
         return f"Could not get AI suggestions. Error: {e}"
 
-# --- DRAWING FUNCTION ---
-def generate_p_and_id(equipment, pipelines, inline_components):
-    dot = Digraph(comment='P&ID')
-    dot.attr(rankdir='LR', splines='ortho', nodesep='0.5')
-    dot.attr('node', shape='box', style='rounded')
-
-    # Group equipment into subgraphs for better layout
-    with dot.subgraph(name='cluster_main_process') as c:
-        c.attr(style='filled', color='lightgrey')
-        c.attr(label='Main Process Area')
-        for item in equipment:
-            img_path = str(SYMBOLS_DIR / AVAILABLE_COMPONENTS.get(item['type'], "general.png"))
-            if os.path.exists(img_path):
-                c.node(item['tag'], label=item['tag'], image=img_path, shape='none')
-            else:
-                c.node(item['tag'], f"{item['tag']}\n({item['type']})")
+def generate_graphviz_dot(dfs):
+    """✅ 5. Generates the P&ID with automatic layout logic."""
+    dot = Digraph('P&ID')
+    dot.attr(rankdir='LR', splines='ortho', nodesep='0.5', ranksep='1.2', label='P&ID Live Preview', labelloc='t', fontsize='16')
     
-    # Create connections with in-line components
-    for pipe in pipelines:
-        # Create a chain of nodes for the pipeline's inline components
-        components_on_this_pipe = [c for c in inline_components if c['pipe_tag'] == pipe['tag']]
-        
-        last_node_in_chain = pipe['from']
-        
-        for comp in components_on_this_pipe:
-            comp_node_name = f"{comp['tag']}_{pipe['tag']}" # Make the node name unique
-            img_path = str(SYMBOLS_DIR / AVAILABLE_COMPONENTS.get(comp['type'], "general.png"))
-            if os.path.exists(img_path):
-                dot.node(comp_node_name, label=comp['tag'], image=img_path, shape='none')
-            else:
-                 dot.node(comp_node_name, f"{comp['tag']}\n({comp['type']})")
+    equipment_df = dfs.get('Equipment', pd.DataFrame())
+    piping_df = dfs.get('Piping', pd.DataFrame())
+    inline_df = dfs.get('In-Line_Components', pd.DataFrame())
+
+    # Auto-layout based on common process flow
+    pump_tags = equipment_df[equipment_df['Type'].str.contains("Pump", case=False)]['Tag'].tolist()
+    
+    with dot.subgraph(name='cluster_main_process') as c:
+        c.attr(label='Main Process Flow', style='dashed')
+        for _, equip in equipment_df.iterrows():
+            tag = equip['Tag']
+            img_filename = equip['Symbol_Image']
+            img_path = SYMBOLS_DIR / img_filename
             
-            dot.edge(last_node_in_chain, comp_node_name)
-            last_node_in_chain = comp_node_name
-            
-        # Connect the end of the chain to the destination equipment
-        dot.edge(last_node_in_chain, pipe['to'])
+            if not img_path.exists():
+                placeholder_path = TEMP_DIR / img_filename
+                create_placeholder_image(equip['Type'], placeholder_path)
+                img_path = placeholder_path
+
+            c.node(tag, label=tag, image=str(img_path), shape='none', imagepos='tc', labelloc='b')
+
+    # Connect components with in-line items
+    for _, pipe in piping_df.iterrows():
+        components_on_pipe = inline_df[inline_df['On_PipeTag'] == pipe['PipeTag']]
+        last_node = pipe['From_Tag']
+        
+        for _, comp in components_on_pipe.iterrows():
+            comp_name = f"{comp['Component_Tag']}_{pipe['PipeTag']}"
+            img_filename = comp['Symbol_Image']
+            img_path = SYMBOLS_DIR / img_filename
+
+            if not img_path.exists():
+                placeholder_path = TEMP_DIR / img_filename
+                create_placeholder_image(comp['Description'], placeholder_path)
+                img_path = placeholder_path
+
+            dot.node(comp_name, label=comp['Component_Tag'], image=str(img_path), shape='none', imagepos='tc', labelloc='b')
+            dot.edge(last_node, comp_name, label=pipe['PipeTag'])
+            last_node = comp_name
+        
+        dot.edge(last_node, pipe['To_Tag'])
 
     return dot
 
-# --- UI LAYOUT ---
+def create_dxf_data(dfs):
+    """✅ 3. Creates a simplified DXF file for download."""
+    doc = ezdxf.new()
+    msp = doc.modelspace()
+    y_pos = 0
+    # A very simplified layout for DXF
+    for _, equip in dfs['Equipment'].iterrows():
+        msp.add_circle((0, y_pos), radius=2, dxfattribs={"layer": "Equipment"})
+        msp.add_text(equip['Tag'], dxfattribs={'height': 0.5}).set_pos((3, y_pos))
+        y_pos -= 10
+    return doc.encode()
+
+# --- STREAMLIT APP UI ---
 st.title("🧠 Intelligent P&ID Generator")
 
 with st.sidebar:
-    st.subheader("P&ID Builder")
-    with st.expander("1. Add Major Equipment", expanded=True):
-        with st.form("add_equipment", clear_on_submit=True):
-            eq_type = st.selectbox("Equipment Type", EQUIPMENT_TYPES)
-            eq_tag = st.text_input("Equipment Tag (e.g., P-101)")
-            if st.form_submit_button("Add Equipment"):
-                st.session_state.equipment.append({'tag': eq_tag, 'type': eq_type})
+    st.header("1. Load P&ID Data")
+    uploaded_file = st.file_uploader(
+        "Upload your standardized P&ID Excel file.",
+        type=["xlsx"]
+    )
+    # Load data from the uploaded file into session state
+    if uploaded_file:
+        if 'p_and_id_data' not in st.session_state or st.session_state.get('file_name') != uploaded_file.name:
+            try:
+                sheets = pd.read_excel(uploaded_file, sheet_name=None)
+                st.session_state.p_and_id_data = sheets
+                st.session_state.file_name = uploaded_file.name
+                st.success(f"Loaded `{uploaded_file.name}` successfully!")
+            except Exception as e:
+                st.error(f"Failed to read Excel file: {e}")
 
-    equipment_tags = [e['tag'] for e in st.session_state.equipment]
-    if len(equipment_tags) >= 2:
-        with st.expander("2. Define Pipelines"):
-            with st.form("add_pipeline", clear_on_submit=True):
-                pipe_tag = st.text_input("Pipeline Tag (e.g., 100-B-1)")
-                pipe_from = st.selectbox("From Equipment", equipment_tags)
-                pipe_to = st.selectbox("To Equipment", equipment_tags)
-                if st.form_submit_button("Add Pipeline"):
-                    st.session_state.pipelines.append({'tag': pipe_tag, 'from': pipe_from, 'to': pipe_to})
-
-    pipeline_tags = [p['tag'] for p in st.session_state.pipelines]
-    if pipeline_tags:
-        with st.expander("3. Add In-Line Components"):
-            with st.form("add_inline", clear_on_submit=True):
-                inline_type = st.selectbox("Component Type", INLINE_TYPES)
-                inline_pipe = st.selectbox("On Pipeline", pipeline_tags)
-                inline_tag = st.text_input("Component Tag (e.g., HV-101)")
-                if st.form_submit_button("Add In-Line Component"):
-                    st.session_state.inline_components.append({'tag': inline_tag, 'type': inline_type, 'pipe_tag': inline_pipe})
-
-# Main display area
-st.subheader("Current P&ID Data")
-col1, col2, col3 = st.columns(3)
-with col1:
-    with st.container(border=True):
-        st.write("**Equipment**")
-        st.dataframe(pd.DataFrame(st.session_state.equipment), use_container_width=True)
-with col2:
-    with st.container(border=True):
-        st.write("**Pipelines**")
-        st.dataframe(pd.DataFrame(st.session_state.pipelines), use_container_width=True)
-with col3:
-    with st.container(border=True):
-        st.write("**In-Line Components**")
-        st.dataframe(pd.DataFrame(st.session_state.inline_components), use_container_width=True)
-
-st.markdown("---")
-st.subheader("Generated P&ID Preview")
-if st.session_state.equipment:
-    final_dot = generate_p_and_id(st.session_state.equipment, st.session_state.pipelines, st.session_state.inline_components)
-    st.graphviz_chart(final_dot)
+if 'p_and_id_data' in st.session_state:
+    data_frames = st.session_state.p_and_id_data
     
-    # AI Suggestions
-    with st.container(border=True):
-        st.subheader("🤖 AI Engineer Suggestions")
-        p_and_id_data = {
-            'equipment': st.session_state.equipment,
-            'pipelines': st.session_state.pipelines
-        }
-        if st.button("Get Suggestions"):
-            with st.spinner("Analyzing P&ID..."):
-                suggestions = get_ai_suggestions(p_and_id_data)
-                st.info(suggestions)
+    # Define tabs for the main interface
+    preview_tab, ai_tab, data_tab, export_tab = st.tabs(["P&ID Preview", "AI Suggestions", "Data Tables", "Export"])
 
+    with preview_tab:
+        st.subheader("P&ID Live Preview")
+        # ✅ 2. Scrollable/Zoomable Preview Panel
+        with st.container(height=600, border=True):
+            dot = generate_graphviz_dot(data_frames)
+            st.graphviz_chart(dot)
+
+    with ai_tab:
+        st.subheader("🤖 AI Engineer Co-pilot")
+        st.info("Click the button to get standard engineering practice recommendations based on your current P&ID.")
+        if st.button("Analyze P&ID"):
+            suggestions = get_ai_suggestions(data_frames)
+            st.markdown(suggestions)
+
+    with data_tab:
+        st.subheader("✅ 6. P&ID Data from Excel")
+        st.info("Verify the data loaded from your Excel file.")
+        for name, df in data_frames.items():
+            st.write(f"**Sheet: `{name}`**")
+            st.dataframe(df)
+
+    with export_tab:
+        st.subheader("⬇️ Export Your Diagram")
+        
+        # PNG Download
+        try:
+            dot = generate_graphviz_dot(data_frames)
+            png_data = dot.pipe(format='png')
+            st.download_button("Download P&ID as PNG", png_data, "p_and_id.png", "image/png", use_container_width=True)
+        except Exception as e:
+            st.error(f"PNG Export failed: {e}")
+        
+        # DXF Download
+        try:
+            dxf_data = create_dxf_data(data_frames)
+            st.download_button("Download as DXF", dxf_data, "p_and_id.dxf", "application/dxf", use_container_width=True)
+        except Exception as e:
+            st.error(f"DXF Export failed: {e}")
 else:
-    st.info("Add equipment in the sidebar to begin.")
+    st.info("Please upload an Excel file in the sidebar to begin.")
