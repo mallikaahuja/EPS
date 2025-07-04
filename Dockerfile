@@ -19,6 +19,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of your app's source code into the container
 COPY . .
 
-# Command to run your Streamlit app
-# Railway provides the ${PORT} environment variable automatically
+# The command to run your Streamlit application
+# Railway provides the ${PORT} environment variable automatically.
+# We do NOT set the OPENAI_API_KEY here.
 CMD ["streamlit", "run", "app.py", "--server.port", "${PORT}", "--server.address", "0.0.0.0"]
