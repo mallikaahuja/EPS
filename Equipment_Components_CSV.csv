@@ -1,0 +1,14 @@
+Type,Tag Prefix,Symbol_Image
+Dry Vacuum Pump,P,dry_vacuum_pump.png
+Vertical Vessel,V,vertical_vessel.png
+Discharge Condenser,C,discharge_condenser.png
+Scrubber,S,scrubber.png
+Receiver Tank,RT,receiver_tank.png
+Liquid Ring Pump,P,liquid_ring_pump.png
+Centrifugal Pump,P,centrifugal_pump.png
+Heat Exchanger,HX,heat_exchanger.png
+Cooling Tower,CT,cooling_tower.png
+Knockout Drum,KD,knockout_drum.png
+Blower,B,blower.png
+Compressor,CP,compressor.png
+Fan,F,fan.png
