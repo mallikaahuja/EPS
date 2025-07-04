@@ -5,3 +5,4 @@ Pillow
 streamlit-elements
 ezdxf
 cairosvg
+openai
