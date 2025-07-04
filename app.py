@@ -3,14 +3,18 @@ import pandas as pd
 from graphviz import Digraph
 from pathlib import Path
 import os
-from streamlit_elements import elements, mui
+from streamlit_elements import elements, mui, dashboard
+import ezdxf
+from ezdxf.addons.drawing import Frontend, RenderContext, svg
+import tempfile
+import cairosvg
+import io
 
 # --- CONFIGURATION ---
 st.set_page_config(layout="wide", page_title="EPS P&ID Generator", page_icon="⚙️")
 SYMBOLS_DIR = Path("symbols") 
 
-# --- COMPLETE COMPONENT LIBRARY ---
-# This dictionary must match the filenames in your "symbols" folder.
+# --- COMPLETE COMPONENT LIBRARY (STANDARDIZED & FULLY POPULATED) ---
 AVAILABLE_COMPONENTS = {
     "50mm Fitting": "50.png",
     "ACG Filter (Suction)": "acg_filter_at_suction.png",
@@ -134,104 +138,110 @@ if 'components' not in st.session_state:
 if "show_modal" not in st.session_state:
     st.session_state.show_modal = False
 
-# --- P&ID GENERATION FUNCTION ---
-def generate_pnid_graph(component_list):
-    """Generates a Graphviz object from a list of components."""
-    if not component_list:
-        return None
-        
+# --- P&ID GENERATION FUNCTION (GRAPHVIZ) ---
+def generate_graphviz_dot(component_list):
     dot = Digraph('P&ID')
     dot.attr(rankdir='LR', ranksep='0.75', nodesep='0.5')
     dot.attr('node', shape='none', imagepos='tc', labelloc='b', fontsize='10')
-    
     dot.node("INLET", "INLET", shape='point', width='0.1')
     last_node = "INLET"
-    
-    for component in component_list:
-        tag = component['Tag']
-        img_path = str(SYMBOLS_DIR / component['Image'])
-
+    for comp in component_list:
+        tag = comp['tag']
+        img_path = str(SYMBOLS_DIR / AVAILABLE_COMPONENTS.get(comp['type'], "general.png"))
         if os.path.exists(img_path):
             dot.node(tag, label=tag, image=img_path)
         else:
-            st.warning(f"Image not found: '{img_path}'. Using placeholder.")
             dot.node(tag, label=f"{tag}\n(img missing)", shape='box', style='dashed')
-        
         dot.edge(last_node, tag)
         last_node = tag
-        
     dot.node("OUTLET", "OUTLET", shape='point', width='0.1')
     dot.edge(last_node, "OUTLET")
     return dot
 
-# --- MAIN PAGE LAYOUT ---
+# --- EXPORT FUNCTIONS (DXF & PDF) ---
+def create_dxf_data(component_list):
+    doc = ezdxf.new()
+    msp = doc.modelspace()
+    for idx, c in enumerate(component_list):
+        y = -idx * 2
+        msp.add_lwpolyline([(0, y), (2, y), (2, y+1), (0, y+1), (0, y)], dxfattribs={"layer": "Component"})
+        msp.add_text(f"{c['tag']}: {c['type']}", dxfattribs={'height': 0.3}).set_pos((2.5, y + 0.5))
+    stream = io.StringIO()
+    doc.write(stream)
+    return stream.getvalue().encode('utf-8')
+
+def create_pdf_data(component_list):
+    doc = ezdxf.new()
+    msp = doc.modelspace()
+    for idx, c in enumerate(component_list):
+        y = -idx * 2
+        msp.add_lwpolyline([(0, y), (2, y), (2, y+1), (0, y+1), (0, y)])
+        msp.add_text(f"{c['tag']}: {c['type']}", dxfattribs={'height': 0.3}).set_pos((2.5, y + 0.5))
+    
+    context = RenderContext(doc)
+    backend = svg.SVGBackend()
+    Frontend(context, backend).draw_layout(msp)
+    svg_string = backend.getvalue()
+    
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmpfile:
+        cairosvg.svg2pdf(bytestring=svg_string.encode('utf-8'), write_to=tmpfile.name)
+        with open(tmpfile.name, "rb") as f:
+            pdf_bytes = f.read()
+    os.unlink(tmpfile.name)
+    return pdf_bytes
+
+# --- MAIN APP UI ---
 st.title("EPS Interactive P&ID Generator")
-st.markdown("Use the sidebar to add components, then view the live preview and download the final diagram.")
 
-# --- SIDEBAR FOR CONTROLS ---
-with st.sidebar:
-    st.subheader("P&ID Builder")
-    if st.button("➕ Add New Component", use_container_width=True):
-        st.session_state.show_modal = True
+with elements("main_frame"):
+    with st.sidebar:
+        st.subheader("P&ID Builder")
+        if mui.Button("➕ Add New Component", variant="contained", sx={"width": "100%"}):
+            st.session_state.show_modal = True
 
-# --- MODAL DIALOG IS WRAPPED IN THE 'elements' FRAME ---
-with elements("modal_frame"):
     with mui.Modal(
-        "Add a New Component to the Sequence",
+        "Add a New Component",
         open=st.session_state.show_modal,
-        onClose=lambda: setattr(st.session_state, 'show_modal', False),
+        onClose=lambda: setattr(st.session_state, 'show_modal', False)
     ):
-        with mui.Box(sx={"p": 2}):
-            # We use a standard Streamlit form inside the MUI box
-            with st.form("add_component_form"):
-                ctype = st.selectbox("Component Type", options=sorted(AVAILABLE_COMPONENTS.keys()))
-                tag = st.text_input("Component Tag / Label (must be unique)", value=f"Comp-{len(st.session_state.components) + 1}")
-                
-                if st.form_submit_button("Save Component"):
-                    if any(c['Tag'] == tag for c in st.session_state.components):
-                        st.error(f"Tag '{tag}' already exists!")
-                    else:
-                        st.session_state.components.append({
-                            "Tag": tag,
-                            "Type": ctype,
-                            "Image": AVAILABLE_COMPONENTS[ctype]
-                        })
-                        st.session_state.show_modal = False
-                        st.rerun()
+        with mui.Box(sx={"p": 4}):
+            ctype = st.selectbox("Component Type", options=sorted(AVAILABLE_COMPONENTS.keys()), key="modal_ctype")
+            tag = st.text_input("Tag / Label (must be unique)", value=f"Comp-{len(st.session_state.components)+1}", key="modal_tag")
+            
+            if st.button("Save Component", key="modal_save"):
+                if any(c['tag'] == tag for c in st.session_state.components):
+                    st.error(f"Tag '{tag}' already exists!")
+                else:
+                    st.session_state.components.append({"type": ctype, "tag": tag})
+                    st.session_state.show_modal = False
+                    st.rerun()
 
-# --- MAIN CONTENT AREA ---
-col1, col2 = st.columns([1, 1.5])
+    st.subheader("Component Sequence (Drag to Reorder)")
+    layout = [
+        dashboard.Item(c["tag"], 0, i, 12, 1) for i, c in enumerate(st.session_state.components)
+    ]
+    
+    with dashboard.Grid(layout):
+        for c in st.session_state.components:
+            mui.Paper(f"{c['tag']} — {c['type']}", key=c["tag"], sx={"p": 1, "textAlign": "center"})
+    
+    st.markdown("---")
+    
+    if st.session_state.components:
+        st.subheader("Live Preview & Export")
+        dot = generate_graphviz_dot(st.session_state.components)
+        st.graphviz_chart(dot)
 
-with col1:
-    with st.container(border=True):
-        st.subheader("Component Sequence")
-        if st.session_state.components:
-            df = pd.DataFrame(st.session_state.components)
-            st.dataframe(df[['Tag', 'Type']], use_container_width=True, hide_index=True)
-            if st.button("Clear All", use_container_width=True, type="secondary"):
-                st.session_state.components = []
-                st.rerun()
-        else:
-            st.info("No components added. Click 'Add New Component' in the sidebar to start.")
-
-with col2:
-    with st.container(border=True):
-        st.subheader("Live P&ID Preview")
-        if st.session_state.components:
-            p_and_id_graph = generate_pnid_graph(st.session_state.components)
-            if p_and_id_graph:
-                st.graphviz_chart(p_and_id_graph)
-                
-                try:
-                    png_data = p_and_id_graph.pipe(format='png')
-                    st.download_button(
-                        label="⬇️ Download P&ID as PNG",
-                        data=png_data,
-                        file_name="generated_pnid.png",
-                        mime="image/png",
-                        use_container_width=True
-                    )
-                except Exception as e:
-                    st.error(f"Could not render PNG. Error: {e}")
-        else:
-            st.info("Your diagram will appear here once you add components.")
+        col1, col2 = st.columns(2)
+        with col1:
+            try:
+                pdf_data = create_pdf_data(st.session_state.components)
+                st.download_button("📄 Download PDF", pdf_data, "p-and-id.pdf", "application/pdf", use_container_width=True)
+            except Exception as e:
+                st.error(f"PDF Export Failed: {e}")
+        with col2:
+            try:
+                dxf_data = create_dxf_data(st.session_state.components)
+                st.download_button("📐 Download DXF", dxf_data, "p-and-id.dxf", "application/dxf", use_container_width=True)
+            except Exception as e:
+                st.error(f"DXF Export Failed: {e}")
