@@ -20,4 +20,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # ✅ Run Streamlit using shell form so $PORT works on Railway
-CMD streamlit run app.py --server.port $PORT --server.address 0.0.0.0
+CMD ["sh", "-c", "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0"]
