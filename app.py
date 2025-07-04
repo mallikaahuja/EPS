@@ -9,8 +9,8 @@ from streamlit_elements import elements, mui
 st.set_page_config(layout="wide", page_title="EPS P&ID Generator", page_icon="⚙️")
 SYMBOLS_DIR = Path("symbols") 
 
-# --- COMPLETE COMPONENT LIBRARY (STANDARDIZED) ---
-# All filenames are lowercase, use underscores for spaces, and are .png
+# --- COMPLETE COMPONENT LIBRARY ---
+# This dictionary must match the filenames in your "symbols" folder.
 AVAILABLE_COMPONENTS = {
     "50mm Fitting": "50.png",
     "ACG Filter (Suction)": "acg_filter_at_suction.png",
@@ -133,8 +133,6 @@ if 'components' not in st.session_state:
     st.session_state.components = []
 if "show_modal" not in st.session_state:
     st.session_state.show_modal = False
-if 'generated_dot' not in st.session_state:
-    st.session_state.generated_dot = None
 
 # --- P&ID GENERATION FUNCTION ---
 def generate_pnid_graph(component_list):
@@ -149,14 +147,13 @@ def generate_pnid_graph(component_list):
     dot.node("INLET", "INLET", shape='point', width='0.1')
     last_node = "INLET"
     
-    for i, component in enumerate(component_list):
+    for component in component_list:
         tag = component['Tag']
         img_path = str(SYMBOLS_DIR / component['Image'])
 
         if os.path.exists(img_path):
             dot.node(tag, label=tag, image=img_path)
         else:
-            # Fallback for missing images
             st.warning(f"Image not found: '{img_path}'. Using placeholder.")
             dot.node(tag, label=f"{tag}\n(img missing)", shape='box', style='dashed')
         
@@ -167,38 +164,42 @@ def generate_pnid_graph(component_list):
     dot.edge(last_node, "OUTLET")
     return dot
 
-# --- SIDEBAR & MODAL FOR ADDING COMPONENTS ---
+# --- MAIN PAGE LAYOUT ---
+st.title("EPS Interactive P&ID Generator")
+st.markdown("Use the sidebar to add components, then view the live preview and download the final diagram.")
+
+# --- SIDEBAR FOR CONTROLS ---
 with st.sidebar:
     st.subheader("P&ID Builder")
     if st.button("➕ Add New Component", use_container_width=True):
         st.session_state.show_modal = True
 
-with mui.Modal(
-    "Add a New Component to the Sequence",
-    open=st.session_state.show_modal,
-    onClose=lambda: setattr(st.session_state, 'show_modal', False),
-):
-    with elements(f"add_component_modal_{len(st.session_state.components)}"):
+# --- MODAL DIALOG IS WRAPPED IN THE 'elements' FRAME ---
+with elements("modal_frame"):
+    with mui.Modal(
+        "Add a New Component to the Sequence",
+        open=st.session_state.show_modal,
+        onClose=lambda: setattr(st.session_state, 'show_modal', False),
+    ):
         with mui.Box(sx={"p": 2}):
-            ctype = st.selectbox("Component Type", options=sorted(AVAILABLE_COMPONENTS.keys()), key="ctype_modal")
-            tag = st.text_input("Component Tag / Label (must be unique)", value=f"Comp-{len(st.session_state.components) + 1}", key="tag_modal")
-            
-            if st.button("Save Component", key="save_modal"):
-                if any(c['Tag'] == tag for c in st.session_state.components):
-                    st.error(f"Tag '{tag}' already exists!")
-                else:
-                    st.session_state.components.append({
-                        "Tag": tag,
-                        "Type": ctype,
-                        "Image": AVAILABLE_COMPONENTS[ctype]
-                    })
-                    st.session_state.show_modal = False
-                    st.rerun()
+            # We use a standard Streamlit form inside the MUI box
+            with st.form("add_component_form"):
+                ctype = st.selectbox("Component Type", options=sorted(AVAILABLE_COMPONENTS.keys()))
+                tag = st.text_input("Component Tag / Label (must be unique)", value=f"Comp-{len(st.session_state.components) + 1}")
+                
+                if st.form_submit_button("Save Component"):
+                    if any(c['Tag'] == tag for c in st.session_state.components):
+                        st.error(f"Tag '{tag}' already exists!")
+                    else:
+                        st.session_state.components.append({
+                            "Tag": tag,
+                            "Type": ctype,
+                            "Image": AVAILABLE_COMPONENTS[ctype]
+                        })
+                        st.session_state.show_modal = False
+                        st.rerun()
 
-# --- MAIN PAGE LAYOUT ---
-st.title("EPS Interactive P&ID Generator")
-st.markdown("Use the sidebar to add components, then view the live preview and download the final diagram.")
-
+# --- MAIN CONTENT AREA ---
 col1, col2 = st.columns([1, 1.5])
 
 with col1:
@@ -209,7 +210,6 @@ with col1:
             st.dataframe(df[['Tag', 'Type']], use_container_width=True, hide_index=True)
             if st.button("Clear All", use_container_width=True, type="secondary"):
                 st.session_state.components = []
-                st.session_state.generated_dot = None
                 st.rerun()
         else:
             st.info("No components added. Click 'Add New Component' in the sidebar to start.")
@@ -218,12 +218,10 @@ with col2:
     with st.container(border=True):
         st.subheader("Live P&ID Preview")
         if st.session_state.components:
-            # Generate the graph immediately for live preview
             p_and_id_graph = generate_pnid_graph(st.session_state.components)
             if p_and_id_graph:
                 st.graphviz_chart(p_and_id_graph)
                 
-                # --- Download Button Logic ---
                 try:
                     png_data = p_and_id_graph.pipe(format='png')
                     st.download_button(
@@ -234,6 +232,6 @@ with col2:
                         use_container_width=True
                     )
                 except Exception as e:
-                    st.error(f"Could not render PNG. This can happen if an image format (like .jpg) is not supported by the Graphviz engine. Error: {e}")
+                    st.error(f"Could not render PNG. Error: {e}")
         else:
             st.info("Your diagram will appear here once you add components.")
