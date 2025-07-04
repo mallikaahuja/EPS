@@ -1,7 +1,5 @@
 streamlit
 pandas
 graphviz
-ezdxf
-cairosvg
-python-dotenv
+Pillow
 openai
