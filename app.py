@@ -1,144 +1,155 @@
 import streamlit as st
 import pandas as pd
-from graphviz import Digraph
 from pathlib import Path
-import os
-from PIL import Image, ImageDraw, ImageFont
+import base64
+import ezdxf
+import tempfile
+import io
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide", page_title="Intelligent P&ID Generator", page_icon="🧠")
+st.set_page_config(layout="wide", page_title="EPS P&ID Generator", page_icon="⚙️")
 SYMBOLS_DIR = Path("symbols")
-TEMP_DIR = Path("temp_placeholders")
-TEMP_DIR.mkdir(exist_ok=True) # Create a temp directory for placeholders
 
-# --- COMPONENT LIBRARY ---
-# This dictionary MUST match your standardized filenames.
-AVAILABLE_COMPONENTS = {
-    "Vertical Vessel": "vertical_vessel.png",
-    "Butterfly Valve": "butterfly_valve.png",
-    "Gate Valve": "gate_valve.png",
-    "Dry Pump Model": "dry_pump_model.png",
-    "Discharge Condenser": "discharge_condenser.png",
-    # (Populate with your full list of components)
-}
-EQUIPMENT_TYPES = sorted(["Vertical Vessel", "Dry Pump Model", "Discharge Condenser"])
-INLINE_TYPES = sorted(["Butterfly Valve", "Gate Valve"])
+# --- STANDARD COMPONENT ORDER (From Your Code) ---
+# This defines the automatic sorting logic for the P&ID flow.
+STANDARD_ORDER = [
+    "Flexible Connection (Suction)", "Pressure Transmitter (Suction)", "Temperature Gauge (Suction)",
+    "Temperature Transmitter (Suction)", "ACG Filter (Suction)", "Suction Filter", "EPO Valve",
+    "Dry Pump Model", "Discharge Silencer", "Flexible Connection (Discharge)", 
+    "Pressure Transmitter (Discharge)", "Temperature Gauge (Discharge)", "Temperature Transmitter (Discharge)",
+    "Discharge Condenser", "Catch Pot (Auto Drain)", "Scrubber", "Flame Arrestor (Discharge)"
+]
 
+# --- HELPER FUNCTIONS (From Your Code, with fixes) ---
 
-# --- HELPER & GENERATION FUNCTIONS ---
+def list_symbol_names():
+    """Dynamically lists available components by reading the symbol filenames."""
+    if not SYMBOLS_DIR.exists():
+        st.error(f"Symbol directory '{SYMBOLS_DIR}' not found!")
+        return []
+    # Cleans up filenames to be user-friendly (e.g., "vertical_vessel.png" -> "vertical vessel")
+    return sorted([f.stem.replace("_", " ") for f in SYMBOLS_DIR.glob("*.png")])
 
-def create_placeholder_image(text, path):
-    try:
-        img = Image.new('RGB', (100, 75), color=(240, 240, 240))
-        d = ImageDraw.Draw(img)
-        font = ImageFont.load_default()
-        d.rectangle([0,0,99,74], outline="black")
-        d.text((10,30), f"MISSING:\n{text}", fill=(0,0,0), font=font)
-        img.save(path)
-        return str(path)
-    except Exception:
-        return None
+def load_symbol_image_base64(symbol_name):
+    """Loads a symbol image and encodes it in Base64 for direct HTML embedding."""
+    # Converts user-friendly name back to a standardized filename
+    safe_filename = symbol_name.replace(" ", "_") + ".png"
+    path = SYMBOLS_DIR / safe_filename
+    if path.exists():
+        with open(path, "rb") as f:
+            data = f.read()
+        return f"data:image/png;base64,{base64.b64encode(data).decode()}"
+    return None
 
-def generate_p_and_id():
-    """Generates the diagram using the data in session state."""
-    dot = Digraph('P&ID')
-    dot.attr(rankdir='LR', splines='ortho', nodesep='0.5', ranksep='1.5')
-    dot.attr('node', shape='box', style='rounded')
+def create_dxf_data(component_list):
+    """Creates DXF data in memory for download."""
+    doc = ezdxf.new()
+    msp = doc.modelspace()
+    y = 0
+    # Create a simple line-based representation for each component in the DXF
+    for comp in component_list:
+        tag = comp['tag']
+        typ = comp['type']
+        msp.add_line((0, y), (2, y), dxfattribs={"layer": "Flow_Line"})
+        # Add text labels for the tag and type
+        msp.add_text(f"{tag}: {typ}", dxfattribs={'height': 0.3}).set_pos((2.5, y))
+        y -= 2.0 # Space out components vertically
+    
+    # Write the DXF to an in-memory stream instead of a temporary file
+    stream = io.StringIO()
+    doc.write(stream)
+    return stream.getvalue().encode("utf-8")
 
-    # Group equipment in a subgraph
-    with dot.subgraph(name='cluster_main_process') as c:
-        c.attr(label='Main Process Area', style='filled', color='lightgrey')
-        for item in st.session_state.equipment:
-            img_filename = AVAILABLE_COMPONENTS.get(item['type'], "general.png")
-            img_path = SYMBOLS_DIR / img_filename
-            if not img_path.exists():
-                img_path = create_placeholder_image(item['type'], TEMP_DIR / img_filename)
-            
-            if img_path:
-                 c.node(item['tag'], label=item['tag'], image=str(img_path), shape='none')
-            else: # Fallback if placeholder fails
-                c.node(item['tag'], f"{item['tag']}\n({item['type']})")
+def reorder_components_by_standard_order(components):
+    """Sorts the component list based on the predefined STANDARD_ORDER."""
+    type_to_order_index = {t: i for i, t in enumerate(STANDARD_ORDER)}
+    # Any component not in the standard order gets a high index to place it at the end.
+    return sorted(components, key=lambda x: type_to_order_index.get(x['type'], len(STANDARD_ORDER)))
 
-    # Connect pipelines and insert inline components
-    for pipe in st.session_state.pipelines:
-        components_on_this_pipe = [c for c in st.session_state.inline_components if c['pipe_tag'] == pipe['tag']]
-        last_node_in_chain = pipe['from']
-        
-        for comp in components_on_this_pipe:
-            comp_node_name = f"{comp['tag']}_{pipe['tag']}"
-            img_filename = AVAILABLE_COMPONENTS.get(comp['type'], "general.png")
-            img_path = SYMBOLS_DIR / img_filename
-            if not img_path.exists():
-                img_path = create_placeholder_image(comp['type'], TEMP_DIR / img_filename)
+# --- SESSION STATE INITIALIZATION ---
+if "component_list" not in st.session_state:
+    st.session_state.component_list = []
 
-            if img_path:
-                dot.node(comp_node_name, label=comp['tag'], image=str(img_path), shape='none')
-            else:
-                dot.node(comp_node_name, f"{comp['tag']}\n({comp['type']})")
-            
-            dot.edge(last_node_in_chain, comp_node_name)
-            last_node_in_chain = comp_node_name
-            
-        dot.edge(last_node_in_chain, pipe['to'])
-
-    return dot
-
-# --- INITIALIZE SESSION STATE ---
-if 'equipment' not in st.session_state: st.session_state.equipment = []
-if 'pipelines' not in st.session_state: st.session_state.pipelines = []
-if 'inline_components' not in st.session_state: st.session_state.inline_components = []
-
-# --- UI ---
-st.title("🧠 Intelligent P&ID Generator - Step 2: Drawing Test")
+# --- UI LAYOUT ---
+st.title("EPS Interactive P&ID Generator")
 
 with st.sidebar:
-    st.subheader("P&ID Builder")
-    with st.expander("1. Add Major Equipment", expanded=True):
-        with st.form("add_equipment", clear_on_submit=True):
-            eq_type = st.selectbox("Equipment Type", EQUIPMENT_TYPES)
-            eq_tag = st.text_input("Equipment Tag (e.g., P-101)")
-            if st.form_submit_button("Add Equipment", use_container_width=True):
-                if eq_tag and not any(e['tag'] == eq_tag for e in st.session_state.equipment):
-                    st.session_state.equipment.append({'tag': eq_tag, 'type': eq_type})
-                else: st.warning("Tag is empty or already exists.")
-
-    equipment_tags = [e['tag'] for e in st.session_state.equipment]
-    if len(equipment_tags) >= 2:
-        with st.expander("2. Define Pipelines"):
-            with st.form("add_pipeline", clear_on_submit=True):
-                pipe_tag = st.text_input("Pipeline Tag (e.g., 100-B-1)")
-                pipe_from = st.selectbox("From Equipment", equipment_tags)
-                pipe_to = st.selectbox("To Equipment", equipment_tags)
-                if st.form_submit_button("Add Pipeline", use_container_width=True):
-                    if pipe_tag and pipe_from != pipe_to:
-                        st.session_state.pipelines.append({'tag': pipe_tag, 'from': pipe_from, 'to': pipe_to})
-                    else: st.warning("Tag is empty or 'From' and 'To' are the same.")
-
-    pipeline_tags = [p['tag'] for p in st.session_state.pipelines]
-    if pipeline_tags:
-        with st.expander("3. Add In-Line Components"):
-            with st.form("add_inline", clear_on_submit=True):
-                inline_type = st.selectbox("Component Type", INLINE_TYPES)
-                inline_pipe = st.selectbox("On Pipeline", pipeline_tags)
-                inline_tag = st.text_input("Component Tag (e.g., HV-101)")
-                if st.form_submit_button("Add In-Line Component", use_container_width=True):
-                    if inline_tag: st.session_state.inline_components.append({'tag': inline_tag, 'type': inline_type, 'pipe_tag': inline_pipe})
-                    else: st.warning("Please provide a tag for the component.")
+    st.header("Add Component")
+    all_symbols = list_symbol_names()
+    if not all_symbols:
+        st.error("No symbols found. Please ensure the 'symbols' folder is populated.")
+    else:
+        comp_type = st.selectbox("Component Type", all_symbols)
+        comp_tag = st.text_input("Tag / Label (must be unique)", key="comp_tag_input")
+        if st.button("Save Component", use_container_width=True):
+            if comp_tag and comp_type:
+                if any(c['tag'] == comp_tag for c in st.session_state.component_list):
+                    st.error(f"Tag '{comp_tag}' already exists.")
+                else:
+                    st.session_state.component_list.append({"type": comp_type, "tag": comp_tag})
+                    st.rerun() # Rerun to update the UI immediately
+            else:
+                st.warning("Both tag and component type are required.")
+    
+    if st.session_state.component_list:
+        if st.button("Clear All Components", use_container_width=True, type="secondary"):
+            st.session_state.component_list = []
+            st.rerun()
 
 # --- Main Display Area ---
-st.subheader("Current P&ID Data")
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.dataframe(pd.DataFrame(st.session_state.equipment), hide_index=True)
-with col2:
-    st.dataframe(pd.DataFrame(st.session_state.pipelines), hide_index=True)
-with col3:
-    st.dataframe(pd.DataFrame(st.session_state.inline_components), hide_index=True)
+col1, col2 = st.columns([1, 2.5])
 
-st.markdown("---")
-st.subheader("Generated P&ID Preview")
-if st.session_state.equipment:
-    final_dot = generate_p_and_id()
-    st.graphviz_chart(final_dot)
-else:
-    st.info("Add equipment in the sidebar to begin.")
+with col1:
+    st.subheader("Component Sequence")
+    if st.session_state.component_list:
+        # Auto-order the components for display
+        ordered_components = reorder_components_by_standard_order(st.session_state.component_list)
+        df = pd.DataFrame(ordered_components)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No components added yet.")
+
+with col2:
+    st.subheader("Live Preview")
+    if st.session_state.component_list:
+        ordered_components = reorder_components_by_standard_order(st.session_state.component_list)
+        
+        # Build the HTML for the preview
+        preview_items = []
+        for comp in ordered_components:
+            img_data = load_symbol_image_base64(comp['type'])
+            if img_data:
+                preview_items.append(f"""
+                    <div style="display:inline-block; text-align:center; margin: 0 15px;">
+                        <img src="{img_data}" style="height:80px;"><br>
+                        <b style="font-size:14px;">{comp['tag']}</b><br>
+                        <small style="color:grey;">{comp['type']}</small>
+                    </div>
+                """)
+        
+        # Use a container with horizontal scrolling
+        st.markdown(f"""
+            <div style="display:flex; align-items:center; width:100%; overflow-x:auto; border:1px solid #e0e0e0; padding:10px; border-radius:5px;">
+                <b style="margin-right:15px;">INLET →</b>
+                {'<b style="font-size:24px; margin: 0 5px;">→</b>'.join(preview_items)}
+                <b style="margin-left:15px;">→ OUTLET</b>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # --- Download Button Logic ---
+        st.markdown("---")
+        st.subheader("Export")
+        try:
+            dxf_data = create_dxf_data(ordered_components)
+            st.download_button(
+                label="Download as DXF",
+                data=dxf_data,
+                file_name="generated_pid.dxf",
+                mime="application/dxf",
+                use_container_width=True
+            )
+        except Exception as e:
+            st.error(f"DXF Export Failed: {e}")
+
+    else:
+        st.info("Your P&ID preview will appear here once components are added.")
