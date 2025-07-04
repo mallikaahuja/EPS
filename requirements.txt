@@ -1,6 +1,1 @@
 streamlit
-pandas
-graphviz
-Pillow
-openai
-streamlit-elements
