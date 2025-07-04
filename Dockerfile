@@ -1,28 +1,29 @@
-# Use a slim base image
+# Use the official Streamlit image as the base
 FROM python:3.11-slim
 
-# Set work directory
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Set working directory
 WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libcairo2 \
-    graphviz \
-    graphviz-dev \
-    curl \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
+# Copy requirements and install Python packages
 COPY requirements.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the code
+# Copy all files to working directory
 COPY . .
 
-# Run the Streamlit app using port forwarding for Railway
-CMD ["sh", "-c", "streamlit run app.py --server.port=$PORT --server.address=0.0.0.0"]
+# Streamlit-specific port binding for Railway
+EXPOSE 8501
+
+# Run the app
+CMD ["streamlit", "run", "app.py", "--server.port=$PORT", "--server.enableCORS=false"]
