@@ -1,6 +1,6 @@
 streamlit
 pandas
-openai==0.28
+openai
 ezdxf
 pillow
 python-dotenv
