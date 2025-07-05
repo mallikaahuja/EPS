@@ -1,0 +1,7 @@
+type,ISA_Code,Tag Prefix,Symbol_Image
+Vacuum Line,PL,VL,vacuum_line.png
+Cooling Water Line,WL,CW,cooling_water_line.png
+Steam Line,SL,ST,steam_line.png
+Nitrogen Purge Line,NL,NP,nitrogen_purge_line.png
+Process Fluid Line,FL,PF,process_fluid_line.png
+Drain Line,DL,DR,drain_line.png
