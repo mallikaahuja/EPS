@@ -1,0 +1,8 @@
+type,ISA_Code,Tag Prefix,Symbol_Image
+Dry Pump,P,PT,dry_pump.png
+Vacuum Receiver,V,VR,vacuum_receiver.png
+Condenser,C,CD,condenser.png
+Cooling Coil,T,CC,cooling_coil.png
+Evaporator,E,EV,evaporator.png
+Heat Exchanger,E,HE,heat_exchanger.png
+Control Panel,CP,CP,control_panel.png
