@@ -1,0 +1,3 @@
+graphviz-dev
+libcairo2-dev
+libgirepository1.0-dev
