@@ -1,21 +1,22 @@
 import streamlit as st
 import pandas as pd
 import os
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import io
 import ezdxf
 import openai
 import requests
 import psycopg2
 import base64
-from graphviz import Digraph
 
 # --- CONFIGURATION ---
 st.set_page_config(layout="wide", page_title="EPS P&ID Generator", page_icon="🧠")
-SYMBOLS_PATH = "symbols"
-os.makedirs(SYMBOLS_PATH, exist_ok=True) # Ensure the local cache directory exists
+# We still need a local cache folder for the current session
+SYMBOLS_CACHE_PATH = "symbols_cache" 
+os.makedirs(SYMBOLS_CACHE_PATH, exist_ok=True)
 
 # --- DATABASE MANAGER ---
+# This class correctly handles connecting to and using the database.
 class DBPersistence:
     def __init__(self):
         self.conn = None
@@ -93,7 +94,6 @@ def auto_tag(prefix, all_tags):
     return f"{prefix}-{count:03}"
 
 def generate_and_save_symbol_ai(component_type, filename):
-    st.info(f"Generating '{filename}' with AI...")
     try:
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
@@ -101,55 +101,58 @@ def generate_and_save_symbol_ai(component_type, filename):
             return
         client = openai.OpenAI(api_key=api_key)
         prompt = f"A professional, clean, black line-art P&ID symbol for a '{component_type}'. Standard engineering schematic. Pure white transparent background. No text, shadows, or 3D effects. 2D symbol only."
-        with st.spinner(f"DALL-E is creating a symbol for {component_type}..."):
+        with st.spinner(f"DALL-E is creating a uniform symbol for {component_type}..."):
             response = client.images.generate(model="dall-e-3", prompt=prompt, n=1, size="1024x1024", response_format="b64_json")
             b64_data = response.data[0].b64_json
             image_data = base64.b64decode(b64_data)
         db.save_symbol(filename, image_data)
-        with open(os.path.join(SYMBOLS_PATH, filename), "wb") as f: f.write(image_data)
-        st.success(f"New symbol saved to database! Reloading...")
+        st.success(f"New uniform symbol saved to database! Reloading...")
         st.rerun()
     except Exception as e:
         st.error(f"AI Image Generation Failed: {e}")
 
-def get_symbol_path(image_name, component_type):
-    local_path = os.path.join(SYMBOLS_PATH, image_name)
-    if os.path.exists(local_path): return local_path
-    
+def get_symbol_path_from_db(image_name, component_type):
+    """THE CORRECT LOGIC: DB first, then AI. No local file check."""
+    local_cache_path = os.path.join(SYMBOLS_CACHE_PATH, image_name)
+    # Check the local cache first to avoid re-downloading in the same session
+    if os.path.exists(local_cache_path):
+        return local_cache_path
+        
+    # Not in cache, check the permanent database
     db_image_data = db.get_symbol(image_name)
     if db_image_data:
-        with open(local_path, "wb") as f: f.write(db_image_data)
-        return local_path
+        # Save to local cache for this session and return the path
+        with open(local_cache_path, "wb") as f: f.write(db_image_data)
+        return local_cache_path
     
+    # Not in DB, generate with AI. This will trigger a rerun.
     generate_and_save_symbol_ai(component_type, image_name)
     return None
 
 def generate_pnid_graph():
+    # This function now uses the correct logic
     dot = Digraph('P&ID')
     dot.attr('graph', rankdir='LR', splines='ortho', ranksep='2', nodesep='1')
     dot.attr('node', shape='none', imagepos='tc', labelloc='b', fontsize='10')
-
-    # Add all equipment nodes
+    
     for eq in st.session_state.equipment:
         eq_details = equipment_df[equipment_df["type"] == eq["type"]].iloc[0]
-        img_path = get_symbol_path(eq_details["Symbol_Image"], eq["type"])
+        img_path = get_symbol_path_from_db(eq_details["Symbol_Image"], eq["type"])
         if img_path:
             dot.node(eq["tag"], label=eq["tag"], image=img_path)
-
-    # Add pipelines and in-line components
+            
     for pipe in st.session_state.pipelines:
         last_node = pipe["from"]
         components_on_pipe = [c for c in st.session_state.inline if c["pipe_tag"] == pipe["tag"]]
         for i, comp in enumerate(components_on_pipe):
             node_name = f"{comp['tag']}_{i}"
             comp_details = inline_df[inline_df["type"] == comp["type"]].iloc[0]
-            img_path = get_symbol_path(comp_details["Symbol_Image"], comp["type"])
+            img_path = get_symbol_path_from_db(comp_details["Symbol_Image"], comp["type"])
             if img_path:
                 dot.node(node_name, label=comp["tag"], image=img_path)
             dot.edge(last_node, node_name)
             last_node = node_name
         dot.edge(last_node, pipe["to"])
-        
     return dot
 
 def generate_dxf():
@@ -229,18 +232,19 @@ st.markdown("---")
 st.subheader("🖼️ P&ID Diagram Preview")
 if st.session_state.equipment:
     graph = generate_pnid_graph()
-    st.graphviz_chart(graph)
-    st.subheader("📤 Export P&ID")
-    col1, col2 = st.columns(2)
-    with col1:
-        try:
-            png_data = graph.pipe(format='png')
-            st.download_button("Download PNG", png_data, "pid_layout.png", "image/png", use_container_width=True)
-        except Exception as e:
-            st.error(f"PNG Export failed: {e}")
-    with col2:
-        dxf_data = generate_dxf()
-        st.download_button("Download DXF", dxf_data, "pid_layout.dxf", "application/dxf", use_container_width=True)
+    if graph:
+        st.graphviz_chart(graph)
+        st.subheader("📤 Export P&ID")
+        col1, col2 = st.columns(2)
+        with col1:
+            try:
+                png_data = graph.pipe(format='png')
+                st.download_button("Download PNG", png_data, "pid_layout.png", "image/png", use_container_width=True)
+            except Exception as e:
+                st.error(f"PNG Export failed: {e}")
+        with col2:
+            dxf_data = generate_dxf()
+            st.download_button("Download DXF", dxf_data, "pid_layout.dxf", "application/dxf", use_container_width=True)
 else:
     st.info("Add some equipment to see the P&ID preview.")
 
