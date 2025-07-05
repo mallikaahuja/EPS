@@ -1,0 +1,9 @@
+type,ISA_Code,Tag Prefix,Symbol_Image
+Vacuum Control Valve,V,PV,vacuum_valve.png
+Vacuum Transmitter,PT,PT,vacuum_transmitter.png
+Temperature Transmitter,TT,TT,temperature_transmitter.png
+Level Sensor,LT,LT,level_sensor.png
+Check Valve,CV,CV,check_valve.png
+Butterfly Valve,BFV,BFV,butterfly_valve.png
+Filter,F,FT,filter.png
+Sight Glass,SG,SG,sight_glass.png
