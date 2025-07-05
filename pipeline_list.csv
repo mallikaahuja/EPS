@@ -1,7 +1,0 @@
-type,Tag Prefix,Symbol_Image
-Process Line,PL,process_line.png
-Vacuum Line,VL,vacuum_line.png
-Cooling Water Line,CWL,cooling_water_line.png
-Steam Line,STL,steam_line.png
-Condensate Line,CDL,condensate_line.png
-Drain Line,DL,drain_line.png
