@@ -48,7 +48,7 @@ def generate_and_save_symbol(component_type, filename):
     st.info(f"Symbol '{filename}' not found. Generating new symbol with AI for '{component_type}'...")
     try:
         # CORRECTED: Instantiate the client first using the modern syntax
-        client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
         prompt = f"A simple, clean, black and white, 2D P&ID symbol for a '{component_type}'. Minimalist engineering diagram style on a pure white background, no text, no shadows."
         
         with st.spinner(f"DALL-E 3 is creating a symbol for {component_type}..."):
