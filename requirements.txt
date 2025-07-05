@@ -1,6 +1,7 @@
 streamlit
 pandas
-graphviz
 openai==0.28
 ezdxf
 pillow
+python-dotenv
+requests
