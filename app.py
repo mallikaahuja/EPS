@@ -5,7 +5,7 @@ from PIL import Image, ImageDraw, ImageFont
 import io
 import ezdxf
 import openai
-import requests # Needed for downloading AI-generated images
+import requests
 
 # --- CONFIGURATION ---
 st.set_page_config(layout="wide", page_title="EPS Interactive P&ID Generator", page_icon="🧠")
@@ -47,8 +47,9 @@ def generate_and_save_symbol(component_type, filename):
     """Uses DALL-E 3 to generate and save a missing symbol."""
     st.info(f"Symbol '{filename}' not found. Generating new symbol with AI for '{component_type}'...")
     try:
-        client = openai.Client(api_key=st.secrets["OPENAI_API_KEY"])
-        prompt = f"A simple, clean, black and white, 2D P&ID symbol for a '{component_type}'. Minimalist engineering diagram style on a pure white background, no text."
+        # CORRECTED: Instantiate the client first using the modern syntax
+        client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+        prompt = f"A simple, clean, black and white, 2D P&ID symbol for a '{component_type}'. Minimalist engineering diagram style on a pure white background, no text, no shadows."
         
         with st.spinner(f"DALL-E 3 is creating a symbol for {component_type}..."):
             response = client.images.generate(
@@ -60,7 +61,6 @@ def generate_and_save_symbol(component_type, filename):
             )
             image_url = response.data[0].url
             
-            # Download and save the image
             image_data = requests.get(image_url).content
             save_path = os.path.join(SYMBOLS_PATH, filename)
             
@@ -70,7 +70,7 @@ def generate_and_save_symbol(component_type, filename):
             with open(save_path, "wb") as f:
                 f.write(image_data)
         
-        st.success(f"Successfully created and saved '{filename}'! The app will now reload to use it.")
+        st.success(f"Successfully created and saved '{filename}'! Reloading...")
         # Rerun the app to now use the newly saved image
         st.rerun()
         
@@ -88,7 +88,7 @@ def get_component_image(image_name, component_type):
             # If the image doesn't exist, trigger the AI generation
             # This will stop the current script run and restart it.
             generate_and_save_symbol(component_type, image_name)
-            return None # This line won't be reached due to st.rerun()
+            return None # This line won't be reached due to st.rerun(), but it's good practice
     except Exception as e:
         st.warning(f"Error loading image {image_name}: {e}")
 
@@ -102,7 +102,8 @@ def get_component_image(image_name, component_type):
 def get_ai_suggestions():
     """Generates P&ID improvement suggestions from OpenAI."""
     try:
-        client = openai.Client(api_key=st.secrets["OPENAI_API_KEY"])
+        # CORRECTED: Instantiate the client first
+        client = openai.OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
         eq_list = ", ".join([f"{e['tag']}({e['type']})" for e in st.session_state.equipment])
         pipe_list = ", ".join([f"{p['tag']}({p['from']}->{p['to']})" for p in st.session_state.pipelines])
         prompt = f"Given a P&ID with these components: Equipment=[{eq_list}], Pipelines=[{pipe_list}], suggest 5 specific design or safety improvements."
@@ -139,6 +140,7 @@ def generate_dxf():
     doc.write(buffer)
     return buffer.getvalue().encode('utf-8')
 
+
 def render_pid_image():
     """Draws the entire P&ID using the Python Imaging Library (PIL)."""
     if not st.session_state.equipment:
@@ -149,6 +151,7 @@ def render_pid_image():
     canvas = Image.new("RGBA", (canvas_width, 400), "white")
     draw = ImageDraw.Draw(canvas)
     
+    # Draw equipment
     for eq in st.session_state.equipment:
         img = get_component_image(eq["image_name"], eq['type'])
         if img:
@@ -156,6 +159,7 @@ def render_pid_image():
             canvas.paste(img, (x_pos - 40, 150), img)
             draw.text((x_pos, 240), eq["tag"], fill="black", anchor="ms")
 
+    # Draw pipelines and in-line components
     for pipe in st.session_state.pipelines:
         start_x = eq_positions.get(pipe['from'], 0)
         end_x = eq_positions.get(pipe['to'], 0)
@@ -165,9 +169,11 @@ def render_pid_image():
         
         for i in range(len(points) - 1):
             draw.line([(points[i] + 40, 190), (points[i+1] - 40, 190)], fill="black", width=2)
+            # Draw an arrow at the end of the last segment
             if i == len(points) - 2:
                 draw.polygon([(points[i+1]-40, 185), (points[i+1]-30, 190), (points[i+1]-40, 195)], fill="black")
 
+        # Draw the inline components themselves
         for i, comp in enumerate(inline_comps):
             img = get_component_image(comp["image_name"], comp['type'])
             if img:
@@ -181,7 +187,6 @@ def render_pid_image():
 with st.sidebar:
     st.title("P&ID Builder")
     st.markdown("---")
-
     with st.expander("➕ Add Equipment", expanded=True):
         if not equipment_df.empty:
             eq_type = st.selectbox("Equipment Type", equipment_df["type"].unique())
@@ -189,13 +194,8 @@ with st.sidebar:
             all_eq_tags = [e['tag'] for e in st.session_state.equipment]
             eq_tag = auto_tag(eq_row["Tag Prefix"], all_eq_tags)
             st.text_input("New Tag", value=eq_tag, disabled=True, key="eq_tag_display")
-
             if st.button("Add Equipment"):
-                st.session_state.equipment.append({
-                    "type": eq_type,
-                    "tag": eq_tag,
-                    "image_name": eq_row["Symbol_Image"]
-                })
+                st.session_state.equipment.append({"type": eq_type, "tag": eq_tag, "image_name": eq_row["Symbol_Image"]})
                 st.rerun()
         else:
             st.warning("equipment_list.csv not loaded.")
@@ -206,7 +206,6 @@ with st.sidebar:
             pipe_tag = auto_tag("P", all_pipe_tags)
             from_eq_options = [e["tag"] for e in st.session_state.equipment]
             from_eq = st.selectbox("From", from_eq_options, key="from_pipe")
-            
             to_options = [e["tag"] for e in st.session_state.equipment if e["tag"] != from_eq]
             if to_options:
                 to_eq = st.selectbox("To", to_options, key="to_pipe")
@@ -271,12 +270,14 @@ st.subheader("🖼️ P&ID Diagram Preview")
 pid_image = render_pid_image()
 if pid_image:
     st.image(pid_image)
+    
     st.subheader("📤 Export P&ID")
     col_dl1, col_dl2 = st.columns(2)
     with col_dl1:
         buf = io.BytesIO()
         pid_image.save(buf, format="PNG")
         st.download_button("Download PNG", buf.getvalue(), "pid_layout.png", "image/png", use_container_width=True)
+
     with col_dl2:
         dxf_data = generate_dxf()
         if dxf_data:
