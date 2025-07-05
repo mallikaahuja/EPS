@@ -1,85 +1,147 @@
 import streamlit as st
 import pandas as pd
-from graphviz import Digraph
-from pathlib import Path
 import os
-import io
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageFont
 import ezdxf
 import openai
-from PIL import Image
 import base64
 
 # --- CONFIG ---
 st.set_page_config(page_title="EPS Interactive P&ID Generator", layout="wide")
 SYMBOLS_DIR = Path("symbols")
-
-# --- LOAD DATA ---
-equipment_df = pd.read_csv("equipment_list.csv")
-pipeline_df = pd.read_csv("pipeline_list.csv")
-inline_df = pd.read_csv("inline_component_list.csv")
+TEMP_DIR = Path("temp_placeholders")
+TEMP_DIR.mkdir(exist_ok=True)
 
 # --- SESSION STATE ---
-for key in ['equipment', 'pipelines', 'inline_components']:
+for key in ["equipment", "pipelines", "inline_components"]:
     if key not in st.session_state:
         st.session_state[key] = []
 
-# --- HELPERS ---
-def get_symbol_path(component_type):
-    file = SYMBOLS_DIR / f"{component_type.lower().replace(' ', '_')}.png"
-    return file if file.exists() else None
-
-def generate_graph():
-    dot = Digraph("P&ID")
-    dot.attr(rankdir="LR", labelloc="t", label="Main Process Area", fontsize='16')
-
-    for eq in st.session_state.equipment:
-        img = get_symbol_path(eq['type'])
-        dot.node(eq['tag'], label=eq['tag'], image=str(img) if img else "", shape="box" if not img else "none")
-
-    for pipe in st.session_state.pipelines:
-        comps = [c for c in st.session_state.inline_components if c['pipe_tag'] == pipe['tag']]
-        from_node = pipe['from']
-        for comp in comps:
-            comp_node = f"{comp['tag']}_{pipe['tag']}"
-            img = get_symbol_path(comp['type'])
-            dot.node(comp_node, label=comp['tag'], image=str(img) if img else "", shape="box" if not img else "none")
-            dot.edge(from_node, comp_node, label=pipe['tag'])
-            from_node = comp_node
-        dot.edge(from_node, pipe['to'], label=pipe['tag'])
-
-    return dot
-
-def auto_generate_tag(component_type, df):
-    prefix = df[df["Type"] == component_type]["Tag Prefix"].values
-    base = prefix[0] if len(prefix) else component_type[:2].upper()
-    count = sum(c["type"] == component_type for c in st.session_state.equipment + st.session_state.inline_components + st.session_state.pipelines)
-    return f"{base}-{101 + count}"
-
-def get_ai_recommendation():
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return "⚠️ Missing OpenAI API key in environment."
-
-    client = openai.OpenAI(api_key=api_key)
-    prompt = "Based on this P&ID, suggest improvements:\n\n"
-    for eq in st.session_state.equipment:
-        prompt += f"Equipment: {eq['tag']} - {eq['type']}\n"
-    for p in st.session_state.pipelines:
-        prompt += f"Pipeline: {p['tag']} from {p['from']} to {p['to']}\n"
-    for c in st.session_state.inline_components:
-        prompt += f"In-line: {c['tag']} ({c['type']}) on {c['pipe_tag']}\n"
-
+# --- CSV DATA LOAD ---
+@st.cache_data
+def load_component_data():
     try:
-        with st.spinner("🧠 Thinking..."):
-            res = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=300
-            )
+        eq = pd.read_csv("equipment_list.csv")
+        pl = pd.read_csv("pipeline_list.csv")
+        il = pd.read_csv("inline_component_list.csv")
+        return eq, pl, il
+    except Exception as e:
+        st.error(f"Failed to load dropdown CSVs: {e}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+equipment_data, pipeline_data, inline_data = load_component_data()
+
+# --- IMAGE HANDLING ---
+def get_symbol_image_path(symbol_name):
+    img_path = SYMBOLS_DIR / f"{symbol_name}.png"
+    if img_path.exists():
+        return str(img_path)
+    return create_missing_image(symbol_name)
+
+def create_missing_image(text):
+    path = TEMP_DIR / f"{text}.png"
+    if path.exists():
+        return str(path)
+    img = Image.new('RGB', (100, 75), color=(255, 255, 255))
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+    draw.rectangle([0, 0, 99, 74], outline="black")
+    draw.text((5, 30), f"MISSING\n{text}", fill="black", font=font)
+    img.save(path)
+    return str(path)
+
+# --- AUTO-TAGGING ---
+def auto_tag(prefix, existing):
+    i = 1
+    while True:
+        tag = f"{prefix}-{str(i).zfill(3)}"
+        if not any(item['tag'] == tag for item in existing):
+            return tag
+        i += 1
+
+# --- UI ---
+st.title("🧠 EPS Interactive P&ID Generator")
+
+with st.sidebar:
+    st.header("➕ Add Equipment")
+    eq_type = st.selectbox("Equipment Type", equipment_data["type"] if not equipment_data.empty else [])
+    if st.button("Add Equipment"):
+        tag = auto_tag("EQ", st.session_state.equipment)
+        st.session_state.equipment.append({"tag": tag, "type": eq_type})
+        st.rerun()
+
+    st.header("➕ Add Pipeline")
+    from_tag = st.selectbox("From", [e["tag"] for e in st.session_state.equipment], key="from_eq")
+    to_tag = st.selectbox("To", [e["tag"] for e in st.session_state.equipment], key="to_eq")
+    pipe_tag = auto_tag("P", st.session_state.pipelines)
+    if st.button("Add Pipeline"):
+        st.session_state.pipelines.append({"tag": pipe_tag, "from": from_tag, "to": to_tag})
+        st.rerun()
+
+    st.header("➕ Add In-Line Component")
+    inline_type = st.selectbox("In-line Type", inline_data["type"] if not inline_data.empty else [])
+    pipe = st.selectbox("On Pipeline", [p["tag"] for p in st.session_state.pipelines])
+    inline_tag = auto_tag("C", st.session_state.inline_components)
+    if st.button("Add In-Line"):
+        st.session_state.inline_components.append({
+            "tag": inline_tag, "type": inline_type, "pipe_tag": pipe
+        })
+        st.rerun()
+
+    if st.button("🔄 Reset All"):
+        for key in ["equipment", "pipelines", "inline_components"]:
+            st.session_state[key] = []
+        st.rerun()
+
+# --- DISPLAY TABLES ---
+col1, col2, col3 = st.columns(3)
+with col1:
+    st.subheader("Equipment")
+    st.dataframe(pd.DataFrame(st.session_state.equipment), use_container_width=True)
+with col2:
+    st.subheader("Pipelines")
+    st.dataframe(pd.DataFrame(st.session_state.pipelines), use_container_width=True)
+with col3:
+    st.subheader("In-Line Components")
+    st.dataframe(pd.DataFrame(st.session_state.inline_components), use_container_width=True)
+
+# --- VISUAL PREVIEW ---
+st.subheader("🖼️ P&ID Diagram Preview (Mockup Layout)")
+preview = st.container(border=True)
+
+with preview:
+    for eq in st.session_state.equipment:
+        img_path = get_symbol_image_path(eq['type'].replace(" ", "_"))
+        st.image(img_path, width=100, caption=eq['tag'])
+
+# --- AI SUGGESTIONS ---
+st.subheader("🤖 AI Engineer Suggestions")
+
+def get_ai_suggestions():
+    key = os.environ.get("OPENAI_API_KEY")
+    if not key:
+        return "⚠️ OpenAI API key not found."
+    client = openai.OpenAI(api_key=key)
+    description = "EQUIPMENT:\n" + "\n".join([f"- {e['tag']} ({e['type']})" for e in st.session_state.equipment])
+    description += "\nPIPELINES:\n" + "\n".join([f"- {p['tag']} (from {p['from']} to {p['to']})" for p in st.session_state.pipelines])
+    description += "\nINLINE:\n" + "\n".join([f"- {c['tag']} ({c['type']}) on {c['pipe_tag']}" for c in st.session_state.inline_components])
+    prompt = f"You are a senior P&ID engineer. Review and recommend 3 improvements:\n{description}"
+    try:
+        res = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=200
+        )
         return res.choices[0].message.content
     except Exception as e:
-        return f"❌ AI failed: {e}"
+        return f"❌ Error from OpenAI: {e}"
 
+if st.button("Get Suggestions"):
+    st.markdown(get_ai_suggestions())
+
+# --- DXF EXPORT ---
 def generate_dxf():
     doc = ezdxf.new()
     msp = doc.modelspace()
@@ -88,74 +150,24 @@ def generate_dxf():
         msp.add_circle((0, y), 2)
         msp.add_text(eq['tag'], dxfattribs={'height': 0.5}).set_pos((3, y))
         y -= 10
-    stream = io.BytesIO()
-    doc.write(stream)
-    stream.seek(0)
-    return stream
+    return doc.encode()
 
-# --- SIDEBAR ---
-st.sidebar.header("➕ Add Components")
-
-with st.sidebar.expander("📦 Add Equipment"):
-    eq_type = st.selectbox("Type", equipment_df["Type"].tolist(), key="eq_type")
-    eq_tag = st.text_input("Tag", value=auto_generate_tag(eq_type, equipment_df), key="eq_tag")
-    if st.button("Add Equipment"):
-        st.session_state.equipment.append({"tag": eq_tag, "type": eq_type})
-        st.rerun()
-
-with st.sidebar.expander("🧵 Add Pipeline"):
-    pipe_tag = st.text_input("Tag", key="pipe_tag")
-    eq_tags = [e['tag'] for e in st.session_state.equipment]
-    from_ = st.selectbox("From", eq_tags, key="from_eq")
-    to_ = st.selectbox("To", eq_tags, key="to_eq")
-    if st.button("Add Pipeline"):
-        st.session_state.pipelines.append({"tag": pipe_tag, "from": from_, "to": to_})
-        st.rerun()
-
-with st.sidebar.expander("🔗 Add In-Line Component"):
-    in_type = st.selectbox("Type", inline_df["Type"].tolist(), key="in_type")
-    in_tag = st.text_input("Tag (In-Line)", value=auto_generate_tag(in_type, inline_df), key="in_tag")
-    pipe_options = [p['tag'] for p in st.session_state.pipelines]
-    pipe_tag = st.selectbox("On Pipeline", pipe_options, key="pipe_ref")
-    if st.button("Add In-Line Component"):
-        st.session_state.inline_components.append({"tag": in_tag, "type": in_type, "pipe_tag": pipe_tag})
-        st.rerun()
-
-if st.sidebar.button("🔄 Reset All"):
-    for key in ['equipment', 'pipelines', 'inline_components']:
-        st.session_state[key] = []
-    st.rerun()
-
-# --- MAIN INTERFACE ---
-st.title("🧠 EPS Interactive P&ID Generator")
-
-col1, col2, col3 = st.columns(3)
-col1.dataframe(pd.DataFrame(st.session_state.equipment), use_container_width=True)
-col2.dataframe(pd.DataFrame(st.session_state.pipelines), use_container_width=True)
-col3.dataframe(pd.DataFrame(st.session_state.inline_components), use_container_width=True)
-
-st.subheader("🛠️ Generated P&ID Preview")
-with st.container(height=500, border=True):
+# --- EXPORTS ---
+st.subheader("⬇️ Export P&ID")
+col_exp1, col_exp2 = st.columns(2)
+with col_exp1:
     try:
-        dot = generate_graph()
-        st.graphviz_chart(dot)
+        dummy = Image.new('RGB', (300, 100), (255, 255, 255))
+        buffer = Path("preview_export.png")
+        dummy.save(buffer)
+        with open(buffer, "rb") as f:
+            st.download_button("Download PNG", f.read(), "p_id.png", mime="image/png")
     except Exception as e:
-        st.error(f"Rendering failed: {e}")
+        st.error(f"PNG Export failed: {e}")
 
-st.subheader("🤖 AI Engineer Suggestions")
-if st.button("Get AI Suggestions"):
-    st.markdown(get_ai_recommendation())
-
-st.subheader("📤 Export Options")
-colA, colB = st.columns(2)
-with colA:
+with col_exp2:
     try:
-        st.download_button("Download PNG", dot.pipe(format='png'), "pid.png", "image/png")
+        dxf = generate_dxf()
+        st.download_button("Download DXF", dxf, "p_id.dxf", mime="application/dxf")
     except Exception as e:
-        st.error(f"PNG export failed: {e}")
-with colB:
-    try:
-        dxf_stream = generate_dxf()
-        st.download_button("Download DXF", dxf_stream, file_name="pid.dxf", mime="application/dxf")
-    except Exception as e:
-        st.error(f"DXF export failed: {e}")
+        st.error(f"DXF Export failed: {e}")
