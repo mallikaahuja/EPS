@@ -107,18 +107,19 @@ def render_pid_diagram():
         if img:
             canvas.paste(img, (mid_x - 50, mid_y), img)
         draw.text((mid_x, mid_y + 110), comp["tag"], fill="black", font=FONT, anchor="ms")
+# --- Draw Dynamic Legend ---
+draw.rectangle([(1700, 50), (1980, 1400)], outline="black", width=2)
+draw.text((1750, 60), "LEGEND", font=FONT, fill="black")
+y_cursor = 100
+all_types = list(
+    {e["type"] for e in st.session_state.components["equipment"]} |
+    {i["type"] for i in st.session_state.components["inline"]}
+)
+for t in all_types:
+    draw.text((1750, y_cursor), f"• {t}", font=FONT, fill="black")
+    y_cursor += 30
 
-    # --- Draw Dynamic Legend ---
-    draw.rectangle([(1700, 50), (1980, 1400)], outline="black", width=2)
-    draw.text((1750, 60), "LEGEND", font=FONT, fill="black")
-    y_cursor = 100
-    all_types = list({e["type"] for e in st.session_state.components["equipment"]] |
-                     {i["type"] for i in st.session_state.components["inline"]})
-    for t in all_types:
-        draw.text((1750, y_cursor), f"• {t}", font=FONT, fill="black")
-        y_cursor += 30
-
-    return canvas
+ return canvas
 
 def generate_dxf_file():
     doc = ezdxf.new()
