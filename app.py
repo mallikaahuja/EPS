@@ -7,16 +7,18 @@ import ezdxf
 import io
 
 # --- CONSTANTS ---
-GRID_ROWS = list("ABCDEF")  # Classic grid rows
-GRID_COLS = list(range(1, 9))  # Classic grid cols
+GRID_ROWS = list("ABCDEF")
+GRID_COLS = list(range(1, 9))
 GRID_SPACING = 250
-SYMBOL_SIZE = 100  # px
+SYMBOL_SIZE = 100
 LEGEND_WIDTH = 350
 TITLE_BLOCK_HEIGHT = 120
 TITLE_BLOCK_WIDTH = 420
 PADDING = 50
 ARROW_WIDTH = 10
 ARROW_HEIGHT = 6
+
+TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
 
 # --- HELPERS ---
 
@@ -99,13 +101,32 @@ inline_df = load_csv("inline_component_list.csv", {"type": "Check Valve", "symbo
 
 # --- SESSION STATE ---
 if "equipment" not in st.session_state:
-    st.session_state.equipment = []
+    # On first run, populate the classic core stack
+    default_types = [
+        ("Dry Pump", "dry_pump.png"),
+        ("Column", "column.png"),
+        ("Condenser", "condenser.png"),
+        ("Receiver", "receiver.png"),
+    ]
+    equipment = []
+    default_rows = ["A", "B", "C", "D"]
+    for i, (typ, sym) in enumerate(default_types):
+        tag_prefix = "".join([w[0] for w in typ.split()]).upper()
+        tag = f"{tag_prefix}-001"
+        equipment.append({"type": typ, "tag": tag, "symbol": sym})
+    st.session_state.equipment = equipment
+    # Default grid layout: stack in first column
+    st.session_state.grid = {}
+    for i, eq in enumerate(equipment):
+        st.session_state.grid[eq["tag"]] = (default_rows[i], 1)
 if "pipelines" not in st.session_state:
+    # Wire up the core stack
     st.session_state.pipelines = []
+    tags = [eq["tag"] for eq in st.session_state.equipment]
+    for i in range(len(tags)-1):
+        st.session_state.pipelines.append({"from": tags[i], "to": tags[i+1], "type": "Process Pipe"})
 if "inline" not in st.session_state:
     st.session_state.inline = []
-if "grid" not in st.session_state:
-    st.session_state.grid = {}  # tag: (row, col)
 
 # --- SIDEBAR: LEGEND ---
 with st.sidebar:
@@ -131,7 +152,6 @@ st.write("**Equipment, Pipeline & Inline Component Editor**")
 # --- Editable equipment table ---
 def editable_table(label, data, cols):
     df = pd.DataFrame(data)
-    # FIX: Use stable st.data_editor (not experimental)
     edited = st.data_editor(df, num_rows="dynamic", key=label)
     return edited.to_dict(orient="records")
 
@@ -147,13 +167,15 @@ if st.button("Add Equipment"):
     tag = auto_tag(tag_prefix, exist_tags)
     symbol = symbol_map.get(new_eq_type, "")
     # Default to next open grid position
+    used = set(st.session_state.grid.values())
+    found = False
     for r in GRID_ROWS:
         for c in GRID_COLS:
-            if not any(v==(r,c) for v in st.session_state.grid.values()):
+            if (r, c) not in used:
+                found = True
                 break
-        else:
-            continue
-        break
+        if found:
+            break
     st.session_state.equipment.append({"type": new_eq_type, "tag": tag, "symbol": symbol})
     st.session_state.grid[tag] = (r, c)
     st.rerun()
@@ -218,10 +240,12 @@ for eq in st.session_state.equipment:
     symbol_img = symbol_or_missing(symbol)
     img.paste(symbol_img, (x, y), symbol_img)
     font = get_font()
+    # Draw tag below symbol, centered
     draw.text((x+SYMBOL_SIZE//2, y+SYMBOL_SIZE+20), tag, anchor="mm", fill="black", font=font)
-    # Callout circle
+    # Callout circle at top-left of symbol
     draw.ellipse([x-15, y-15, x+15, y+15], outline="black", width=2)
     draw.text((x, y), str(tag), anchor="mm", fill="black", font=font)
+
 # Draw pipelines
 for pl in st.session_state.pipelines:
     from_tag = pl["from"]
@@ -233,12 +257,17 @@ for pl in st.session_state.pipelines:
         y1 += SYMBOL_SIZE//2
         x2 += SYMBOL_SIZE//2
         y2 += SYMBOL_SIZE//2
-        # Orthogonal lines
-        mx = x1
-        my = y2
-        draw.line([ (x1, y1), (mx, my), (x2, y2)], fill="black", width=3)
-        draw_arrow(draw, (mx, my), (x2, y2))
-        draw_arrow(draw, (x1, y1), (mx, my))
+        # Orthogonal lines: horizontal then vertical unless in same row or col
+        if x1 == x2 or y1 == y2:
+            draw.line([ (x1, y1), (x2, y2)], fill="black", width=3)
+            draw_arrow(draw, (x1, y1), (x2, y2))
+            draw_arrow(draw, (x2, y2), (x1, y1))
+        else:
+            mx = x1
+            my = y2
+            draw.line([ (x1, y1), (mx, my), (x2, y2)], fill="black", width=3)
+            draw_arrow(draw, (mx, my), (x2, y2))
+            draw_arrow(draw, (x1, y1), (mx, my))
 # Draw inline components (mid-pipe)
 for ic in st.session_state.inline:
     # Place in the middle of first pipeline for demo
@@ -271,7 +300,7 @@ draw.rectangle([tb_x, tb_y, canvas_w-PADDING, canvas_h-PADDING], outline="black"
 draw.text((tb_x+10, tb_y+10), "EPS Interactive P&ID", fill="black", font=font)
 draw.text((tb_x+10, tb_y+40), f"Date: {today_str()}", fill="black", font=font)
 draw.text((tb_x+10, tb_y+70), f"Page: 1 of 1", fill="black", font=font)
-draw.text((tb_x+250, tb_y+10), "CLIENT:", fill="black", font=font)
+draw.text((tb_x+250, tb_y+10), f"CLIENT: {TITLE_BLOCK_CLIENT}", fill="black", font=font)
 # Padding
 draw.rectangle([PADDING, PADDING, canvas_w-PADDING, canvas_h-PADDING], outline="#bbbbbb", width=1)
 
@@ -307,6 +336,7 @@ def export_dxf():
     msp.add_text("EPS Interactive P&ID", dxfattribs={"height": 30}).set_pos((tb_x+10, tb_y+10))
     msp.add_text(f"Date: {today_str()}", dxfattribs={"height": 20}).set_pos((tb_x+10, tb_y+40))
     msp.add_text("Page: 1 of 1", dxfattribs={"height": 20}).set_pos((tb_x+10, tb_y+70))
+    msp.add_text(f"CLIENT: {TITLE_BLOCK_CLIENT}", dxfattribs={"height": 20}).set_pos((tb_x+250, tb_y+10))
     buf = io.BytesIO()
     doc.saveas(buf)
     return buf.getvalue()
