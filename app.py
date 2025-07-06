@@ -2,10 +2,12 @@ import streamlit as st
 import pandas as pd
 import os
 import io
+import base64
 import requests
 from PIL import Image, ImageDraw, ImageFont
 import ezdxf
 from io import BytesIO
+from requests_toolbelt.multipart.encoder import MultipartEncoder  # <-- NEW
 
 # CONFIG
 st.set_page_config(page_title="EPS Interactive P&ID Generator", layout="wide")
@@ -37,27 +39,31 @@ def auto_tag(prefix, existing):
         count += 1
     return f"{prefix}-{count:03}"
 
-# STABILITY IMAGE GENERATION — FIXED ✅
+# STABILITY IMAGE GEN - FIXED
 def generate_symbol_stability(type_name, image_name):
     prompt = f"A clean ISA 5.1 standard black-and-white engineering symbol for a {type_name}, transparent background, schematic style."
     url = "https://api.stability.ai/v2beta/stable-image/generate/core"
     headers = {
-        "Authorization": f"Bearer {STABILITY_API_KEY}"
+        "Authorization": f"Bearer {STABILITY_API_KEY}",
+        "Accept": "image/png"
     }
-    files = {
-        "prompt": (None, prompt),
-        "mode": (None, "text-to-image"),
-        "output_format": (None, "png"),
-        "model": (None, "stable-diffusion-xl-1024-v1-0"),
-        "aspect_ratio": (None, "1:1")
-    }
-
-    response = requests.post(url, headers=headers, files=files)
+    m = MultipartEncoder(
+        fields={
+            "prompt": prompt,
+            "mode": "text-to-image",
+            "output_format": "png",
+            "model": "stable-diffusion-xl-1024-v1-0",
+            "aspect_ratio": "1:1"
+        }
+    )
+    headers["Content-Type"] = m.content_type
+    response = requests.post(url, headers=headers, data=m)
 
     if response.status_code == 200:
+        image_data = response.content
         path = os.path.join(SYMBOLS_CACHE_DIR, image_name)
         with open(path, "wb") as f:
-            f.write(response.content)
+            f.write(image_data)
     else:
         st.warning(f"⚠️ Stability API Error {response.status_code}: {response.text}")
 
