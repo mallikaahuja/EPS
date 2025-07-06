@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import os
 import io
-import base64
 import requests
 from PIL import Image, ImageDraw, ImageFont
 import ezdxf
@@ -38,7 +37,7 @@ def auto_tag(prefix, existing):
         count += 1
     return f"{prefix}-{count:03}"
 
-# STABILITY IMAGE GEN — FIXED VERSION
+# STABILITY IMAGE GENERATION — FIXED
 def generate_symbol_stability(type_name, image_name):
     prompt = f"A clean ISA 5.1 standard black-and-white engineering symbol for a {type_name}, transparent background, schematic style."
     url = "https://api.stability.ai/v2beta/stable-image/generate/core"
@@ -61,9 +60,9 @@ def generate_symbol_stability(type_name, image_name):
         with open(path, "wb") as f:
             f.write(image_data)
     else:
-        st.warning(f"Stability API Error {response.status_code}: {response.text}")
+        st.warning(f"⚠️ Stability API Error {response.status_code}: {response.text}")
 
-# GET IMAGE
+# GET SYMBOL IMAGE
 def get_image(image_name, type_name):
     path = os.path.join(SYMBOLS_CACHE_DIR, image_name)
     if not os.path.exists(path):
@@ -100,7 +99,7 @@ def render_pid_diagram():
             draw.polygon([(x2 - 10, y2 - 6), (x2, y2), (x2 - 10, y2 + 6)], fill="black")
             draw.polygon([(x1 + 10, y1 - 6), (x1, y1), (x1 + 10, y1 + 6)], fill="black")
 
-    # INLINE
+    # INLINE COMPONENTS
     for comp in st.session_state.components["inline"]:
         pipe = next((p for p in st.session_state.components["pipelines"] if p["tag"] == comp["pipe_tag"]), None)
         if pipe and pipe["from"] in tag_positions and pipe["to"] in tag_positions:
@@ -171,7 +170,7 @@ with st.sidebar:
         st.session_state.components = {"equipment": [], "pipelines": [], "inline": []}
         st.rerun()
 
-# MAIN
+# --- MAIN ---
 st.title("🧠 EPS Interactive P&ID Generator")
 st.subheader("📋 Component Summary")
 col1, col2, col3 = st.columns(3)
