@@ -131,7 +131,8 @@ st.write("**Equipment, Pipeline & Inline Component Editor**")
 # --- Editable equipment table ---
 def editable_table(label, data, cols):
     df = pd.DataFrame(data)
-    edited = st.experimental_data_editor(df, num_rows="dynamic", key=label)
+    # FIX: Use stable st.data_editor (not experimental)
+    edited = st.data_editor(df, num_rows="dynamic", key=label)
     return edited.to_dict(orient="records")
 
 # Add Equipment
