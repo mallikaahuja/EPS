@@ -7,7 +7,7 @@ import requests
 from PIL import Image, ImageDraw, ImageFont
 import ezdxf
 from io import BytesIO
-from requests_toolbelt.multipart.encoder import MultipartEncoder  # NEW
+from requests_toolbelt.multipart.encoder import MultipartEncoder  # <-- REQUIRED
 
 # CONFIG
 st.set_page_config(page_title="EPS Interactive P&ID Generator", layout="wide")
@@ -39,10 +39,10 @@ def auto_tag(prefix, existing):
         count += 1
     return f"{prefix}-{count:03}"
 
-# STABILITY IMAGE GEN (FIXED)
+# STABILITY IMAGE GEN (Your Version)
 def generate_symbol_stability(type_name, image_name):
-    prompt = f"ISA S5.1 symbol for a {type_name}, black-and-white vector, transparent background, schematic style"
-    
+    prompt = f"A clean ISA 5.1 standard black-and-white engineering symbol for a {type_name}, transparent background, schematic style."
+    url = "https://api.stability.ai/v2beta/stable-image/generate/core"
     m = MultipartEncoder(
         fields={
             "prompt": prompt,
@@ -52,17 +52,12 @@ def generate_symbol_stability(type_name, image_name):
             "aspect_ratio": "1:1"
         }
     )
-    
     headers = {
         "Authorization": f"Bearer {STABILITY_API_KEY}",
+        "Accept": "image/*",
         "Content-Type": m.content_type
     }
-
-    response = requests.post(
-        "https://api.stability.ai/v2beta/stable-image/generate/core",
-        headers=headers,
-        data=m
-    )
+    response = requests.post(url, headers=headers, data=m)
 
     if response.status_code == 200:
         image_data = response.content
@@ -88,7 +83,6 @@ def render_pid_diagram():
     tag_positions = {}
     grid_spacing = 250
 
-    # EQUIPMENT
     for i, eq in enumerate(st.session_state.components["equipment"]):
         x = 100 + (i % 5) * grid_spacing
         y = 150 + (i // 5) * 300
@@ -98,7 +92,6 @@ def render_pid_diagram():
             canvas.paste(img, (x, y), img)
         draw.text((x + 50, y + 110), eq["tag"], fill="black", font=FONT, anchor="ms")
 
-    # PIPELINES
     for pipe in st.session_state.components["pipelines"]:
         start = tag_positions.get(pipe["from"])
         end = tag_positions.get(pipe["to"])
@@ -109,7 +102,6 @@ def render_pid_diagram():
             draw.polygon([(x2 - 10, y2 - 6), (x2, y2), (x2 - 10, y2 + 6)], fill="black")
             draw.polygon([(x1 + 10, y1 - 6), (x1, y1), (x1 + 10, y1 + 6)], fill="black")
 
-    # INLINE
     for comp in st.session_state.components["inline"]:
         pipe = next((p for p in st.session_state.components["pipelines"] if p["tag"] == comp["pipe_tag"]), None)
         if pipe and pipe["from"] in tag_positions and pipe["to"] in tag_positions:
@@ -120,7 +112,6 @@ def render_pid_diagram():
                 canvas.paste(img, (mid_x - 50, mid_y), img)
             draw.text((mid_x, mid_y + 110), comp["tag"], fill="black", font=FONT, anchor="ms")
 
-    # LEGEND
     draw.rectangle([(1700, 50), (1980, 1450)], outline="black", width=2)
     draw.text((1750, 60), "LEGEND", font=FONT, fill="black")
     y_cursor = 100
@@ -144,7 +135,7 @@ def generate_dxf_file():
     doc.write(buf)
     return buf.getvalue().encode("utf-8")
 
-# --- SIDEBAR ---
+# SIDEBAR UI
 with st.sidebar:
     st.header("Add Equipment")
     if not equipment_df.empty:
@@ -180,7 +171,7 @@ with st.sidebar:
         st.session_state.components = {"equipment": [], "pipelines": [], "inline": []}
         st.rerun()
 
-# MAIN
+# MAIN UI
 st.title("🧠 EPS Interactive P&ID Generator")
 st.subheader("📋 Component Summary")
 col1, col2, col3 = st.columns(3)
