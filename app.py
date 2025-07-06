@@ -17,7 +17,6 @@ TITLE_BLOCK_WIDTH = 420
 PADDING = 50
 ARROW_WIDTH = 10
 ARROW_HEIGHT = 6
-
 TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
 
 # --- HELPERS ---
@@ -35,9 +34,14 @@ def load_symbol(symbol_name):
         return img
     return None
 
+def list_symbol_pngs():
+    try:
+        return sorted([f for f in os.listdir("symbols") if f.lower().endswith(".png")])
+    except Exception:
+        return []
+
 def draw_arrow(draw, start, end, color="black"):
     draw.line([start, end], fill=color, width=3)
-    # Arrowhead at end
     arrow_tip = end
     dx = start[0]-end[0]
     dy = start[1]-end[1]
@@ -68,7 +72,6 @@ def symbol_or_missing(symbol_name):
     symbol = load_symbol(symbol_name)
     if symbol:
         return symbol
-    # Missing symbol: light gray box with text
     img = Image.new("RGBA", (SYMBOL_SIZE, SYMBOL_SIZE), (240, 240, 240, 255))
     draw = ImageDraw.Draw(img)
     draw.rectangle([5,5,SYMBOL_SIZE-5,SYMBOL_SIZE-5], outline="gray", width=2)
@@ -101,7 +104,6 @@ inline_df = load_csv("inline_component_list.csv", {"type": "Check Valve", "symbo
 
 # --- SESSION STATE ---
 if "equipment" not in st.session_state:
-    # On first run, populate the classic core stack
     default_types = [
         ("Dry Pump", "dry_pump.png"),
         ("Column", "column.png"),
@@ -115,12 +117,10 @@ if "equipment" not in st.session_state:
         tag = f"{tag_prefix}-001"
         equipment.append({"type": typ, "tag": tag, "symbol": sym})
     st.session_state.equipment = equipment
-    # Default grid layout: stack in first column
     st.session_state.grid = {}
     for i, eq in enumerate(equipment):
         st.session_state.grid[eq["tag"]] = (default_rows[i], 1)
 if "pipelines" not in st.session_state:
-    # Wire up the core stack
     st.session_state.pipelines = []
     tags = [eq["tag"] for eq in st.session_state.equipment]
     for i in range(len(tags)-1):
@@ -146,27 +146,58 @@ with st.sidebar:
 
 # --- MAIN UI: TABLES ---
 st.title("EPS Interactive P&ID Generator")
-
 st.write("**Equipment, Pipeline & Inline Component Editor**")
 
-# --- Editable equipment table ---
-def editable_table(label, data, cols):
+def editable_equipment_table(label, data):
     df = pd.DataFrame(data)
-    edited = st.data_editor(df, num_rows="dynamic", key=label)
-    return edited.to_dict(orient="records")
+    available_pngs = list_symbol_pngs()
+    edited_rows = []
+    for idx, row in df.iterrows():
+        c1, c2, c3 = st.columns([3,2,2])
+        with c1:
+            typ = st.text_input(f"Type {idx+1}", value=row["type"], key=f"type_{label}_{idx}")
+        with c2:
+            tag = st.text_input(f"Tag {idx+1}", value=row["tag"], key=f"tag_{label}_{idx}")
+        with c3:
+            symbol = st.selectbox(
+                f"Symbol {idx+1}", 
+                available_pngs, 
+                index=available_pngs.index(row["symbol"]) if row["symbol"] in available_pngs else 0, 
+                key=f"symbol_{label}_{idx}"
+            ) if available_pngs else row["symbol"]
+        edited_rows.append({"type": typ, "tag": tag, "symbol": symbol})
+    return edited_rows
 
-# Add Equipment
+def editable_inline_table(label, data):
+    df = pd.DataFrame(data)
+    available_pngs = list_symbol_pngs()
+    edited_rows = []
+    for idx, row in df.iterrows():
+        c1, c2, c3 = st.columns([3,2,2])
+        with c1:
+            typ = st.text_input(f"Type (inline) {idx+1}", value=row["type"], key=f"type_inline_{label}_{idx}")
+        with c2:
+            tag = st.text_input(f"Tag (inline) {idx+1}", value=row["tag"], key=f"tag_inline_{label}_{idx}")
+        with c3:
+            symbol = st.selectbox(
+                f"Symbol (inline) {idx+1}", 
+                available_pngs, 
+                index=available_pngs.index(row["symbol"]) if row["symbol"] in available_pngs else 0, 
+                key=f"symbol_inline_{label}_{idx}"
+            ) if available_pngs else row["symbol"]
+        edited_rows.append({"type": typ, "tag": tag, "symbol": symbol})
+    return edited_rows
+
+# Equipment table
 st.subheader("Equipment")
-equipment_opts = equipment_df["type"].unique().tolist()
-symbol_map = dict(zip(equipment_df["type"], equipment_df["symbol"]))
-
+equipment_opts = equipment_df["type"].unique().tolist() if not equipment_df.empty else ["Dry Pump", "Column", "Condenser", "Receiver"]
+available_pngs = list_symbol_pngs()
 new_eq_type = st.selectbox("Type", equipment_opts, key="new_eq_type")
+new_eq_symbol = st.selectbox("Symbol", available_pngs, key="new_eq_symbol") if available_pngs else ""
 if st.button("Add Equipment"):
     tag_prefix = "".join([w[0] for w in new_eq_type.split()]).upper()
     exist_tags = [eq["tag"] for eq in st.session_state.equipment]
     tag = auto_tag(tag_prefix, exist_tags)
-    symbol = symbol_map.get(new_eq_type, "")
-    # Default to next open grid position
     used = set(st.session_state.grid.values())
     found = False
     for r in GRID_ROWS:
@@ -176,26 +207,23 @@ if st.button("Add Equipment"):
                 break
         if found:
             break
-    st.session_state.equipment.append({"type": new_eq_type, "tag": tag, "symbol": symbol})
+    st.session_state.equipment.append({"type": new_eq_type, "tag": tag, "symbol": new_eq_symbol})
     st.session_state.grid[tag] = (r, c)
     st.rerun()
+st.session_state.equipment = editable_equipment_table("equipment_editor", st.session_state.equipment)
 
-# Table for editing equipment
-st.session_state.equipment = editable_table("equipment_editor", st.session_state.equipment, ["type", "tag", "symbol"])
-
-# Inline components UI
+# Inline table
 st.subheader("Inline Components")
-inline_opts = inline_df["type"].unique().tolist()
-inline_symbol_map = dict(zip(inline_df["type"], inline_df["symbol"]))
+inline_opts = inline_df["type"].unique().tolist() if not inline_df.empty else ["Check Valve", "Sight Glass", "Filter"]
 new_inline_type = st.selectbox("Inline Type", inline_opts, key="new_inline_type")
+new_inline_symbol = st.selectbox("Inline Symbol", available_pngs, key="new_inline_symbol") if available_pngs else ""
 if st.button("Add Inline Component"):
     tag_prefix = "".join([w[0] for w in new_inline_type.split()]).upper()
     exist_tags = [ic["tag"] for ic in st.session_state.inline]
     tag = auto_tag(tag_prefix, exist_tags)
-    symbol = inline_symbol_map.get(new_inline_type, "")
-    st.session_state.inline.append({"type": new_inline_type, "tag": tag, "symbol": symbol})
+    st.session_state.inline.append({"type": new_inline_type, "tag": tag, "symbol": new_inline_symbol})
     st.rerun()
-st.session_state.inline = editable_table("inline_editor", st.session_state.inline, ["type", "tag", "symbol"])
+st.session_state.inline = editable_inline_table("inline_editor", st.session_state.inline)
 
 # Pipelines UI
 st.subheader("Pipelines")
@@ -207,7 +235,22 @@ if len(st.session_state.equipment) >= 2:
     if st.button("Add Pipeline"):
         st.session_state.pipelines.append({"from": new_from, "to": new_to, "type": "Process Pipe"})
         st.rerun()
-st.session_state.pipelines = editable_table("pipeline_editor", st.session_state.pipelines, ["from", "to", "type"])
+
+def editable_pipeline_table(label, data):
+    df = pd.DataFrame(data)
+    edited_rows = []
+    for idx, row in df.iterrows():
+        c1, c2, c3 = st.columns([3,3,3])
+        with c1:
+            frm = st.text_input(f"From {idx+1}", value=row["from"], key=f"from_{label}_{idx}")
+        with c2:
+            to = st.text_input(f"To {idx+1}", value=row["to"], key=f"to_{label}_{idx}")
+        with c3:
+            typ = st.text_input(f"Type {idx+1}", value=row["type"], key=f"type_{label}_pipe_{idx}")
+        edited_rows.append({"from": frm, "to": to, "type": typ})
+    return edited_rows
+
+st.session_state.pipelines = editable_pipeline_table("pipeline_editor", st.session_state.pipelines)
 
 # --- Editable grid positions ---
 st.subheader("Edit Equipment Grid Positions")
@@ -250,13 +293,10 @@ for eq in st.session_state.equipment:
     symbol_img = symbol_or_missing(symbol)
     img.paste(symbol_img, (x, y), symbol_img)
     font = get_font()
-    # Draw tag below symbol, centered
     draw.text((x+SYMBOL_SIZE//2, y+SYMBOL_SIZE+20), tag, anchor="mm", fill="black", font=font)
-    # Callout circle at top-left of symbol
     draw.ellipse([x-15, y-15, x+15, y+15], outline="black", width=2)
     draw.text((x, y), str(tag), anchor="mm", fill="black", font=font)
 
-# Draw pipelines
 for pl in st.session_state.pipelines:
     from_tag = pl["from"]
     to_tag = pl["to"]
@@ -267,7 +307,6 @@ for pl in st.session_state.pipelines:
         y1 += SYMBOL_SIZE//2
         x2 += SYMBOL_SIZE//2
         y2 += SYMBOL_SIZE//2
-        # Orthogonal lines: horizontal then vertical unless in same row or col
         if x1 == x2 or y1 == y2:
             draw.line([ (x1, y1), (x2, y2)], fill="black", width=3)
             draw_arrow(draw, (x1, y1), (x2, y2))
@@ -278,9 +317,8 @@ for pl in st.session_state.pipelines:
             draw.line([ (x1, y1), (mx, my), (x2, y2)], fill="black", width=3)
             draw_arrow(draw, (mx, my), (x2, y2))
             draw_arrow(draw, (x1, y1), (mx, my))
-# Draw inline components (mid-pipe)
+
 for ic in st.session_state.inline:
-    # Place in the middle of first pipeline for demo
     if st.session_state.pipelines:
         pl = st.session_state.pipelines[0]
         from_tag = pl["from"]
@@ -293,7 +331,7 @@ for ic in st.session_state.inline:
         img.paste(symbol_img, (mx, my), symbol_img)
         font = get_font()
         draw.text((mx+SYMBOL_SIZE//2, my+SYMBOL_SIZE+20), ic["tag"], anchor="mm", fill="black", font=font)
-# Draw legend box
+
 legend_x = canvas_w - LEGEND_WIDTH - PADDING
 legend_y = PADDING
 draw.rectangle([legend_x, legend_y, canvas_w-PADDING, legend_y+30*(len(legend_items)+2)], outline="black", width=2)
@@ -303,7 +341,6 @@ for i, item in enumerate(legend_items):
     draw.text((legend_x+10, legend_y+30*(i+1)+5), f"{item['Type']} ({item['Tag Prefix']})", fill="black", font=font)
     symbol = symbol_or_missing(item["Symbol"])
     img.paste(symbol, (legend_x+200, legend_y+30*(i+1)), symbol)
-# Draw title block
 tb_x = canvas_w - TITLE_BLOCK_WIDTH - PADDING
 tb_y = canvas_h - TITLE_BLOCK_HEIGHT - PADDING
 draw.rectangle([tb_x, tb_y, canvas_w-PADDING, canvas_h-PADDING], outline="black", width=2)
@@ -311,28 +348,22 @@ draw.text((tb_x+10, tb_y+10), "EPS Interactive P&ID", fill="black", font=font)
 draw.text((tb_x+10, tb_y+40), f"Date: {today_str()}", fill="black", font=font)
 draw.text((tb_x+10, tb_y+70), f"Page: 1 of 1", fill="black", font=font)
 draw.text((tb_x+250, tb_y+10), f"CLIENT: {TITLE_BLOCK_CLIENT}", fill="black", font=font)
-# Padding
 draw.rectangle([PADDING, PADDING, canvas_w-PADDING, canvas_h-PADDING], outline="#bbbbbb", width=1)
 
-# Show image
 st.image(img, use_container_width=True)
 
-# --- EXPORT PNG ---
 buf = io.BytesIO()
 img.save(buf, format="PNG")
 st.download_button("Download PNG", data=buf.getvalue(), file_name="pid.png", mime="image/png")
 
-# --- EXPORT DXF ---
 def export_dxf():
     doc = ezdxf.new()
     msp = doc.modelspace()
-    # Draw equipment as rectangles
     for eq in st.session_state.equipment:
         tag = eq["tag"]
         x, y = component_grid_xy(*st.session_state.grid[tag])
         msp.add_lwpolyline([(x, y), (x+SYMBOL_SIZE, y), (x+SYMBOL_SIZE, y+SYMBOL_SIZE), (x, y+SYMBOL_SIZE), (x, y)], close=True)
         msp.add_text(tag, dxfattribs={"height": 20}).set_pos((x, y+SYMBOL_SIZE+20))
-    # Draw pipelines as polylines
     for pl in st.session_state.pipelines:
         from_tag = pl["from"]
         to_tag = pl["to"]
@@ -342,7 +373,6 @@ def export_dxf():
             mx = x1
             my = y2
             msp.add_lwpolyline([ (x1, y1), (mx, my), (x2, y2)])
-    # Add title block
     msp.add_text("EPS Interactive P&ID", dxfattribs={"height": 30}).set_pos((tb_x+10, tb_y+10))
     msp.add_text(f"Date: {today_str()}", dxfattribs={"height": 20}).set_pos((tb_x+10, tb_y+40))
     msp.add_text("Page: 1 of 1", dxfattribs={"height": 20}).set_pos((tb_x+10, tb_y+70))
@@ -355,7 +385,6 @@ if st.button("Download DXF"):
     dxf_bytes = export_dxf()
     st.download_button("Save DXF", data=dxf_bytes, file_name="pid.dxf", mime="application/dxf")
 
-# --- ERRORS & WARNINGS ---
 missing_syms = [eq["symbol"] for eq in st.session_state.equipment+st.session_state.inline if not load_symbol(eq["symbol"])]
 if missing_syms:
     st.warning(f"Missing symbols: {', '.join(set(missing_syms))} (shown as gray box). Please add PNGs in /symbols.")
