@@ -211,14 +211,24 @@ st.session_state.pipelines = editable_table("pipeline_editor", st.session_state.
 
 # --- Editable grid positions ---
 st.subheader("Edit Equipment Grid Positions")
-for eq in st.session_state.equipment:
+for idx, eq in enumerate(st.session_state.equipment):
     tag = eq["tag"]
     r, c = st.session_state.grid.get(tag, (GRID_ROWS[0], GRID_COLS[0]))
     col1, col2 = st.columns(2)
     with col1:
-        new_r = st.selectbox(f"Row for {tag}", GRID_ROWS, index=GRID_ROWS.index(r), key=f"row_{tag}")
+        new_r = st.selectbox(
+            f"Row for {tag}",
+            GRID_ROWS,
+            index=GRID_ROWS.index(r),
+            key=f"row_{tag}_{idx}"
+        )
     with col2:
-        new_c = st.selectbox(f"Col for {tag}", GRID_COLS, index=GRID_COLS.index(c), key=f"col_{tag}")
+        new_c = st.selectbox(
+            f"Col for {tag}",
+            GRID_COLS,
+            index=GRID_COLS.index(c),
+            key=f"col_{tag}_{idx}"
+        )
     st.session_state.grid[tag] = (new_r, new_c)
 
 # --- CANVAS PREVIEW ---
