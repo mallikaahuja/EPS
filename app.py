@@ -6,22 +6,21 @@ import base64
 import requests
 from PIL import Image, ImageDraw, ImageFont
 import ezdxf
-from ezdxf import enums  # THE CORRECT IMPORT FOR EZDXF CONSTANTS
+from io import BytesIO
+from requests_toolbelt.multipart.encoder import MultipartEncoder  # <-- NEW
 
-# --- CONFIGURATION ---
+# CONFIG
 st.set_page_config(page_title="EPS Interactive P&ID Generator", layout="wide")
 SYMBOLS_CACHE_DIR = "symbols_cache"
 os.makedirs(SYMBOLS_CACHE_DIR, exist_ok=True)
 STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
 
 try:
-    FONT = ImageFont.truetype("arial.ttf", 18)
-    SMALL_FONT = ImageFont.truetype("arial.ttf", 14)
-except IOError:
+    FONT = ImageFont.truetype("arial.ttf", 14)
+except:
     FONT = ImageFont.load_default()
-    SMALL_FONT = ImageFont.load_default()
 
-# --- DATA LOADING ---
+# LOAD DATA
 @st.cache_data
 def load_csv(file):
     return pd.read_csv(file) if os.path.exists(file) else pd.DataFrame()
@@ -29,179 +28,170 @@ def load_csv(file):
 equipment_df = load_csv("equipment_list.csv")
 inline_df = load_csv("inline_component_list.csv")
 
-# --- SESSION STATE ---
+# STATE INIT
 if "components" not in st.session_state:
     st.session_state.components = {"equipment": [], "pipelines": [], "inline": []}
 
-# --- CORE FUNCTIONS ---
-def auto_tag(prefix, existing_list):
-    existing_tags = [item['tag'] for item in existing_list]
+# TAGGING
+def auto_tag(prefix, existing):
     count = 1
-    while f"{prefix}-{count:03}" in existing_tags:
+    while f"{prefix}-{count:03}" in existing:
         count += 1
     return f"{prefix}-{count:03}"
 
-def generate_image_stability(type_name, image_name):
-    if not STABILITY_API_KEY:
-        st.error("Missing STABILITY_API_KEY in environment variables.")
-        return
-    
-    st.info(f"Generating ISA-compliant symbol for '{type_name}' with Stability AI...")
-    prompt = f"ISA S5.1 standard P&ID symbol for a '{type_name}', professional 2D engineering schematic icon. Clean, black line art. No text, no shadows, pure white background, transparent background."
-    
-    try:
-        # --- DEFINITIVE STABILITY AI FIX ---
-        # The API requires a different header to get a JSON response with the image data.
-        response = requests.post(
-            "https://api.stability.ai/v2beta/stable-image/generate/core",
-            headers={
-                "Authorization": f"Bearer {STABILITY_API_KEY}",
-                "Accept": "application/json"  # Ask for JSON, not the image directly
-            },
-            files={"prompt": (None, prompt)},
-            data={"output_format": "png"}
-        )
+# STABILITY IMAGE GEN - FIXED
+def generate_symbol_stability(type_name, image_name):
+    prompt = f"A clean ISA 5.1 standard black-and-white engineering symbol for a {type_name}, transparent background, schematic style."
+    url = "https://api.stability.ai/v2beta/stable-image/generate/core"
+    headers = {
+        "Authorization": f"Bearer {STABILITY_API_KEY}",
+        "Accept": "image/png"
+    }
+    m = MultipartEncoder(
+        fields={
+            "prompt": prompt,
+            "mode": "text-to-image",
+            "output_format": "png",
+            "model": "stable-diffusion-xl-1024-v1-0",
+            "aspect_ratio": "1:1"
+        }
+    )
+    headers["Content-Type"] = m.content_type
+    response = requests.post(url, headers=headers, data=m)
 
-        if response.status_code == 200:
-            data = response.json()
-            # The image is a base64 string in the first artifact
-            b64_image = data['artifacts'][0]['base64']
-            image_data = base64.b64decode(b64_image)
-            
-            with open(os.path.join(SYMBOLS_CACHE_DIR, image_name), "wb") as f:
-                f.write(image_data)
-            st.success(f"New symbol '{image_name}' created! Reloading...")
-            st.rerun()
-        else:
-            st.error(f"Stability API Error: {response.status_code} - {response.text}")
-    except Exception as e:
-        st.error(f"Image generation request failed: {e}")
+    if response.status_code == 200:
+        image_data = response.content
+        path = os.path.join(SYMBOLS_CACHE_DIR, image_name)
+        with open(path, "wb") as f:
+            f.write(image_data)
+    else:
+        st.warning(f"⚠️ Stability API Error {response.status_code}: {response.text}")
 
-def get_symbol_image(type_name, image_name):
+# GET IMAGE
+def get_image(image_name, type_name):
     path = os.path.join(SYMBOLS_CACHE_DIR, image_name)
     if not os.path.exists(path):
-        generate_image_stability(type_name, image_name)
-        return None
-    try:
+        generate_symbol_stability(type_name, image_name)
+    if os.path.exists(path):
         return Image.open(path).convert("RGBA").resize((100, 100))
-    except Exception:
-        img = Image.new("RGBA", (100, 100), (255, 255, 255, 0))
-        draw = ImageDraw.Draw(img)
-        draw.rectangle([(0,0), (99,99)], outline="red", width=2)
-        draw.text((10, 40), f"LOAD\nFAILED", fill="red", font=SMALL_FONT)
-        return img
+    return None
 
-def render_professional_pid():
-    if not st.session_state.components['equipment']: return None
-    canvas = Image.new("RGBA", (2400, 1600), (248, 249, 251, 255))
+# DRAW DIAGRAM
+def render_pid_diagram():
+    canvas = Image.new("RGBA", (2000, 1500), (255, 255, 255, 255))
     draw = ImageDraw.Draw(canvas)
-    
-    # Advanced Layout Engine based on a grid
-    layout_map = {eq['tag']: (i * 2, 2) for i, eq in enumerate(st.session_state.components['equipment'])}
-    node_positions = {}
-    x_start, y_start, x_step, y_step = 200, 400, 350, 300
+    tag_positions = {}
+    grid_spacing = 250
 
-    for eq in st.session_state.components['equipment']:
-        tag, eq_type = eq['tag'], eq['type']
-        col, row = layout_map.get(tag, (len(node_positions) * 2, 4))
-        px, py = x_start + col * x_step, y_start + row * y_step
-        node_positions[tag] = {'x': px, 'y': py, 'in':(px-50, py), 'out':(px+50, py), 'top':(px, py-50), 'bottom':(px, py+50)}
-        img = get_symbol_image(eq_type, eq["symbol"])
+    # EQUIPMENT
+    for i, eq in enumerate(st.session_state.components["equipment"]):
+        x = 100 + (i % 5) * grid_spacing
+        y = 150 + (i // 5) * 300
+        tag_positions[eq["tag"]] = (x, y)
+        img = get_image(eq["symbol"], eq["type"])
         if img:
-            canvas.paste(img, (px - 50, py - 50), img)
-            draw.text((px, py + 60), tag, fill="black", font=FONT, anchor="ms")
-            
-    for pipe in st.session_state.components['pipelines']:
-        start_node, end_node = node_positions.get(pipe["from"]), node_positions.get(pipe["to"])
-        if not (start_node and end_node): continue
-        p1, p2 = start_node['out'], end_node['in']
-        draw.line([p1, p2], fill="black", width=3)
-        draw.polygon([(p2[0]-12, p2[1]-8), (p2[0], p2[1]), (p2[0]-12, p2[1]+8)], fill="black")
-        
-        inline_comps = [c for c in st.session_state.components['inline'] if c['pipe_tag'] == pipe['tag']]
-        num_segments = len(inline_comps) + 1
-        for i, comp in enumerate(inline_comps):
-            frac = (i + 1) / num_segments
-            mid_x, mid_y = int(p1[0] + frac * (p2[0] - p1[0])), p1[1]
-            img = get_symbol_image(comp["type"], comp["symbol"])
+            canvas.paste(img, (x, y), img)
+        draw.text((x + 50, y + 110), eq["tag"], fill="black", font=FONT, anchor="ms")
+
+    # PIPELINES
+    for pipe in st.session_state.components["pipelines"]:
+        start = tag_positions.get(pipe["from"])
+        end = tag_positions.get(pipe["to"])
+        if start and end:
+            x1, y1 = start[0] + 100, start[1] + 50
+            x2, y2 = end[0], end[1] + 50
+            draw.line([(x1, y1), (x2, y2)], fill="black", width=3)
+            draw.polygon([(x2 - 10, y2 - 6), (x2, y2), (x2 - 10, y2 + 6)], fill="black")
+            draw.polygon([(x1 + 10, y1 - 6), (x1, y1), (x1 + 10, y1 + 6)], fill="black")
+
+    # INLINE
+    for comp in st.session_state.components["inline"]:
+        pipe = next((p for p in st.session_state.components["pipelines"] if p["tag"] == comp["pipe_tag"]), None)
+        if pipe and pipe["from"] in tag_positions and pipe["to"] in tag_positions:
+            mid_x = int((tag_positions[pipe["from"]][0] + tag_positions[pipe["to"]][0]) / 2) + 50
+            mid_y = tag_positions[pipe["from"]][1] + 30
+            img = get_image(comp["symbol"], comp["type"])
             if img:
-                draw.line([(mid_x-60, mid_y), (mid_x+60, mid_y)], fill=(248, 249, 251, 255), width=5)
-                canvas.paste(img, (mid_x - 50, mid_y - 50), img)
-                draw.text((mid_x, mid_y + 60), comp['tag'], fill="black", font=FONT, anchor="ms")
+                canvas.paste(img, (mid_x - 50, mid_y), img)
+            draw.text((mid_x, mid_y + 110), comp["tag"], fill="black", font=FONT, anchor="ms")
+
+    # LEGEND
+    draw.rectangle([(1700, 50), (1980, 1450)], outline="black", width=2)
+    draw.text((1750, 60), "LEGEND", font=FONT, fill="black")
+    y_cursor = 100
+    all_types = list({e["type"] for e in st.session_state.components["equipment"]} |
+                     {i["type"] for i in st.session_state.components["inline"]})
+    for t in all_types:
+        draw.text((1750, y_cursor), f"• {t}", font=FONT, fill="black")
+        y_cursor += 30
+
     return canvas
 
+# DXF EXPORT
 def generate_dxf_file():
     doc = ezdxf.new()
     msp = doc.modelspace()
     for i, eq in enumerate(st.session_state.components["equipment"]):
         x = i * 150
         msp.add_lwpolyline([(x, 0), (x+30, 0), (x+30, 30), (x, 30), (x, 0)])
-        # --- DEFINITIVE EZDXF FIX ---
-        text = msp.add_text(eq["tag"], dxfattribs={"height": 2.5})
-        text.set_placement((x + 15, -5), align=enums.TextEntityAlignment.TOP_CENTER)
+        msp.add_text(eq["tag"], dxfattribs={"height": 2.5})
     buf = io.StringIO()
     doc.write(buf)
     return buf.getvalue().encode("utf-8")
 
-def canvas_to_bytes(img):
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-# --- SIDEBAR UI ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("Add Equipment")
-    if not equipment_options.empty:
-        eq_type = st.sidebar.selectbox("Equipment Type", equipment_options["type"].unique())
-        row = equipment_options[equipment_options["type"] == eq_type].iloc[0]
-        tag = auto_tag(row["Tag Prefix"], st.session_state.components["equipment"])
-        st.sidebar.text_input("Generated Tag", value=tag, disabled=True)
-        if st.sidebar.button("➕ Add Equipment"):
+    if not equipment_df.empty:
+        eq_type = st.selectbox("Equipment Type", equipment_df["type"].unique())
+        row = equipment_df[equipment_df["type"] == eq_type].iloc[0]
+        tag = auto_tag(row["Tag Prefix"], [e["tag"] for e in st.session_state.components["equipment"]])
+        st.text_input("Generated Tag", value=tag, disabled=True)
+        if st.button("➕ Add Equipment"):
             st.session_state.components["equipment"].append({"type": eq_type, "tag": tag, "symbol": row["Symbol_Image"]})
             st.rerun()
+
     st.header("Add Pipeline")
     if len(st.session_state.components["equipment"]) >= 2:
-        from_tag = st.sidebar.selectbox("From", [e["tag"] for e in st.session_state.components["equipment"]])
+        from_tag = st.selectbox("From", [e["tag"] for e in st.session_state.components["equipment"]])
         to_opts = [e["tag"] for e in st.session_state.components["equipment"] if e["tag"] != from_tag]
-        if to_opts:
-            to_tag = st.sidebar.selectbox("To", to_opts)
-            tag = auto_tag("PL", st.session_state.components["pipelines"])
-            st.sidebar.text_input("New Pipeline Tag", value=tag, disabled=True)
-            if st.sidebar.button("➕ Add Pipeline"):
-                st.session_state.components["pipelines"].append({"tag": tag, "from": from_tag, "to": to_tag})
-                st.rerun()
+        to_tag = st.selectbox("To", to_opts)
+        tag = auto_tag("P", [p["tag"] for p in st.session_state.components["pipelines"]])
+        if st.button("➕ Add Pipeline"):
+            st.session_state.components["pipelines"].append({"tag": tag, "from": from_tag, "to": to_tag})
+            st.rerun()
+
     st.header("Add In-Line Component")
-    if st.session_state.components["pipelines"] and not inline_options.empty:
-        inline_type = st.sidebar.selectbox("In-line Type", inline_options["type"].unique())
-        row = inline_options[inline_options["type"] == inline_type].iloc[0]
-        pipe_tag = st.sidebar.selectbox("On Pipeline", [p["tag"] for p in st.session_state.components["pipelines"]])
-        tag = auto_tag(row["Tag Prefix"], st.session_state.components["inline"])
-        st.sidebar.text_input("New In-line Tag", value=tag, disabled=True)
-        if st.sidebar.button("➕ Add In-Line"):
+    if st.session_state.components["pipelines"] and not inline_df.empty:
+        inline_type = st.selectbox("In-line Type", inline_df["type"].unique())
+        row = inline_df[inline_df["type"] == inline_type].iloc[0]
+        pipe_tag = st.selectbox("Pipeline", [p["tag"] for p in st.session_state.components["pipelines"]])
+        tag = auto_tag(row["Tag Prefix"], [i["tag"] for i in st.session_state.components["inline"]])
+        if st.button("➕ Add Inline"):
             st.session_state.components["inline"].append({"type": inline_type, "tag": tag, "pipe_tag": pipe_tag, "symbol": row["Symbol_Image"]})
             st.rerun()
-    if st.sidebar.button("🔄 Reset All", use_container_width=True):
+
+    if st.button("🔄 Reset All"):
         st.session_state.components = {"equipment": [], "pipelines": [], "inline": []}
         st.rerun()
 
-# --- MAIN PAGE ---
+# MAIN
 st.title("🧠 EPS Interactive P&ID Generator")
 st.subheader("📋 Component Summary")
-c1, c2, c3 = st.columns(3)
-with c1: c1.dataframe(st.session_state.components["equipment"])
-with c2: c2.dataframe(st.session_state.components["pipelines"])
-with c3: c3.dataframe(st.session_state.components["inline"])
+col1, col2, col3 = st.columns(3)
+with col1: st.dataframe(st.session_state.components["equipment"])
+with col2: st.dataframe(st.session_state.components["pipelines"])
+with col3: st.dataframe(st.session_state.components["inline"])
 
 st.markdown("---")
 st.subheader("🖼️ P&ID Preview")
-diagram = render_professional_pid()
+diagram = render_pid_diagram()
 if diagram:
     st.image(diagram)
-    st.subheader("📤 Export P&ID")
-    d_col1, d_col2 = st.columns(2)
-    with d_col1:
-        st.download_button("Download PNG", canvas_to_bytes(diagram), "pid.png", "image/png", use_container_width=True)
-    with d_col2:
-        st.download_button("Download DXF", generate_dxf_file(), "pid.dxf", "application/dxf", use_container_width=True)
-else:
-    st.info("Add components from the sidebar to begin.")
+    c1, c2 = st.columns(2)
+    with c1:
+        buf = BytesIO()
+        diagram.save(buf, format="PNG")
+        st.download_button("Download PNG", buf.getvalue(), "pid.png", "image/png")
+    with c2:
+        st.download_button("Download DXF", generate_dxf_file(), "pid.dxf", "application/dxf")
