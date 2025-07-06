@@ -5,53 +5,106 @@ import os
 import datetime
 import io
 import ezdxf
+import openai
+import requests
+import base64
 
-# --- SIZING & GRID CONSTANTS ---
-min_width = 100
-max_width = 180
-min_height = 100
-max_height = 300
-margin_y = 100
-std_width = min_width
-std_height = min_height
-tall_height = max_height
+# --- ENVIRONMENT VARIABLES (Railway: set these in your project) ---
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+STABILITY_API_KEY = os.environ.get("STABILITY_API_KEY")
+
+# --- SIDEBAR: Layout & Visual Controls ---
+st.sidebar.markdown("### Layout & Visual Controls")
+GRID_ROWS = st.sidebar.slider("Grid Rows", 6, 20, 12, 1, help="Number of grid rows (A–L = 12)")
+GRID_COLS = st.sidebar.slider("Grid Columns", 6, 20, 12, 1, help="Number of grid columns (1–12 = 12)")
+GRID_SPACING = st.sidebar.slider("Grid Spacing (px)", 60, 200, 120, 5, help="Distance between grid points")
+SYMBOL_SCALE = st.sidebar.slider("Symbol Scale", 0.5, 2.0, 1.1, 0.1, help="Resize symbols relative to grid spacing")
+MIN_WIDTH = st.sidebar.slider("Symbol Min Width", 20, 120, 60, 5)
+MAX_WIDTH = st.sidebar.slider("Symbol Max Width", 80, 200, 140, 5)
+PIPE_WIDTH = st.sidebar.slider("Pipe Width", 1, 8, 2)
+TAG_FONT_SIZE = st.sidebar.slider("Tag Font Size", 8, 20, 12)
+LEGEND_FONT_SIZE = st.sidebar.slider("Legend Font Size", 8, 20, 10)
+ARROW_LENGTH = st.sidebar.slider("Arrow Length", 8, 30, 15)
+MARGIN_Y = st.sidebar.slider("Vertical Margin Y", 40, 200, 100, 10)
+
 PADDING = 60
 LEGEND_WIDTH = 350
 TITLE_BLOCK_HEIGHT = 120
 TITLE_BLOCK_WIDTH = 420
 TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
-ARROW_WIDTH = 14
-ARROW_HEIGHT = 20
-GRID_ROWS = list("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-GRID_COLS = list(range(1, 20))
 
-# COMPONENTS: position hints (x_hint: column, y_hint: row), tall for vertical equipment
+# --- Layout order and direction map for custom P&ID logic ---
+layout_order = [
+    "Flame Arrestor", "Suction Filter", "Suction Condenser", "Catch Pot",
+    "Catch Pot (Auto)", "Dry Pump Model KDP330", "Discharge Condenser",
+    "Catch Pot (Manual, Disch)", "Catch Pot (Auto, Disch)", "Discharge Silencer",
+    "Receiver", "Scrubber"
+]
+component_direction_map = {
+    "Flame Arrestor": "bottom",
+    "Suction Filter": "bottom",
+    "Suction Condenser": "bottom",
+    "Catch Pot": "bottom",
+    "Catch Pot (Auto)": "bottom",
+    "Dry Pump Model KDP330": "bottom",
+    "Discharge Condenser": "bottom",
+    "Catch Pot (Manual, Disch)": "bottom",
+    "Catch Pot (Auto, Disch)": "bottom",
+    "Discharge Silencer": "bottom",
+    "Receiver": "bottom",
+    "Scrubber": "right",
+    # Branches
+    "Control Panel (FLP)": "right",
+    "Solenoid Valve": "right",
+    "Pressure Gauge": "left",
+}
+tag_prefix_map = {
+    "Flame Arrestor": "FA",
+    "Suction Filter": "SF",
+    "Suction Condenser": "SC",
+    "Catch Pot": "CP",
+    "Catch Pot (Auto)": "CPA",
+    "Dry Pump Model KDP330": "DP",
+    "Discharge Condenser": "DC",
+    "Catch Pot (Manual, Disch)": "CPD",
+    "Catch Pot (Auto, Disch)": "CPAD",
+    "Discharge Silencer": "DS",
+    "Receiver": "R",
+    "Scrubber": "S",
+    "Control Panel (FLP)": "CPNL",
+    "Solenoid Valve": "SV",
+    "Pressure Gauge": "PG",
+    "Pressure Transmitter": "PT",
+    "Temperature Gauge": "TG",
+    "Flow Switch": "FS",
+    "Strainer": "STR",
+}
+
 BASE_COMPONENTS = [
-    {"type": "Flame Arrestor", "tag": "FA-001", "symbol": "flame_arrestor.png", "x_hint": 4, "y_hint": 2},
-    {"type": "Suction Filter", "tag": "SF-001", "symbol": "suction_filter.png", "x_hint": 4, "y_hint": 4},
-    {"type": "Suction Condenser", "tag": "SC-001", "symbol": "suction_condenser.png", "x_hint": 4, "y_hint": 6},
-    {"type": "Catch Pot", "tag": "CP-001", "symbol": "catch_pot_manual.png", "x_hint": 4, "y_hint": 8},
-    {"type": "Catch Pot (Auto)", "tag": "CPA-001", "symbol": "catch_pot_auto.png", "x_hint": 4, "y_hint": 10},
-    {"type": "Dry Pump Model KDP330", "tag": "DP-001", "symbol": "dry_pump_model.png", "x_hint": 4, "y_hint": 12},
-    {"type": "Discharge Condenser", "tag": "DC-001", "symbol": "discharge_condenser.png", "x_hint": 4, "y_hint": 14},
-    {"type": "Catch Pot (Manual, Disch)", "tag": "CPD-001", "symbol": "catch_pot_manual.png", "x_hint": 4, "y_hint": 16},
-    {"type": "Catch Pot (Auto, Disch)", "tag": "CPAD-001", "symbol": "catch_pot_auto.png", "x_hint": 4, "y_hint": 18},
-    {"type": "Discharge Silencer", "tag": "DS-001", "symbol": "discharge_silencer.png", "x_hint": 4, "y_hint": 20},
-    {"type": "Receiver", "tag": "R-001", "symbol": "receiver.png", "x_hint": 4, "y_hint": 22},
-    {"type": "Scrubber", "tag": "S-001", "symbol": "scrubber.png", "x_hint": 4, "y_hint": 24},
-    # Side branches & panels
-    {"type": "Control Panel (FLP)", "tag": "CPNL-001", "symbol": "flp_control_panel.png", "x_hint": 8, "y_hint": 12},
-    {"type": "Solenoid Valve", "tag": "SV-001", "symbol": "solenoid_valve.png", "x_hint": 6, "y_hint": 8, "branch": True},
-    {"type": "Pressure Gauge", "tag": "PG-001", "symbol": "pressure_gauge.png", "x_hint": 2, "y_hint": 10, "branch": True},
+    # main train, then branches (x_hint, y_hint will be auto-set)
+    {"type": "Flame Arrestor", "symbol": "flame_arrestor.png"},
+    {"type": "Suction Filter", "symbol": "suction_filter.png"},
+    {"type": "Suction Condenser", "symbol": "suction_condenser.png"},
+    {"type": "Catch Pot", "symbol": "catch_pot_manual.png"},
+    {"type": "Catch Pot (Auto)", "symbol": "catch_pot_auto.png"},
+    {"type": "Dry Pump Model KDP330", "symbol": "dry_pump_model.png"},
+    {"type": "Discharge Condenser", "symbol": "discharge_condenser.png"},
+    {"type": "Catch Pot (Manual, Disch)", "symbol": "catch_pot_manual.png"},
+    {"type": "Catch Pot (Auto, Disch)", "symbol": "catch_pot_auto.png"},
+    {"type": "Discharge Silencer", "symbol": "discharge_silencer.png"},
+    {"type": "Receiver", "symbol": "receiver.png"},
+    {"type": "Scrubber", "symbol": "scrubber.png"},
+    # Side branches
+    {"type": "Control Panel (FLP)", "symbol": "flp_control_panel.png"},
+    {"type": "Solenoid Valve", "symbol": "solenoid_valve.png"},
+    {"type": "Pressure Gauge", "symbol": "pressure_gauge.png"},
 ]
-
 BASE_INLINE = [
-    {"type": "Pressure Transmitter", "tag": "PT-001", "symbol": "pressure_transmitter.png", "x_hint": 4, "y_hint": 5},
-    {"type": "Temperature Gauge", "tag": "TG-001", "symbol": "temperature_gauge.png", "x_hint": 4, "y_hint": 11},
-    {"type": "Flow Switch", "tag": "FS-001", "symbol": "flow_switch.png", "x_hint": 4, "y_hint": 17},
-    {"type": "Strainer", "tag": "STR-001", "symbol": "strainer.png", "x_hint": 4, "y_hint": 19},
+    {"type": "Pressure Transmitter", "symbol": "pressure_transmitter.png"},
+    {"type": "Temperature Gauge", "symbol": "temperature_gauge.png"},
+    {"type": "Flow Switch", "symbol": "flow_switch.png"},
+    {"type": "Strainer", "symbol": "strainer.png"},
 ]
-
 BASE_PIPELINES = [
     # (from_tag, to_tag, flow_dir)
     {"from": "FA-001", "to": "SF-001", "type": "Suction Pipe", "flow_dir": "down"},
@@ -64,21 +117,17 @@ BASE_PIPELINES = [
     {"from": "CPD-001", "to": "CPAD-001", "type": "Discharge Pipe", "flow_dir": "down"},
     {"from": "CPAD-001", "to": "DS-001", "type": "Discharge Pipe", "flow_dir": "down"},
     {"from": "DS-001", "to": "R-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    {"from": "R-001", "to": "S-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    # Side pipelines
+    {"from": "R-001", "to": "S-001", "type": "Discharge Pipe", "flow_dir": "right"},
+    # Side branches
     {"from": "CP-001", "to": "SV-001", "type": "Purge", "flow_dir": "right"},
     {"from": "CPA-001", "to": "PG-001", "type": "Gauge", "flow_dir": "left"},
     {"from": "DP-001", "to": "CPNL-001", "type": "Control", "flow_dir": "right"},
 ]
 
-def list_symbol_pngs():
+def get_font(size=14, bold=False):
     try:
-        return sorted([f for f in os.listdir("symbols") if f.lower().endswith(".png")])
-    except Exception:
-        return []
-
-def get_font(size=14):
-    try:
+        if bold:
+            return ImageFont.truetype("arialbd.ttf", size)
         return ImageFont.truetype("arial.ttf", size)
     except:
         return ImageFont.load_default()
@@ -91,6 +140,37 @@ def load_symbol(symbol_name, width, height):
     if os.path.isfile(symbol_path):
         img = Image.open(symbol_path).convert("RGBA").resize((width, height))
         return img
+    # --- Stability AI fallback if enabled and API key is set ---
+    if STABILITY_API_KEY:
+        prompt = f"Clean ISA S5.1 style black-and-white transparent symbol for {symbol_name.split('.')[0].replace('_',' ')}"
+        engine = "stable-diffusion-xl-1024-v1-0"
+        try:
+            response = requests.post(
+                "https://api.stability.ai/v2beta/stable-image/generate/core",
+                headers={
+                    "authorization": f"Bearer {STABILITY_API_KEY}",
+                    "accept": "application/json"
+                },
+                json={
+                    "prompt": prompt,
+                    "output_format": "png",
+                    "steps": 30,
+                    "seed": 0,
+                    "width": width,
+                    "height": height,
+                    "negative_prompt": "color, shading, background, label, icon, border, noise"
+                },
+                timeout=30
+            )
+            if response.ok and response.json().get("artifacts"):
+                png_b64 = response.json()["artifacts"][0]["base64"]
+                img_bytes = base64.b64decode(png_b64)
+                with open(symbol_path, "wb") as f:
+                    f.write(img_bytes)
+                img = Image.open(io.BytesIO(img_bytes)).convert("RGBA").resize((width, height))
+                return img
+        except Exception as e:
+            st.warning(f"Stability AI fallback failed: {e}")
     return None
 
 def symbol_or_missing(symbol_name, width, height):
@@ -104,43 +184,8 @@ def symbol_or_missing(symbol_name, width, height):
     draw.text((10, height//2-10), "Missing\nSymbol", fill="gray", font=font)
     return img
 
-def draw_arrow(draw, start, end, flow_dir, color="black"):
-    # Draws pipe with arrows at both ends and mid-point (→, ↓)
-    draw.line([start, end], fill=color, width=3)
-    _arrow(draw, start, end, flow_dir, color)
-    _arrow(draw, end, start, flow_dir, color)
-    # Midpoint arrow symbol
-    mx = (start[0] + end[0]) // 2
-    my = (start[1] + end[1]) // 2
-    if flow_dir == "down":
-        draw.text((mx-7, my+8), "↓", fill=color, font=get_font(18))
-    elif flow_dir == "right":
-        draw.text((mx+8, my-9), "→", fill=color, font=get_font(18))
-    elif flow_dir == "left":
-        draw.text((mx-20, my-9), "←", fill=color, font=get_font(18))
-    elif flow_dir == "up":
-        draw.text((mx-7, my-20), "↑", fill=color, font=get_font(18))
-
-def _arrow(draw, tip, tail, flow_dir, color):
-    dx = tail[0]-tip[0]
-    dy = tail[1]-tip[1]
-    length = (dx**2 + dy**2) ** 0.5
-    if length == 0: length = 1
-    ux = dx/length
-    uy = dy/length
-    p1 = (tip[0] + ARROW_WIDTH*ux - ARROW_HEIGHT*uy, tip[1] + ARROW_WIDTH*uy + ARROW_HEIGHT*ux)
-    p2 = (tip[0] + ARROW_WIDTH*ux + ARROW_HEIGHT*uy, tip[1] + ARROW_WIDTH*uy - ARROW_HEIGHT*ux)
-    draw.polygon([tip, p1, p2], outline=color, fill=color)
-
-def draw_grid(draw, width, height, spacing):
-    for i in range(0, width, spacing):
-        draw.line([(i, 0), (i, height)], fill="#e0e0e0", width=1)
-    for j in range(0, height, spacing):
-        draw.line([(0, j), (width, j)], fill="#e0e0e0", width=1)
-
 def circled_tag(draw, x, y, tag, position="bottom"):
-    # Draw a circle with tag text inside
-    font = get_font(16)
+    font = get_font(TAG_FONT_SIZE, bold=True)
     r = 24
     if position == "left":
         cx, cy = x-40, y
@@ -153,66 +198,164 @@ def circled_tag(draw, x, y, tag, position="bottom"):
     else:
         cx, cy = x, y
     draw.ellipse([cx-r, cy-r, cx+r, cy+r], outline="black", fill="white", width=2)
-    w, h = draw.textsize(tag, font=font)
-    draw.text((cx-w//2, cy-h//2), tag, fill="black", font=font)
+    bbox = draw.textbbox((0,0), tag, font=font)
+    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    draw.text((cx - w//2, cy - h//2), tag, fill="black", font=font)
 
-def auto_size_and_layout(components):
-    y_hints = [c["y_hint"] for c in components]
-    max_y = max(y_hints) + 2
-    grid_spacing = 100 + margin_y
-    canvas_h = grid_spacing * max_y + PADDING*2 + TITLE_BLOCK_HEIGHT
-    canvas_w = 1200
-    for c in components:
-        # Tall for columnar
-        if any(word in c["type"].lower() for word in ["column", "condenser", "filter", "scrubber"]):
-            c["height"] = max_height
-            c["width"] = std_width
-        else:
-            c["height"] = std_height
-            c["width"] = std_width
-    return grid_spacing, canvas_w, canvas_h
+def draw_arrow(draw, start, end, flow_dir, color="black"):
+    draw.line([start, end], fill=color, width=PIPE_WIDTH)
+    _arrow(draw, start, end, flow_dir, color)
+    _arrow(draw, end, start, flow_dir, color)
+    mx = (start[0] + end[0]) // 2
+    my = (start[1] + end[1]) // 2
+    font = get_font(ARROW_LENGTH)
+    if flow_dir == "down":
+        draw.text((mx-7, my+8), "↓", fill=color, font=font)
+    elif flow_dir == "right":
+        draw.text((mx+8, my-9), "→", fill=color, font=font)
+    elif flow_dir == "left":
+        draw.text((mx-20, my-9), "←", fill=color, font=font)
+    elif flow_dir == "up":
+        draw.text((mx-7, my-20), "↑", fill=color, font=font)
+
+def _arrow(draw, tip, tail, flow_dir, color):
+    dx = tail[0]-tip[0]
+    dy = tail[1]-tip[1]
+    length = (dx**2 + dy**2) ** 0.5
+    if length == 0: length = 1
+    ux = dx/length
+    uy = dy/length
+    p1 = (tip[0] + ARROW_LENGTH*ux - ARROW_LENGTH*uy, tip[1] + ARROW_LENGTH*uy + ARROW_LENGTH*ux)
+    p2 = (tip[0] + ARROW_LENGTH*ux + ARROW_LENGTH*uy, tip[1] + ARROW_LENGTH*uy - ARROW_LENGTH*ux)
+    draw.polygon([tip, p1, p2], outline=color, fill=color)
+
+def draw_grid(draw, width, height, spacing):
+    for i in range(0, width, spacing):
+        draw.line([(i, 0), (i, height)], fill="#e0e0e0", width=1)
+    for j in range(0, height, spacing):
+        draw.line([(0, j), (width, j)], fill="#e0e0e0", width=1)
+
+def auto_layout(components, layout_order, direction_map):
+    pos_map = {}
+    col = GRID_COLS // 2
+    row = 2
+    for comp in components:
+        ctype = comp["type"]
+        if ctype in layout_order:
+            comp["x_hint"] = col
+            comp["y_hint"] = row
+            pos_map[ctype] = (col, row)
+            row += 2
+    # Branches
+    for comp in components:
+        ctype = comp["type"]
+        if ctype not in layout_order:
+            if direction_map.get(ctype, "") == "right":
+                comp["x_hint"] = col + 4
+                comp["y_hint"] = pos_map.get("Dry Pump Model KDP330", (col, 10))[1]
+            elif direction_map.get(ctype, "") == "left":
+                comp["x_hint"] = col - 2
+                comp["y_hint"] = pos_map.get("Catch Pot (Auto)", (col, 6))[1]
+            else:
+                comp["x_hint"] = col + 2
+                comp["y_hint"] = 4
+    return components
+
+def auto_tag(components, tag_prefix_map):
+    tag_count = {}
+    for comp in components:
+        prefix = tag_prefix_map.get(comp["type"], comp["type"][:2].upper())
+        tag_count.setdefault(prefix, 1)
+        comp["tag"] = f"{prefix}-{tag_count[prefix]:03d}"
+        tag_count[prefix] += 1
+    return components
+
+def generate_ai_suggestions(component_list):
+    if not OPENAI_API_KEY:
+        return [
+            "🔧 Maintenance: Inspect filters and strainers regularly.",
+            "💡 Utility: Add bypass for easier maintenance.",
+            "🌱 Sustainability: Use heat recovery in condensers.",
+        ]
+    comp_names = ", ".join([f"{c['type']} ({c['tag']})" for c in component_list])
+    prompt = f"""You are an expert process engineer.
+Given these P&ID components and tags: {comp_names}
+Suggest:
+1. Maintenance reminders (for reliability)
+2. Utility/cooling/steam optimization ideas
+3. Sustainability upgrades (reduce loss, improve energy)
+4. Efficiency improvements specific to this train
+
+Please answer in concise bullet points and always include at least one sustainability idea.
+"""
+    try:
+        openai.api_key = OPENAI_API_KEY
+        resp = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": "You are an expert process engineer for chemical plants and vacuum systems."},
+                {"role": "user", "content": prompt},
+            ],
+            max_tokens=256,
+            temperature=0.7,
+        )
+        msg = resp["choices"][0]["message"]["content"]
+        return [f"• {l.strip()}" for l in msg.split("\n") if l.strip()]
+    except Exception as e:
+        return [
+            f"AI suggestion error: {e}",
+            "Fallback: Inspect all suction-side filters monthly.",
+            "Add condensate recovery to reduce water loss.",
+        ]
 
 # --- SESSION STATE ---
 if "equipment" not in st.session_state:
-    st.session_state.equipment = [dict(x) for x in BASE_COMPONENTS]
-    st.session_state.inline = [dict(x) for x in BASE_INLINE]
+    eqs = [dict(x) for x in BASE_COMPONENTS]
+    eqs = auto_layout(eqs, layout_order, component_direction_map)
+    eqs = auto_tag(eqs, tag_prefix_map)
+    st.session_state.equipment = eqs
+    ils = [dict(x) for x in BASE_INLINE]
+    ils = auto_tag(ils, tag_prefix_map)
+    st.session_state.inline = ils
     st.session_state.pipelines = [dict(x) for x in BASE_PIPELINES]
     st.session_state.tag_position = "bottom"
 
 # Layout calculation
 all_components = st.session_state.equipment + st.session_state.inline
-grid_spacing, canvas_w, canvas_h = auto_size_and_layout(all_components)
 coord_map = {}
 for c in all_components:
-    x = PADDING + c["x_hint"] * grid_spacing
-    y = PADDING + c["y_hint"] * grid_spacing
+    width = int(GRID_SPACING * SYMBOL_SCALE)
+    height = int(width * 2) if any(word in c["type"].lower() for word in ["column", "condenser", "filter", "scrubber"]) else width
+    c["width"] = max(MIN_WIDTH, min(MAX_WIDTH, width))
+    c["height"] = max(MIN_WIDTH, min(MAX_WIDTH*2, height))
+    x = PADDING + c["x_hint"] * GRID_SPACING
+    y = PADDING + c["y_hint"] * GRID_SPACING
     coord_map[c["tag"]] = (x, y)
 
-# --- LEGEND / BOM ---
-with st.sidebar:
-    st.header("Legend / BOM")
-    legend_items = []
-    used_types = set()
-    for eq in st.session_state.equipment:
-        if eq["type"] not in used_types:
-            used_types.add(eq["type"])
-            legend_items.append({
-                "Type": eq["type"],
-                "Symbol": eq["symbol"],
-                "Tag": eq["tag"]
-            })
-    for ic in st.session_state.inline:
-        if ic["type"] not in used_types:
-            used_types.add(ic["type"])
-            legend_items.append({
-                "Type": ic["type"],
-                "Symbol": ic["symbol"],
-                "Tag": ic["tag"]
-            })
-    legend_df = pd.DataFrame(legend_items)
-    st.dataframe(legend_df, hide_index=True, width=LEGEND_WIDTH)
+canvas_w = (GRID_COLS+6) * GRID_SPACING
+canvas_h = (GRID_ROWS+6) * GRID_SPACING
 
-# --- MAIN UI: TABLES ---
+# --- LEGEND / BOM ---
+legend_items = []
+used_types = set()
+for eq in st.session_state.equipment:
+    if eq["type"] not in used_types:
+        used_types.add(eq["type"])
+        legend_items.append({
+            "Type": eq["type"],
+            "Symbol": eq["symbol"],
+            "Tag": eq["tag"]
+        })
+for ic in st.session_state.inline:
+    if ic["type"] not in used_types:
+        used_types.add(ic["type"])
+        legend_items.append({
+            "Type": ic["type"],
+            "Symbol": ic["symbol"],
+            "Tag": ic["tag"]
+        })
+
+# --- MAIN UI ---
 st.title("EPS Interactive P&ID Generator")
 st.write("**Equipment, Pipeline & Inline Component Editor**")
 st.selectbox("Tag Circle Position", ["left", "top", "bottom", "right"], key="tag_position")
@@ -221,7 +364,7 @@ st.selectbox("Tag Circle Position", ["left", "top", "bottom", "right"], key="tag
 st.subheader("P&ID Drawing (Professional Layout)")
 img = Image.new("RGB", (canvas_w, canvas_h), "white")
 draw = ImageDraw.Draw(img)
-draw_grid(draw, canvas_w, canvas_h, grid_spacing)
+draw_grid(draw, canvas_w, canvas_h, GRID_SPACING)
 
 # Draw all equipment
 for eq in st.session_state.equipment:
@@ -229,10 +372,10 @@ for eq in st.session_state.equipment:
     typ = eq["type"]
     symbol = eq["symbol"]
     x, y = coord_map[tag]
-    width, height = eq.get("width", std_width), eq.get("height", std_height)
+    width, height = eq.get("width", MIN_WIDTH), eq.get("height", MIN_WIDTH)
     symbol_img = symbol_or_missing(symbol, width, height)
     img.paste(symbol_img, (int(x-width//2), int(y-height//2)), symbol_img)
-    font = get_font(14)
+    font = get_font(TAG_FONT_SIZE, bold=True)
     draw.text((x, y+height//2+20), tag, anchor="mm", fill="black", font=font)
     circled_tag(draw, x, y, tag, position=st.session_state.tag_position)
 
@@ -240,14 +383,14 @@ for eq in st.session_state.equipment:
 for ic in st.session_state.inline:
     tag = ic["tag"]
     x, y = coord_map[tag]
-    width, height = ic.get("width", std_width), ic.get("height", std_height)
+    width, height = ic.get("width", MIN_WIDTH), ic.get("height", MIN_WIDTH)
     symbol_img = symbol_or_missing(ic["symbol"], width, height)
     img.paste(symbol_img, (int(x-width//2), int(y-height//2)), symbol_img)
-    font = get_font(12)
+    font = get_font(TAG_FONT_SIZE, bold=True)
     draw.text((x, y+height//2+20), tag, anchor="mm", fill="black", font=font)
     circled_tag(draw, x, y, tag, position=st.session_state.tag_position)
 
-# Draw pipelines - always orthogonal, arrows at joints, circled tags
+# Draw pipelines (elbowed, arrows, circled tags at joints)
 for idx, pl in enumerate(st.session_state.pipelines):
     from_tag = pl["from"]
     to_tag = pl["to"]
@@ -255,42 +398,39 @@ for idx, pl in enumerate(st.session_state.pipelines):
     if from_tag in coord_map and to_tag in coord_map:
         x1, y1 = coord_map[from_tag]
         x2, y2 = coord_map[to_tag]
-        # Orthogonal routing: horizontal then vertical or vice versa
         if flow_dir == "down":
             mx, my = x1, y2
-            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=3)
+            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
             draw_arrow(draw, (x1, y1), (mx, my), flow_dir)
             draw_arrow(draw, (mx, my), (x2, y2), flow_dir)
         elif flow_dir == "right":
             mx, my = x2, y1
-            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=3)
+            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
             draw_arrow(draw, (x1, y1), (mx, my), flow_dir)
             draw_arrow(draw, (mx, my), (x2, y2), flow_dir)
         elif flow_dir == "left":
             mx, my = x2, y1
-            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=3)
+            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
             draw_arrow(draw, (x1, y1), (mx, my), flow_dir)
             draw_arrow(draw, (mx, my), (x2, y2), flow_dir)
         elif flow_dir == "up":
             mx, my = x1, y2
-            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=3)
+            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
             draw_arrow(draw, (x1, y1), (mx, my), flow_dir)
             draw_arrow(draw, (mx, my), (x2, y2), flow_dir)
-        # Circled tag at each joint
         circled_tag(draw, x1, y1, str(idx+1), position="left")
         circled_tag(draw, x2, y2, str(idx+1), position="right")
-        # Pipe type label
-        draw.text(((x1+x2)//2, (y1+y2)//2-18), pl["type"], anchor="mm", fill="gray", font=get_font(12))
+        draw.text(((x1+x2)//2, (y1+y2)//2-18), pl["type"], anchor="mm", fill="gray", font=get_font(TAG_FONT_SIZE))
 
-# Draw legend box (top right)
+# Draw legend box and BOM on canvas
 legend_x = canvas_w - LEGEND_WIDTH - PADDING
 legend_y = PADDING
 draw.rectangle([legend_x, legend_y, canvas_w-PADDING, legend_y+30*(len(legend_items)+2)], outline="black", width=2)
-font = get_font()
+font = get_font(LEGEND_FONT_SIZE)
 draw.text((legend_x+10, legend_y+5), "Legend / BOM", fill="black", font=font)
 for i, item in enumerate(legend_items):
     draw.text((legend_x+10, legend_y+30*(i+1)+5), f"{item['Type']} [{item['Tag']}]", fill="black", font=font)
-    symbol = symbol_or_missing(item["Symbol"], std_width, std_height)
+    symbol = symbol_or_missing(item["Symbol"], MIN_WIDTH, MIN_WIDTH)
     img.paste(symbol, (legend_x+220, legend_y+30*(i+1)), symbol)
 
 # Draw title block (bottom right)
@@ -316,10 +456,11 @@ def export_dxf():
     for eq in st.session_state.equipment:
         tag = eq["tag"]
         x, y = coord_map[tag]
-        width = eq.get("width", std_width)
-        height = eq.get("height", std_height)
+        width = eq.get("width", MIN_WIDTH)
+        height = eq.get("height", MIN_WIDTH)
         msp.add_lwpolyline([(x-width//2, y-height//2), (x+width//2, y-height//2), (x+width//2, y+height//2), (x-width//2, y+height//2), (x-width//2, y-height//2)], close=True)
-        msp.add_text(tag, dxfattribs={"height": 20}).set_pos((x, y+height//2+20))
+        txt = msp.add_text(tag, dxfattribs={"height": TAG_FONT_SIZE})
+        txt.dxf.insert = (x, y+height//2+20)
     for pl in st.session_state.pipelines:
         from_tag = pl["from"]
         to_tag = pl["to"]
@@ -328,10 +469,10 @@ def export_dxf():
             x2, y2 = coord_map[to_tag]
             mx, my = x1, y2
             msp.add_lwpolyline([(x1, y1), (mx, my), (x2, y2)])
-    msp.add_text("EPS Interactive P&ID", dxfattribs={"height": 30}).set_pos((tb_x+10, tb_y+10))
-    msp.add_text(f"Date: {today_str()}", dxfattribs={"height": 20}).set_pos((tb_x+10, tb_y+40))
-    msp.add_text("Sheet: 1 of 1", dxfattribs={"height": 20}).set_pos((tb_x+10, tb_y+70))
-    msp.add_text(f"CLIENT: {TITLE_BLOCK_CLIENT}", dxfattribs={"height": 20}).set_pos((tb_x+220, tb_y+10))
+    msp.add_text("EPS Interactive P&ID", dxfattribs={"height": 30}).dxf.insert = (tb_x+10, tb_y+10)
+    msp.add_text(f"Date: {today_str()}", dxfattribs={"height": 20}).dxf.insert = (tb_x+10, tb_y+40)
+    msp.add_text("Sheet: 1 of 1", dxfattribs={"height": 20}).dxf.insert = (tb_x+10, tb_y+70)
+    msp.add_text(f"CLIENT: {TITLE_BLOCK_CLIENT}", dxfattribs={"height": 20}).dxf.insert = (tb_x+220, tb_y+10)
     buf = io.BytesIO()
     doc.saveas(buf)
     return buf.getvalue()
@@ -340,10 +481,11 @@ if st.button("Download DXF"):
     dxf_bytes = export_dxf()
     st.download_button("Save DXF", data=dxf_bytes, file_name="pid.dxf", mime="application/dxf")
 
-missing_syms = [eq["symbol"] for eq in st.session_state.equipment+st.session_state.inline if not load_symbol(eq["symbol"], std_width, std_height)]
-if missing_syms:
-    st.warning(f"Missing symbols: {', '.join(set(missing_syms))} (shown as gray box). Please add PNGs in /symbols.")
+ai_ideas = generate_ai_suggestions(st.session_state.equipment)
+with st.expander("🔍 AI Suggestions & Improvements", expanded=True):
+    for idea in ai_ideas:
+        st.markdown(idea)
 
-# --- AI SUGGESTIONS (placeholder) ---
-st.sidebar.markdown("### 💡 AI Suggestions (coming soon)")
-st.sidebar.info("• Improve suction pressure by resizing filter\n• Add bypass for maintenance\n• Use jacketed condenser for energy saving\n• Suggestions will appear here automatically with full layout.")
+missing_syms = [eq["symbol"] for eq in st.session_state.equipment+st.session_state.inline if not load_symbol(eq["symbol"], MIN_WIDTH, MIN_WIDTH)]
+if missing_syms:
+    st.warning(f"Missing symbols: {', '.join(set(missing_syms))} (shown as gray box). Please add PNGs in /symbols or let Stability AI generate fallback PNGs.")
