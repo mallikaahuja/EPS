@@ -38,37 +38,31 @@ def auto_tag(prefix, existing):
         count += 1
     return f"{prefix}-{count:03}"
 
-# STABILITY IMAGE GEN
+# STABILITY IMAGE GENERATION (direct official Stability AI API)
 def generate_symbol_stability(type_name, image_name):
+    prompt = f"A clean ISA 5.1 standard black-and-white engineering symbol for a {type_name}, transparent background, schematic style."
+    url = "https://api.stability.ai/v2beta/stable-image/generate/core"
     headers = {
-        "Authorization": f"Token {STABILITY_API_KEY}",
+        "Authorization": f"Bearer {STABILITY_API_KEY}",
+        "Accept": "image/png",
         "Content-Type": "application/json"
     }
-    data = {
-        "version": "f1f54d8bfa45c4b09d45b6f8a2859c4a79f1b8d957d385fab08b36f5a0f7c99e",
-        "input": {
-            "prompt": f"A clean black-and-white ISA 5.1 standard symbol for a {type_name}. Engineering schematic. Transparent background."
-        }
+    payload = {
+        "prompt": prompt,
+        "output_format": "png",
+        "mode": "text-to-image",
+        "model": "stable-diffusion-xl-1024-v1-0",
+        "aspect_ratio": "1:1"
     }
-    response = requests.post("https://api.replicate.com/v1/predictions", json=data, headers=headers)
-    if response.status_code != 201:
-        st.warning(f"Stability API Error: {response.status_code}")
-        return
-    prediction = response.json()
-    get_url = prediction['urls']['get']
+    response = requests.post(url, headers=headers, json=payload)
 
-    # Poll until complete
-    while True:
-        res = requests.get(get_url, headers=headers).json()
-        if res['status'] == 'succeeded':
-            image_url = res['output'][0]
-            image_data = requests.get(image_url).content
-            with open(os.path.join(SYMBOLS_CACHE_DIR, image_name), 'wb') as f:
-                f.write(image_data)
-            break
-        elif res['status'] in ['failed', 'canceled']:
-            st.warning("Symbol generation failed.")
-            break
+    if response.status_code == 200:
+        image_data = response.content
+        path = os.path.join(SYMBOLS_CACHE_DIR, image_name)
+        with open(path, "wb") as f:
+            f.write(image_data)
+    else:
+        st.warning(f"Stability API Error {response.status_code}: {response.text}")
 
 # GET IMAGE
 def get_image(image_name, type_name):
