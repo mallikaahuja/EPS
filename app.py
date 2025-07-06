@@ -3,7 +3,6 @@ import pandas as pd
 import os
 import io
 import base64
-import json
 import requests
 from PIL import Image, ImageDraw, ImageFont
 import ezdxf
@@ -39,30 +38,29 @@ def auto_tag(prefix, existing):
         count += 1
     return f"{prefix}-{count:03}"
 
-# STABILITY AI IMAGE GENERATION (CORRECTED)
+# STABILITY AI IMAGE GENERATION (Corrected)
 def generate_symbol_stability(type_name, image_name):
     prompt = f"A clean ISA 5.1 standard black-and-white engineering symbol for a {type_name}, transparent background, schematic style."
-    url = "https://api.stability.ai/v2beta/stable-image/generate/core"
+    url = "https://api.stability.ai/v1/generation/stable-diffusion-v1-5/text-to-image"
     headers = {
         "Authorization": f"Bearer {STABILITY_API_KEY}",
-        "Accept": "image/png"
+        "Accept": "application/json",
+        "Content-Type": "application/json"
     }
     payload = {
-        "prompt": prompt,
-        "output_format": "png",
-        "mode": "text-to-image",
-        "model": "stable-diffusion-xl-1024-v1-0",
-        "aspect_ratio": "1:1"
+        "text_prompts": [{"text": prompt}],
+        "cfg_scale": 7,
+        "height": 512,
+        "width": 512,
+        "samples": 1,
+        "steps": 30
     }
 
-    files = {
-        'json': (None, json.dumps(payload), 'application/json')
-    }
-
-    response = requests.post(url, headers=headers, files=files)
+    response = requests.post(url, headers=headers, json=payload)
 
     if response.status_code == 200:
-        image_data = response.content
+        image_base64 = response.json()["artifacts"][0]["base64"]
+        image_data = base64.b64decode(image_base64)
         path = os.path.join(SYMBOLS_CACHE_DIR, image_name)
         with open(path, "wb") as f:
             f.write(image_data)
