@@ -239,16 +239,18 @@ def auto_layout(components, layout_order, direction_map):
     pos_map = {}
     col = GRID_COLS // 2
     row = 2
+    # Defensive: ensure we only assign layout to dicts missing x_hint/y_hint or if forced
     for comp in components:
-        ctype = comp["type"]
-        if ctype in layout_order:
+        ctype = comp.get("type")
+        # Always assign for layout_order, or if missing x_hint/y_hint
+        if ctype in layout_order or ("x_hint" not in comp or "y_hint" not in comp):
             comp["x_hint"] = col
             comp["y_hint"] = row
             pos_map[ctype] = (col, row)
             row += 2
     # Branches
     for comp in components:
-        ctype = comp["type"]
+        ctype = comp.get("type")
         if ctype not in layout_order:
             if direction_map.get(ctype, "") == "right":
                 comp["x_hint"] = col + 4
@@ -256,7 +258,7 @@ def auto_layout(components, layout_order, direction_map):
             elif direction_map.get(ctype, "") == "left":
                 comp["x_hint"] = col - 2
                 comp["y_hint"] = pos_map.get("Catch Pot (Auto)", (col, 6))[1]
-            else:
+            elif "x_hint" not in comp or "y_hint" not in comp:
                 comp["x_hint"] = col + 2
                 comp["y_hint"] = 4
     return components
@@ -328,12 +330,20 @@ st.session_state.inline = auto_tag(st.session_state.inline, tag_prefix_map)
 all_components = st.session_state.equipment + st.session_state.inline
 coord_map = {}
 for c in all_components:
+    # Defensive: provide fallback for any missing x_hint/y_hint
+    x_hint = c.get("x_hint")
+    y_hint = c.get("y_hint")
+    if x_hint is None or y_hint is None:
+        # fallback to layout function
+        st.session_state.equipment = auto_layout(st.session_state.equipment, layout_order, component_direction_map)
+        x_hint = c.get("x_hint", GRID_COLS // 2)
+        y_hint = c.get("y_hint", 2)
     width = int(GRID_SPACING * SYMBOL_SCALE)
     height = int(width * 2) if any(word in c["type"].lower() for word in ["column", "condenser", "filter", "scrubber"]) else width
     c["width"] = max(MIN_WIDTH, min(MAX_WIDTH, width))
     c["height"] = max(MIN_WIDTH, min(MAX_WIDTH*2, height))
-    x = PADDING + c["x_hint"] * GRID_SPACING
-    y = PADDING + c["y_hint"] * GRID_SPACING
+    x = PADDING + x_hint * GRID_SPACING
+    y = PADDING + y_hint * GRID_SPACING
     coord_map[c["tag"]] = (x, y)
 
 canvas_w = (GRID_COLS+6) * GRID_SPACING
