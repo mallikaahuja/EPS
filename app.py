@@ -7,7 +7,7 @@ import requests
 from PIL import Image, ImageDraw, ImageFont
 import ezdxf
 from io import BytesIO
-from requests_toolbelt.multipart.encoder import MultipartEncoder  # <-- NEW
+from requests_toolbelt.multipart.encoder import MultipartEncoder  # NEW
 
 # CONFIG
 st.set_page_config(page_title="EPS Interactive P&ID Generator", layout="wide")
@@ -39,14 +39,10 @@ def auto_tag(prefix, existing):
         count += 1
     return f"{prefix}-{count:03}"
 
-# STABILITY IMAGE GEN - FIXED
+# STABILITY IMAGE GEN (FIXED)
 def generate_symbol_stability(type_name, image_name):
-    prompt = f"A clean ISA 5.1 standard black-and-white engineering symbol for a {type_name}, transparent background, schematic style."
-    url = "https://api.stability.ai/v2beta/stable-image/generate/core"
-    headers = {
-        "Authorization": f"Bearer {STABILITY_API_KEY}",
-        "Accept": "image/png"
-    }
+    prompt = f"ISA S5.1 symbol for a {type_name}, black-and-white vector, transparent background, schematic style"
+    
     m = MultipartEncoder(
         fields={
             "prompt": prompt,
@@ -56,8 +52,17 @@ def generate_symbol_stability(type_name, image_name):
             "aspect_ratio": "1:1"
         }
     )
-    headers["Content-Type"] = m.content_type
-    response = requests.post(url, headers=headers, data=m)
+    
+    headers = {
+        "Authorization": f"Bearer {STABILITY_API_KEY}",
+        "Content-Type": m.content_type
+    }
+
+    response = requests.post(
+        "https://api.stability.ai/v2beta/stable-image/generate/core",
+        headers=headers,
+        data=m
+    )
 
     if response.status_code == 200:
         image_data = response.content
