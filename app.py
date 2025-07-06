@@ -320,7 +320,11 @@ if "equipment" not in st.session_state:
     st.session_state.pipelines = [dict(x) for x in BASE_PIPELINES]
     st.session_state.tag_position = "bottom"
 
-# Layout calculation
+# --- FIX: Always (re-)layout and (re-)tag before using coordinates ---
+st.session_state.equipment = auto_layout(st.session_state.equipment, layout_order, component_direction_map)
+st.session_state.equipment = auto_tag(st.session_state.equipment, tag_prefix_map)
+st.session_state.inline = auto_tag(st.session_state.inline, tag_prefix_map)
+
 all_components = st.session_state.equipment + st.session_state.inline
 coord_map = {}
 for c in all_components:
