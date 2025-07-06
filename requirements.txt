@@ -5,6 +5,3 @@ ezdxf
 openai
 requests
 psycopg2-binary
-matplotlib
-stability-sdk
-python-dotenv
