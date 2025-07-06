@@ -5,3 +5,4 @@ ezdxf
 openai
 requests
 psycopg2-binary
+requests_toolbelt
