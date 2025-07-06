@@ -1,458 +1,320 @@
 import streamlit as st
 import pandas as pd
-import os
-import io
 from PIL import Image, ImageDraw, ImageFont
+import os
+import datetime
 import ezdxf
-import requests
-import base64
-from io import BytesIO
-from requests_toolbelt.multipart.encoder import MultipartEncoder
+import io
 
-# --- CONFIG ---
-st.set_page_config(page_title="EPS Interactive P&ID Generator", layout="wide")
-SYMBOLS_DIR = "symbols"
-SYMBOLS_CACHE_DIR = "symbols_cache"
-os.makedirs(SYMBOLS_CACHE_DIR, exist_ok=True)
+# --- CONSTANTS ---
+GRID_ROWS = list("ABCDEF")  # Classic grid rows
+GRID_COLS = list(range(1, 9))  # Classic grid cols
+GRID_SPACING = 250
+SYMBOL_SIZE = 100  # px
+LEGEND_WIDTH = 350
+TITLE_BLOCK_HEIGHT = 120
+TITLE_BLOCK_WIDTH = 420
+PADDING = 50
+ARROW_WIDTH = 10
+ARROW_HEIGHT = 6
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
+# --- HELPERS ---
 
-# Font fallback logic
-try:
-    FONT = ImageFont.truetype("arial.ttf", 14)
-    FONT_LARGE = ImageFont.truetype("arial.ttf", 20)
-except Exception:
-    FONT = ImageFont.load_default()
-    FONT_LARGE = ImageFont.load_default()
+def auto_tag(prefix, existing_tags):
+    n = 1
+    while f"{prefix}-{n:03d}" in existing_tags:
+        n += 1
+    return f"{prefix}-{n:03d}"
 
-# --- DATA LOADERS ---
-@st.cache_data
-def load_csv(file):
-    return pd.read_csv(file) if os.path.exists(file) else pd.DataFrame()
-
-equipment_df = load_csv("equipment_list.csv")
-inline_df = load_csv("inline_component_list.csv")
-pipeline_df = load_csv("pipeline_list.csv")
-
-# --- STATE INIT ---
-if "components" not in st.session_state:
-    st.session_state.components = {"equipment": [], "pipelines": [], "inline": []}
-
-# --- TAGGING ---
-def auto_tag(prefix, existing):
-    count = 1
-    while f"{prefix}-{count:03}" in existing:
-        count += 1
-    return f"{prefix}-{count:03}"
-
-# --- AI SYMBOL GENERATION (Stability AI) ---
-def generate_symbol_stability(type_name, image_name):
-    prompt = f"A clean ISA 5.1 standard black-and-white engineering symbol for a {type_name}, transparent background, schematic style."
-    url = "https://api.stability.ai/v2beta/stable-image/generate/core"
-    m = MultipartEncoder(
-        fields={
-            "prompt": prompt,
-            "mode": "text-to-image",
-            "output_format": "png",
-            "model": "stable-diffusion-xl-1024-v1-0",
-            "aspect_ratio": "1:1"
-        }
-    )
-    headers = {
-        "Authorization": f"Bearer {STABILITY_API_KEY}",
-        "Accept": "image/*",
-        "Content-Type": m.content_type
-    }
-    response = requests.post(url, headers=headers, data=m)
-
-    if response.status_code == 200:
-        image_data = response.content
-        path = os.path.join(SYMBOLS_DIR, image_name)
-        with open(path, "wb") as f:
-            f.write(image_data)
-        # Also save to cache for immediate use
-        cache_path = os.path.join(SYMBOLS_CACHE_DIR, image_name)
-        with open(cache_path, "wb") as f:
-            f.write(image_data)
-        st.info(f"AI symbol generated and saved as {image_name}")
-    else:
-        st.warning(f"⚠️ Stability API Error {response.status_code}: {response.text}")
-
-# --- AI PREDICTIVE SUGGESTIONS (OpenAI) ---
-def ai_predictive_suggestions(prompt, model="gpt-4o"):
-    if not OPENAI_API_KEY:
-        return "OpenAI API key not set."
-    url = "https://api.openai.com/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": model,
-        "messages": [{"role": "system", "content": "You are a P&ID expert. Suggest errors, typical improvements, or missing components for the given P&ID list."},
-                     {"role": "user", "content": prompt}],
-        "temperature": 0.5,
-        "max_tokens": 256,
-    }
-    try:
-        r = requests.post(url, headers=headers, json=data, timeout=30)
-        if r.status_code == 200:
-            return r.json()["choices"][0]["message"]["content"].strip()
-        else:
-            return f"OpenAI error: {r.status_code} {r.text}"
-    except Exception as e:
-        return str(e)
-
-# --- SYMBOLS ---
-def get_symbol_path(image_name):
-    # Priority: cache, then symbols
-    cache_path = os.path.join(SYMBOLS_CACHE_DIR, image_name)
-    symbols_path = os.path.join(SYMBOLS_DIR, image_name)
-    if os.path.exists(cache_path):
-        return cache_path
-    elif os.path.exists(symbols_path):
-        return symbols_path
-    else:
-        return None
-
-def get_image(image_name, type_name=None, allow_ai=True):
-    path = get_symbol_path(image_name)
-    if path and os.path.exists(path):
-        try:
-            return Image.open(path).convert("RGBA").resize((100, 100))
-        except Exception:
-            return None
-    # If requested and missing, AI-generate on demand
-    if allow_ai and type_name and STABILITY_API_KEY:
-        generate_symbol_stability(type_name, image_name)
-        path = get_symbol_path(image_name)
-        if path and os.path.exists(path):
-            return Image.open(path).convert("RGBA").resize((100, 100))
+def load_symbol(symbol_name):
+    symbol_path = os.path.join("symbols", symbol_name)
+    if os.path.isfile(symbol_path):
+        img = Image.open(symbol_path).convert("RGBA").resize((SYMBOL_SIZE, SYMBOL_SIZE))
+        return img
     return None
 
-def missing_symbol_image():
-    # Red cross placeholder
-    img = Image.new("RGBA", (100, 100), (255, 255, 255, 0))
-    d = ImageDraw.Draw(img)
-    d.line((10, 10, 90, 90), fill="red", width=8)
-    d.line((10, 90, 90, 10), fill="red", width=8)
-    d.rectangle((5, 5, 95, 95), outline="gray", width=3)
-    d.text((50, 50), "?", fill="red", font=FONT_LARGE, anchor="mm")
+def draw_arrow(draw, start, end, color="black"):
+    draw.line([start, end], fill=color, width=3)
+    # Arrowhead at end
+    arrow_tip = end
+    dx = start[0]-end[0]
+    dy = start[1]-end[1]
+    length = (dx**2 + dy**2) ** 0.5
+    if length == 0:
+        length = 1
+    ux = dx/length
+    uy = dy/length
+    p1 = (arrow_tip[0] + ARROW_WIDTH*ux - ARROW_HEIGHT*uy,
+          arrow_tip[1] + ARROW_WIDTH*uy + ARROW_HEIGHT*ux)
+    p2 = (arrow_tip[0] + ARROW_WIDTH*ux + ARROW_HEIGHT*uy,
+          arrow_tip[1] + ARROW_WIDTH*uy - ARROW_HEIGHT*ux)
+    draw.polygon([arrow_tip, p1, p2], outline=color, fill=None)
+
+def draw_grid(draw, width, height, spacing=GRID_SPACING):
+    for i in range(0, width, spacing):
+        draw.line([(i, 0), (i, height)], fill="#e0e0e0", width=1)
+    for j in range(0, height, spacing):
+        draw.line([(0, j), (width, j)], fill="#e0e0e0", width=1)
+
+def get_font(size=14):
+    try:
+        return ImageFont.truetype("arial.ttf", size)
+    except:
+        return ImageFont.load_default()
+
+def symbol_or_missing(symbol_name):
+    symbol = load_symbol(symbol_name)
+    if symbol:
+        return symbol
+    # Missing symbol: light gray box with text
+    img = Image.new("RGBA", (SYMBOL_SIZE, SYMBOL_SIZE), (240, 240, 240, 255))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([5,5,SYMBOL_SIZE-5,SYMBOL_SIZE-5], outline="gray", width=2)
+    font = get_font(12)
+    draw.text((10, SYMBOL_SIZE//2-10), "Missing\nSymbol", fill="gray", font=font)
     return img
 
-# --- PNG/DXF EXPORT ---
-def generate_png(diagram_img):
-    buf = BytesIO()
-    diagram_img.save(buf, format="PNG")
-    return buf.getvalue()
+def component_grid_xy(row, col):
+    x = PADDING + (col-1)*GRID_SPACING
+    y = PADDING + GRID_ROWS.index(row)*GRID_SPACING
+    return x, y
 
-def generate_dxf_file():
+def today_str():
+    return datetime.date.today().isoformat()
+
+# --- LOAD CSVs ---
+def load_csv(fname, defaults):
+    if os.path.isfile(fname):
+        df = pd.read_csv(fname)
+        for col in defaults:
+            if col not in df.columns:
+                df[col] = ""
+        return df
+    else:
+        return pd.DataFrame([defaults])
+
+equipment_df = load_csv("equipment_list.csv", {"type": "Dry Pump", "symbol": "dry_pump.png"})
+pipeline_df = load_csv("pipeline_list.csv", {"from": "", "to": "", "type": "Process Pipe"})
+inline_df = load_csv("inline_component_list.csv", {"type": "Check Valve", "symbol": "check_valve.png"})
+
+# --- SESSION STATE ---
+if "equipment" not in st.session_state:
+    st.session_state.equipment = []
+if "pipelines" not in st.session_state:
+    st.session_state.pipelines = []
+if "inline" not in st.session_state:
+    st.session_state.inline = []
+if "grid" not in st.session_state:
+    st.session_state.grid = {}  # tag: (row, col)
+
+# --- SIDEBAR: LEGEND ---
+with st.sidebar:
+    st.header("Legend / BOM")
+    legend_items = []
+    used_types = set()
+    for eq in st.session_state.equipment:
+        if eq["type"] not in used_types:
+            used_types.add(eq["type"])
+            legend_items.append({
+                "Type": eq["type"],
+                "Symbol": eq["symbol"],
+                "Tag Prefix": eq["tag"].split("-")[0]
+            })
+    legend_df = pd.DataFrame(legend_items)
+    st.dataframe(legend_df, hide_index=True, width=LEGEND_WIDTH)
+
+# --- MAIN UI: TABLES ---
+st.title("EPS Interactive P&ID Generator")
+
+st.write("**Equipment, Pipeline & Inline Component Editor**")
+
+# --- Editable equipment table ---
+def editable_table(label, data, cols):
+    df = pd.DataFrame(data)
+    edited = st.experimental_data_editor(df, num_rows="dynamic", key=label)
+    return edited.to_dict(orient="records")
+
+# Add Equipment
+st.subheader("Equipment")
+equipment_opts = equipment_df["type"].unique().tolist()
+symbol_map = dict(zip(equipment_df["type"], equipment_df["symbol"]))
+
+new_eq_type = st.selectbox("Type", equipment_opts, key="new_eq_type")
+if st.button("Add Equipment"):
+    tag_prefix = "".join([w[0] for w in new_eq_type.split()]).upper()
+    exist_tags = [eq["tag"] for eq in st.session_state.equipment]
+    tag = auto_tag(tag_prefix, exist_tags)
+    symbol = symbol_map.get(new_eq_type, "")
+    # Default to next open grid position
+    for r in GRID_ROWS:
+        for c in GRID_COLS:
+            if not any(v==(r,c) for v in st.session_state.grid.values()):
+                break
+        else:
+            continue
+        break
+    st.session_state.equipment.append({"type": new_eq_type, "tag": tag, "symbol": symbol})
+    st.session_state.grid[tag] = (r, c)
+    st.rerun()
+
+# Table for editing equipment
+st.session_state.equipment = editable_table("equipment_editor", st.session_state.equipment, ["type", "tag", "symbol"])
+
+# Inline components UI
+st.subheader("Inline Components")
+inline_opts = inline_df["type"].unique().tolist()
+inline_symbol_map = dict(zip(inline_df["type"], inline_df["symbol"]))
+new_inline_type = st.selectbox("Inline Type", inline_opts, key="new_inline_type")
+if st.button("Add Inline Component"):
+    tag_prefix = "".join([w[0] for w in new_inline_type.split()]).upper()
+    exist_tags = [ic["tag"] for ic in st.session_state.inline]
+    tag = auto_tag(tag_prefix, exist_tags)
+    symbol = inline_symbol_map.get(new_inline_type, "")
+    st.session_state.inline.append({"type": new_inline_type, "tag": tag, "symbol": symbol})
+    st.rerun()
+st.session_state.inline = editable_table("inline_editor", st.session_state.inline, ["type", "tag", "symbol"])
+
+# Pipelines UI
+st.subheader("Pipelines")
+if len(st.session_state.equipment) >= 2:
+    from_opts = [eq["tag"] for eq in st.session_state.equipment]
+    to_opts = [eq["tag"] for eq in st.session_state.equipment]
+    new_from = st.selectbox("From", from_opts, key="new_pipe_from")
+    new_to = st.selectbox("To", to_opts, key="new_pipe_to")
+    if st.button("Add Pipeline"):
+        st.session_state.pipelines.append({"from": new_from, "to": new_to, "type": "Process Pipe"})
+        st.rerun()
+st.session_state.pipelines = editable_table("pipeline_editor", st.session_state.pipelines, ["from", "to", "type"])
+
+# --- Editable grid positions ---
+st.subheader("Edit Equipment Grid Positions")
+for eq in st.session_state.equipment:
+    tag = eq["tag"]
+    r, c = st.session_state.grid.get(tag, (GRID_ROWS[0], GRID_COLS[0]))
+    col1, col2 = st.columns(2)
+    with col1:
+        new_r = st.selectbox(f"Row for {tag}", GRID_ROWS, index=GRID_ROWS.index(r), key=f"row_{tag}")
+    with col2:
+        new_c = st.selectbox(f"Col for {tag}", GRID_COLS, index=GRID_COLS.index(c), key=f"col_{tag}")
+    st.session_state.grid[tag] = (new_r, new_c)
+
+# --- CANVAS PREVIEW ---
+st.subheader("P&ID Drawing (Zoom/Scroll in Output)")
+canvas_w = len(GRID_COLS)*GRID_SPACING + PADDING*2 + LEGEND_WIDTH
+canvas_h = len(GRID_ROWS)*GRID_SPACING + PADDING*2 + TITLE_BLOCK_HEIGHT
+
+img = Image.new("RGB", (canvas_w, canvas_h), "white")
+draw = ImageDraw.Draw(img)
+draw_grid(draw, canvas_w, canvas_h)
+
+# Draw all equipment
+for eq in st.session_state.equipment:
+    tag = eq["tag"]
+    typ = eq["type"]
+    symbol = eq["symbol"]
+    r, c = st.session_state.grid.get(tag, (GRID_ROWS[0], GRID_COLS[0]))
+    x, y = component_grid_xy(r, c)
+    symbol_img = symbol_or_missing(symbol)
+    img.paste(symbol_img, (x, y), symbol_img)
+    font = get_font()
+    draw.text((x+SYMBOL_SIZE//2, y+SYMBOL_SIZE+20), tag, anchor="mm", fill="black", font=font)
+    # Callout circle
+    draw.ellipse([x-15, y-15, x+15, y+15], outline="black", width=2)
+    draw.text((x, y), str(tag), anchor="mm", fill="black", font=font)
+# Draw pipelines
+for pl in st.session_state.pipelines:
+    from_tag = pl["from"]
+    to_tag = pl["to"]
+    if from_tag in st.session_state.grid and to_tag in st.session_state.grid:
+        x1, y1 = component_grid_xy(*st.session_state.grid[from_tag])
+        x2, y2 = component_grid_xy(*st.session_state.grid[to_tag])
+        x1 += SYMBOL_SIZE//2
+        y1 += SYMBOL_SIZE//2
+        x2 += SYMBOL_SIZE//2
+        y2 += SYMBOL_SIZE//2
+        # Orthogonal lines
+        mx = x1
+        my = y2
+        draw.line([ (x1, y1), (mx, my), (x2, y2)], fill="black", width=3)
+        draw_arrow(draw, (mx, my), (x2, y2))
+        draw_arrow(draw, (x1, y1), (mx, my))
+# Draw inline components (mid-pipe)
+for ic in st.session_state.inline:
+    # Place in the middle of first pipeline for demo
+    if st.session_state.pipelines:
+        pl = st.session_state.pipelines[0]
+        from_tag = pl["from"]
+        to_tag = pl["to"]
+        x1, y1 = component_grid_xy(*st.session_state.grid[from_tag])
+        x2, y2 = component_grid_xy(*st.session_state.grid[to_tag])
+        mx = (x1 + x2)//2
+        my = (y1 + y2)//2
+        symbol_img = symbol_or_missing(ic["symbol"])
+        img.paste(symbol_img, (mx, my), symbol_img)
+        font = get_font()
+        draw.text((mx+SYMBOL_SIZE//2, my+SYMBOL_SIZE+20), ic["tag"], anchor="mm", fill="black", font=font)
+# Draw legend box
+legend_x = canvas_w - LEGEND_WIDTH - PADDING
+legend_y = PADDING
+draw.rectangle([legend_x, legend_y, canvas_w-PADDING, legend_y+30*(len(legend_items)+2)], outline="black", width=2)
+font = get_font()
+draw.text((legend_x+10, legend_y+5), "Legend / BOM", fill="black", font=font)
+for i, item in enumerate(legend_items):
+    draw.text((legend_x+10, legend_y+30*(i+1)+5), f"{item['Type']} ({item['Tag Prefix']})", fill="black", font=font)
+    symbol = symbol_or_missing(item["Symbol"])
+    img.paste(symbol, (legend_x+200, legend_y+30*(i+1)), symbol)
+# Draw title block
+tb_x = canvas_w - TITLE_BLOCK_WIDTH - PADDING
+tb_y = canvas_h - TITLE_BLOCK_HEIGHT - PADDING
+draw.rectangle([tb_x, tb_y, canvas_w-PADDING, canvas_h-PADDING], outline="black", width=2)
+draw.text((tb_x+10, tb_y+10), "EPS Interactive P&ID", fill="black", font=font)
+draw.text((tb_x+10, tb_y+40), f"Date: {today_str()}", fill="black", font=font)
+draw.text((tb_x+10, tb_y+70), f"Page: 1 of 1", fill="black", font=font)
+draw.text((tb_x+250, tb_y+10), "CLIENT:", fill="black", font=font)
+# Padding
+draw.rectangle([PADDING, PADDING, canvas_w-PADDING, canvas_h-PADDING], outline="#bbbbbb", width=1)
+
+# Show image
+st.image(img, use_container_width=True)
+
+# --- EXPORT PNG ---
+buf = io.BytesIO()
+img.save(buf, format="PNG")
+st.download_button("Download PNG", data=buf.getvalue(), file_name="pid.png", mime="image/png")
+
+# --- EXPORT DXF ---
+def export_dxf():
     doc = ezdxf.new()
     msp = doc.modelspace()
-    for i, eq in enumerate(st.session_state.components["equipment"]):
-        x = i * 150
-        msp.add_lwpolyline([(x, 0), (x+30, 0), (x+30, 30), (x, 30), (x, 0)])
-        msp.add_text(eq["tag"], dxfattribs={"height": 2.5, "insert": (x, 35)})
-    buf = io.StringIO()
-    doc.write(buf)
-    return buf.getvalue().encode("utf-8")
+    # Draw equipment as rectangles
+    for eq in st.session_state.equipment:
+        tag = eq["tag"]
+        x, y = component_grid_xy(*st.session_state.grid[tag])
+        msp.add_lwpolyline([(x, y), (x+SYMBOL_SIZE, y), (x+SYMBOL_SIZE, y+SYMBOL_SIZE), (x, y+SYMBOL_SIZE), (x, y)], close=True)
+        msp.add_text(tag, dxfattribs={"height": 20}).set_pos((x, y+SYMBOL_SIZE+20))
+    # Draw pipelines as polylines
+    for pl in st.session_state.pipelines:
+        from_tag = pl["from"]
+        to_tag = pl["to"]
+        if from_tag in st.session_state.grid and to_tag in st.session_state.grid:
+            x1, y1 = component_grid_xy(*st.session_state.grid[from_tag])
+            x2, y2 = component_grid_xy(*st.session_state.grid[to_tag])
+            mx = x1
+            my = y2
+            msp.add_lwpolyline([ (x1, y1), (mx, my), (x2, y2)])
+    # Add title block
+    msp.add_text("EPS Interactive P&ID", dxfattribs={"height": 30}).set_pos((tb_x+10, tb_y+10))
+    msp.add_text(f"Date: {today_str()}", dxfattribs={"height": 20}).set_pos((tb_x+10, tb_y+40))
+    msp.add_text("Page: 1 of 1", dxfattribs={"height": 20}).set_pos((tb_x+10, tb_y+70))
+    buf = io.BytesIO()
+    doc.saveas(buf)
+    return buf.getvalue()
 
-# --- P&ID DRAWING LOGIC ---
-def render_pid_diagram():
-    # A3: 3508x2480 px at 300dpi, but reserve margin for legend/title
-    width, height = 3508, 2480
-    canvas = Image.new("RGBA", (width, height), (255, 255, 255, 255))
-    draw = ImageDraw.Draw(canvas)
-    grid_spacing = 250
-    x0, y0 = 150, 250  # left margin, top margin
+if st.button("Download DXF"):
+    dxf_bytes = export_dxf()
+    st.download_button("Save DXF", data=dxf_bytes, file_name="pid.dxf", mime="application/dxf")
 
-    tag_positions = {}
-    # Draw grid
-    for gx in range(0, width, grid_spacing):
-        draw.line([(gx, 0), (gx, height)], fill=(220, 220, 220, 100), width=1)
-    for gy in range(0, height, grid_spacing):
-        draw.line([(0, gy), (width, gy)], fill=(220, 220, 220, 100), width=1)
-
-    # Draw scope boxes (dashed)
-    eq_count = len(st.session_state.components["equipment"])
-    if eq_count > 0:
-        left = x0 - 80
-        top = y0 - 60
-        right = x0 + min(4, eq_count-1)*grid_spacing + 180
-        bottom = y0 + 180
-        # EPSPL SCOPE
-        for i in range(left, right, 15):
-            draw.line([(i, top), (i+7, top)], fill="black", width=3)
-            draw.line([(i, bottom), (i+7, bottom)], fill="black", width=3)
-        for i in range(top, bottom, 15):
-            draw.line([(left, i), (left, i+7)], fill="black", width=3)
-            draw.line([(right, i), (right, i+7)], fill="black", width=3)
-        draw.text((left+10, top-30), "EPSPL SCOPE", font=FONT, fill="black")
-        # CUSTOMER SCOPE
-        if eq_count > 4:
-            left2 = right + 40
-            right2 = left2 + (eq_count-4)*grid_spacing + 100
-            for i in range(left2, right2, 15):
-                draw.line([(i, top), (i+7, top)], fill="black", width=3)
-                draw.line([(i, bottom), (i+7, bottom)], fill="black", width=3)
-            for i in range(top, bottom, 15):
-                draw.line([(left2, i), (left2, i+7)], fill="black", width=3)
-                draw.line([(right2, i), (right2, i+7)], fill="black", width=3)
-            draw.text((left2+10, top-30), "CUSTOMER SCOPE", font=FONT, fill="black")
-
-    # Draw equipment (row)
-    for i, eq in enumerate(st.session_state.components["equipment"]):
-        x = x0 + (i % 8) * grid_spacing
-        y = y0
-        tag_positions[eq["tag"]] = (x, y)
-        img = get_image(eq["symbol"], eq["type"])
-        if img:
-            canvas.paste(img, (x, y), img)
-        else:
-            # Draw missing symbol
-            canvas.paste(missing_symbol_image(), (x, y), missing_symbol_image())
-        # Tag in circle below
-        draw.ellipse([(x+35, y+110), (x+65, y+140)], fill="white", outline="black", width=2)
-        draw.text((x+50, y+125), eq["tag"], fill="black", font=FONT, anchor="mm")
-        # Equipment name below tag (optional)
-        draw.text((x+50, y+150), eq["type"], fill="gray", font=FONT, anchor="mm")
-
-    # Draw pipelines (orthogonal, arrows)
-    for pipe in st.session_state.components["pipelines"]:
-        start = tag_positions.get(pipe["from"])
-        end = tag_positions.get(pipe["to"])
-        if start and end:
-            x1, y1 = start[0]+50, start[1]+100
-            x2, y2 = end[0]+50, end[1]+100
-            path = [(x1, y1), (x1, y1+40), (x2, y1+40), (x2, y2)]
-            draw.line(path, fill="black", width=4)
-            # Arrowhead at end
-            dx, dy = 0, 20
-            draw.polygon([(x2, y2+dy), (x2-10, y2+dy-6), (x2+10, y2+dy-6)], fill="black")
-            # Arrowhead at start
-            draw.polygon([(x1, y1-dy), (x1-10, y1-dy+6), (x1+10, y1-dy+6)], fill="black")
-            # Pipe tag
-            draw.text(((x1+x2)//2, y1+25), pipe["tag"], fill="blue", font=FONT, anchor="mm")
-
-    # Draw inline components (mid-pipe)
-    for comp in st.session_state.components["inline"]:
-        pipe = next((p for p in st.session_state.components["pipelines"] if p["tag"] == comp["pipe_tag"]), None)
-        if pipe and pipe["from"] in tag_positions and pipe["to"] in tag_positions:
-            start = tag_positions[pipe["from"]]
-            end = tag_positions[pipe["to"]]
-            mx = (start[0]+end[0])//2 + 50
-            my = start[1]+120
-            img = get_image(comp["symbol"], comp["type"])
-            if img:
-                canvas.paste(img, (mx-50, my), img)
-            else:
-                canvas.paste(missing_symbol_image(), (mx-50, my), missing_symbol_image())
-            draw.ellipse([(mx-15, my+110), (mx+15, my+140)], fill="white", outline="black", width=2)
-            draw.text((mx, my+125), comp["tag"], fill="black", font=FONT, anchor="mm")
-            draw.text((mx, my+150), comp["type"], fill="gray", font=FONT, anchor="mm")
-
-    # LEGEND/BOM (Right Sidebar)
-    legend_x, legend_y = width-650, 100
-    draw.rectangle([(legend_x, legend_y), (width-50, legend_y+420)], outline="black", width=2)
-    draw.text((legend_x+15, legend_y+10), "LEGEND / BILL OF MATERIAL", font=FONT_LARGE, fill="black")
-    # Table headers
-    headers = ["No", "Symbol", "Type", "Tag", "Qty", "Note"]
-    for j, h in enumerate(headers):
-        draw.text((legend_x+15+j*90, legend_y+50), h, font=FONT, fill="black")
-    # List all used component types
-    bom_rows = []
-    for eq in st.session_state.components["equipment"]:
-        bom_rows.append({
-            "type": eq["type"], "tag": eq["tag"], "symbol": eq["symbol"], "note": ""
-        })
-    for comp in st.session_state.components["inline"]:
-        bom_rows.append({
-            "type": comp["type"], "tag": comp["tag"], "symbol": comp["symbol"], "note": "[AI-generated]" if "ai" in comp.get("symbol","").lower() else ""
-        })
-    # Count quantities by (type, symbol)
-    from collections import Counter
-    counts = Counter((r["type"], r["symbol"]) for r in bom_rows)
-    used = []
-    for idx, ((typ, sym), qty) in enumerate(counts.items(), 1):
-        row = next(r for r in bom_rows if r["type"]==typ and r["symbol"]==sym)
-        y = legend_y+80+idx*32
-        draw.text((legend_x+15, y), str(idx), font=FONT, fill="black")
-        # Symbol preview
-        img = get_image(sym, typ, allow_ai=False)
-        if img:
-            thumb = img.resize((28,28))
-        else:
-            thumb = missing_symbol_image().resize((28,28))
-        canvas.paste(thumb, (legend_x+55, y-7), thumb)
-        draw.text((legend_x+95, y), typ, font=FONT, fill="black")
-        draw.text((legend_x+185, y), row["tag"], font=FONT, fill="black")
-        draw.text((legend_x+275, y), str(qty), font=FONT, fill="black")
-        draw.text((legend_x+335, y), row["note"], font=FONT, fill="red" if row["note"] else "gray")
-
-    # TITLE BLOCK (Bottom-Right)
-    tb_x, tb_y = width-700, height-180
-    draw.rectangle([(tb_x, tb_y), (width-50, tb_y+120)], outline="black", width=2)
-    tb_lines = [
-        f"Project: EPS P&ID Generator",
-        f"Drawing No.: EPSPL-XXXX-YY",
-        f"Sheet: 1 of 1   Date: {pd.Timestamp.today().strftime('%Y-%m-%d')}",
-        f"Drawn/Checked: [Name]",
-        f"Scale: 1:1 (A3 300 DPI)",
-    ]
-    for i, line in enumerate(tb_lines):
-        draw.text((tb_x+20, tb_y+15+i*22), line, font=FONT, fill="black")
-
-    return canvas
-
-# --- PNG CHECKER & VALIDATOR ---
-def validate_symbols():
-    used_symbols = set()
-    for eq in st.session_state.components["equipment"]:
-        used_symbols.add(eq["symbol"])
-    for comp in st.session_state.components["inline"]:
-        used_symbols.add(comp["symbol"])
-    for pipe in st.session_state.components.get("pipelines", []):
-        if "symbol" in pipe: used_symbols.add(pipe["symbol"])
-    # List all PNG filenames in symbols/
-    all_pngs = {f for f in os.listdir(SYMBOLS_DIR) if f.lower().endswith(".png")}
-    missing = sorted([s for s in used_symbols if s not in all_pngs])
-    extra = sorted([p for p in all_pngs if p not in used_symbols])
-    return missing, extra
-
-# --- MAIN UI ---
-st.markdown("# 🧠 EPS Interactive P&ID Generator")
-st.caption("ISA/ISO-compliant, AI-assisted, PNG/DXF export, error-proof P&ID schematic builder")
-
-# --- Toolbar ---
-toolbar1, toolbar2, toolbar3, toolbar4, toolbar5, toolbar6 = st.columns([1,1,1,1,2,2])
-with toolbar1:
-    if st.button("🆕 New"):
-        st.session_state.components = {"equipment": [], "pipelines": [], "inline": []}
-        st.experimental_rerun()
-with toolbar2:
-    if st.button("💾 Save (Download JSON)"):
-        st.download_button("Download Project", data=io.StringIO(str(st.session_state.components)).getvalue(), file_name="pid_project.json")
-with toolbar3:
-    if st.button("🖨 PNG Export"):
-        diagram = render_pid_diagram()
-        st.download_button("Download PNG", generate_png(diagram), "pid.png", "image/png")
-with toolbar4:
-    if st.button("📐 DXF Export"):
-        st.download_button("Download DXF", generate_dxf_file(), "pid.dxf", "application/dxf")
-with toolbar5:
-    if st.button("🧹 Validate Symbols"):
-        missing, extra = validate_symbols()
-        if not missing and not extra:
-            st.success("All required symbols are present! 🎉")
-        else:
-            if missing:
-                st.error(f"Missing PNGs: {', '.join(missing)}")
-            if extra:
-                st.warning(f"Extra PNGs (not referenced): {', '.join(extra)}")
-with toolbar6:
-    if st.button("⚙️ Settings"):
-        st.info("Settings panel coming soon. For now, edit CSVs or add components below.")
-
-st.markdown("---")
-
-# --- DRAWING CANVAS + LEGEND/BOM ---
-col_canvas, col_legend = st.columns([2.3, 1.2])
-with col_canvas:
-    st.subheader("🖼️ P&ID Drawing (Zoom/Scroll in Output)")
-    diagram = render_pid_diagram()
-    st.image(diagram, use_column_width=True)
-    # Download buttons
-    c1, c2 = st.columns(2)
-    with c1:
-        st.download_button("Download PNG", generate_png(diagram), "pid.png", "image/png")
-    with c2:
-        st.download_button("Download DXF", generate_dxf_file(), "pid.dxf", "application/dxf")
-
-with col_legend:
-    st.subheader("📑 Legend / BOM")
-    # Live BOM table
-    bom_data = []
-    for eq in st.session_state.components["equipment"]:
-        bom_data.append({
-            "Type": eq["type"], "Tag": eq["tag"], "Symbol": eq["symbol"], "Note": ""
-        })
-    for comp in st.session_state.components["inline"]:
-        bom_data.append({
-            "Type": comp["type"], "Tag": comp["tag"], "Symbol": comp["symbol"], "Note": "AI-generated" if "ai" in comp.get("symbol","").lower() else ""
-        })
-    if bom_data:
-        df_bom = pd.DataFrame(bom_data)
-        st.dataframe(df_bom)
-    else:
-        st.info("No components added yet.")
-
-# --- COMPONENT TABLES, ADD/EDIT ---
-st.markdown("---")
-st.subheader("📝 Equipment, Pipeline & Inline Component Editor")
-
-editor1, editor2, editor3 = st.columns(3)
-with editor1:
-    st.markdown("#### Equipment")
-    if not equipment_df.empty:
-        eq_type = st.selectbox("Type", equipment_df["type"].unique(), key="eq_type")
-        row = equipment_df[equipment_df["type"] == eq_type].iloc[0]
-        tag = auto_tag(row["Tag Prefix"], [e["tag"] for e in st.session_state.components["equipment"]])
-        symbol = row["Symbol_Image"]
-        if st.button(f"➕ Add {eq_type}"):
-            st.session_state.components["equipment"].append({"type": eq_type, "tag": tag, "symbol": symbol})
-            st.experimental_rerun()
-        if st.button("🖼️ Generate Symbol with AI", key="ai_eq"):
-            generate_symbol_stability(eq_type, symbol)
-    if st.session_state.components["equipment"]:
-        st.dataframe(pd.DataFrame(st.session_state.components["equipment"]))
-with editor2:
-    st.markdown("#### Pipelines")
-    if len(st.session_state.components["equipment"]) >= 2:
-        from_tag = st.selectbox("From", [e["tag"] for e in st.session_state.components["equipment"]], key="from_tag")
-        to_opts = [e["tag"] for e in st.session_state.components["equipment"] if e["tag"] != from_tag]
-        to_tag = st.selectbox("To", to_opts, key="to_tag")
-        tag = auto_tag("P", [p["tag"] for p in st.session_state.components["pipelines"]])
-        if st.button("➕ Add Pipeline"):
-            st.session_state.components["pipelines"].append({"tag": tag, "from": from_tag, "to": to_tag})
-            st.experimental_rerun()
-    if st.session_state.components["pipelines"]:
-        st.dataframe(pd.DataFrame(st.session_state.components["pipelines"]))
-with editor3:
-    st.markdown("#### Inline Components")
-    if st.session_state.components["pipelines"] and not inline_df.empty:
-        inline_type = st.selectbox("Type", inline_df["type"].unique(), key="inline_type")
-        row = inline_df[inline_df["type"] == inline_type].iloc[0]
-        pipe_tag = st.selectbox("Pipeline", [p["tag"] for p in st.session_state.components["pipelines"]], key="inline_pipe")
-        tag = auto_tag(row["Tag Prefix"], [i["tag"] for i in st.session_state.components["inline"]])
-        symbol = row["Symbol_Image"]
-        if st.button(f"➕ Add {inline_type}"):
-            st.session_state.components["inline"].append({"type": inline_type, "tag": tag, "pipe_tag": pipe_tag, "symbol": symbol})
-            st.experimental_rerun()
-        if st.button("🖼️ Generate Symbol with AI", key="ai_inline"):
-            generate_symbol_stability(inline_type, symbol)
-    if st.session_state.components["inline"]:
-        st.dataframe(pd.DataFrame(st.session_state.components["inline"]))
-
-# --- AI SUGGESTIONS PANEL ---
-st.markdown("---")
-with st.expander("🤖 Predictive Checks & Suggestions (AI)", expanded=True):
-    # Compose prompt from current design
-    prompt = "Equipment:\n"
-    for eq in st.session_state.components["equipment"]:
-        prompt += f"- {eq['type']} ({eq['tag']})\n"
-    prompt += "\nPipelines:\n"
-    for p in st.session_state.components["pipelines"]:
-        prompt += f"- {p['tag']} from {p['from']} to {p['to']}\n"
-    prompt += "\nIn-line Components:\n"
-    for i in st.session_state.components["inline"]:
-        prompt += f"- {i['type']} ({i['tag']}) on {i['pipe_tag']}\n"
-    st.write("AI will suggest typical P&ID checks, missing features, or design errors.")
-    if st.button("🧠 Get AI Suggestions"):
-        suggestion = ai_predictive_suggestions(prompt)
-        st.success(suggestion)
-    else:
-        st.info("Click to get expert P&ID checks and suggestions.")
-
-st.markdown("---")
-st.caption("EPS P&ID Generator — AI/PNG/DXF. All logic in this single app.py. For feedback or advanced features, contact EPS team.")
+# --- ERRORS & WARNINGS ---
+missing_syms = [eq["symbol"] for eq in st.session_state.equipment+st.session_state.inline if not load_symbol(eq["symbol"])]
+if missing_syms:
+    st.warning(f"Missing symbols: {', '.join(set(missing_syms))} (shown as gray box). Please add PNGs in /symbols.")
