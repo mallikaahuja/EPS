@@ -38,23 +38,22 @@ def auto_tag(prefix, existing):
         count += 1
     return f"{prefix}-{count:03}"
 
-# STABILITY IMAGE GENERATION (direct official Stability AI API)
+# STABILITY IMAGE GEN — FIXED VERSION
 def generate_symbol_stability(type_name, image_name):
     prompt = f"A clean ISA 5.1 standard black-and-white engineering symbol for a {type_name}, transparent background, schematic style."
     url = "https://api.stability.ai/v2beta/stable-image/generate/core"
     headers = {
-        "Authorization": f"Bearer {STABILITY_API_KEY}",
-        "Accept": "image/png",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {STABILITY_API_KEY}"
     }
-    payload = {
-        "prompt": prompt,
-        "output_format": "png",
-        "mode": "text-to-image",
-        "model": "stable-diffusion-xl-1024-v1-0",
-        "aspect_ratio": "1:1"
+    files = {
+        "prompt": (None, prompt),
+        "mode": (None, "text-to-image"),
+        "model": (None, "stable-diffusion-xl-1024-v1-0"),
+        "output_format": (None, "png"),
+        "aspect_ratio": (None, "1:1")
     }
-    response = requests.post(url, headers=headers, json=payload)
+
+    response = requests.post(url, headers=headers, files=files)
 
     if response.status_code == 200:
         image_data = response.content
