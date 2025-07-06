@@ -6,18 +6,28 @@ import base64
 import requests
 from PIL import Image, ImageDraw, ImageFont
 import ezdxf
+from ezdxf.addons.drawing import matplotlib as draw_mpl
 from io import BytesIO
 
 # CONFIG
 st.set_page_config(page_title="EPS Interactive P&ID Generator", layout="wide")
 SYMBOLS_CACHE_DIR = "symbols_cache"
 os.makedirs(SYMBOLS_CACHE_DIR, exist_ok=True)
-STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
 
+# Get API key from secrets or environment
+STABILITY_API_KEY = st.secrets.get("STABILITY_API_KEY") or os.getenv("STABILITY_API_KEY")
+if not STABILITY_API_KEY:
+    st.error("❌ Missing Stability API Key. Set STABILITY_API_KEY in secrets.toml or environment variables.")
+    st.stop()
+
+# Font setup
 try:
     FONT = ImageFont.truetype("arial.ttf", 14)
 except:
-    FONT = ImageFont.load_default()
+    try:
+        FONT = ImageFont.truetype("DejaVuSans.ttf", 14)
+    except:
+        FONT = ImageFont.load_default()
 
 # LOAD DATA
 @st.cache_data
@@ -38,46 +48,58 @@ def auto_tag(prefix, existing):
         count += 1
     return f"{prefix}-{count:03}"
 
+# Create fallback symbols for missing images
+def create_fallback_symbol(text):
+    img = Image.new('RGBA', (100, 100), (255, 255, 255, 0))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([5, 5, 95, 95], outline="black", width=2)
+    draw.text((50, 50), text, fill="black", font=FONT, anchor="mm")
+    return img
+
 # STABILITY IMAGE GEN
 def generate_symbol_stability(type_name, image_name):
-    headers = {
-        "Authorization": f"Token {STABILITY_API_KEY}",
-        "Content-Type": "application/json"
+    if not STABILITY_API_KEY:
+        return False
+        
+    headers = {"Authorization": f"Bearer {STABILITY_API_KEY}"}
+    payload = {
+        "prompt": f"Technical schematic symbol for {type_name}, isometric, clean lines, no background",
+        "output_format": "png",
+        "height": 512,
+        "width": 512
     }
-    data = {
-        "version": "f1f54d8bfa45c4b09d45b6f8a2859c4a79f1b8d957d385fab08b36f5a0f7c99e",
-        "input": {
-            "prompt": f"A clean black-and-white ISA 5.1 standard symbol for a {type_name}. Engineering schematic. Transparent background."
-        }
-    }
-    response = requests.post("https://api.replicate.com/v1/predictions", json=data, headers=headers)
-    if response.status_code != 201:
-        st.warning(f"Stability API Error: {response.status_code}")
-        return
-    prediction = response.json()
-    get_url = prediction['urls']['get']
-
-    # Poll until complete
-    while True:
-        res = requests.get(get_url, headers=headers).json()
-        if res['status'] == 'succeeded':
-            image_url = res['output'][0]
-            image_data = requests.get(image_url).content
-            with open(os.path.join(SYMBOLS_CACHE_DIR, image_name), 'wb') as f:
-                f.write(image_data)
-            break
-        elif res['status'] in ['failed', 'canceled']:
-            st.warning("Symbol generation failed.")
-            break
+    
+    try:
+        response = requests.post(
+            "https://api.stability.ai/v2beta/stable-image/generate/sd3",
+            headers=headers,
+            files={"none": ''},
+            data=payload,
+            timeout=30
+        )
+        response.raise_for_status()
+        
+        path = os.path.join(SYMBOLS_CACHE_DIR, image_name)
+        with open(path, 'wb') as f:
+            f.write(response.content)
+        return True
+    except Exception as e:
+        st.warning(f"Symbol generation failed: {str(e)}")
+        return False
 
 # GET IMAGE
 def get_image(image_name, type_name):
     path = os.path.join(SYMBOLS_CACHE_DIR, image_name)
+    
     if not os.path.exists(path):
-        generate_symbol_stability(type_name, image_name)
-    if os.path.exists(path):
-        return Image.open(path).convert("RGBA").resize((100, 100))
-    return None
+        if not generate_symbol_stability(type_name, image_name):
+            return create_fallback_symbol(type_name[:3].upper())
+    
+    try:
+        img = Image.open(path)
+        return img.convert("RGBA").resize((100, 100))
+    except Exception:
+        return create_fallback_symbol(type_name[:3].upper())
 
 # DRAW DIAGRAM
 def render_pid_diagram():
@@ -134,13 +156,46 @@ def render_pid_diagram():
 def generate_dxf_file():
     doc = ezdxf.new()
     msp = doc.modelspace()
-    for i, eq in enumerate(st.session_state.components["equipment"]):
-        x = i * 150
-        msp.add_lwpolyline([(x, 0), (x+30, 0), (x+30, 30), (x, 30), (x, 0)])
-        msp.add_text(eq["tag"], dxfattribs={"height": 2.5})
-    buf = io.StringIO()
-    doc.write(buf)
-    return buf.getvalue().encode("utf-8")
+    y_pos = 0
+    
+    # Add equipment
+    for eq in st.session_state.components["equipment"]:
+        points = [(0, y_pos), (50, y_pos), (50, y_pos+10), (0, y_pos+10), (0, y_pos)]
+        msp.add_lwpolyline(points)
+        msp.add_text(eq["tag"], dxfattribs={"height": 2.5}).set_pos((0, y_pos-3))
+        y_pos += 15
+        
+    # Add pipelines
+    y_pos += 10
+    for pipe in st.session_state.components["pipelines"]:
+        msp.add_text(f"{pipe['tag']}: {pipe['from']} → {pipe['to']}", 
+                    dxfattribs={"height": 2.0}).set_pos((0, y_pos))
+        y_pos += 7
+        
+    # Add inline components
+    y_pos += 5
+    for comp in st.session_state.components["inline"]:
+        msp.add_text(f"{comp['tag']} ({comp['type']}) on {comp['pipe_tag']}", 
+                    dxfattribs={"height": 1.8}).set_pos((0, y_pos))
+        y_pos += 5
+        
+    buffer = BytesIO()
+    doc.saveas(buffer)
+    return buffer.getvalue()
+
+# API status check
+try:
+    response = requests.get(
+        "https://api.stability.ai/v2beta/balance",
+        headers={"Authorization": f"Bearer {STABILITY_API_KEY}"},
+        timeout=5
+    )
+    if response.status_code == 200:
+        st.sidebar.success("✅ Stability API Connected")
+    else:
+        st.sidebar.warning(f"⚠️ API Issues: {response.status_code}")
+except Exception as e:
+    st.sidebar.error(f"❌ API Connection Failed: {str(e)}")
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -182,9 +237,15 @@ with st.sidebar:
 st.title("🧠 EPS Interactive P&ID Generator")
 st.subheader("📋 Component Summary")
 col1, col2, col3 = st.columns(3)
-with col1: st.dataframe(st.session_state.components["equipment"])
-with col2: st.dataframe(st.session_state.components["pipelines"])
-with col3: st.dataframe(st.session_state.components["inline"])
+with col1: 
+    st.write("**Equipment**")
+    st.dataframe(st.session_state.components["equipment"] or pd.DataFrame(), hide_index=True)
+with col2: 
+    st.write("**Pipelines**")
+    st.dataframe(st.session_state.components["pipelines"] or pd.DataFrame(), hide_index=True)
+with col3: 
+    st.write("**Inline Components**")
+    st.dataframe(st.session_state.components["inline"] or pd.DataFrame(), hide_index=True)
 
 st.markdown("---")
 st.subheader("🖼️ P&ID Preview")
