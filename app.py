@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 import os
 import datetime
 import io
@@ -9,11 +9,11 @@ import openai
 import requests
 import base64
 
-# --- ENVIRONMENT VARIABLES (Railway: set these in your project) ---
+# --- ENVIRONMENT VARIABLES ---
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 STABILITY_API_KEY = os.environ.get("STABILITY_API_KEY")
 
-# --- Sidebar: Layout & Visual Controls ---
+# --- SIDEBAR: Layout & Visual Controls ---
 st.sidebar.markdown("### Layout & Visual Controls")
 GRID_ROWS = st.sidebar.slider("Grid Rows", 6, 20, 12, 1)
 GRID_COLS = st.sidebar.slider("Grid Columns", 6, 20, 12, 1)
@@ -53,7 +53,7 @@ BASE_COMPONENTS = [
     {"type": "Temperature Gauge", "symbol": "temperature_gauge.png"},
     {"type": "Flow Switch", "symbol": "flow_switch.png"},
     {"type": "Strainer", "symbol": "strainer.png"},
-    # ... (extend to 36 for production, use your canonical list)
+    # ...extend to 36 for full production baseline
 ]
 BASE_INLINES = [
     {"type": "Pressure Transmitter", "symbol": "pressure_transmitter.png"},
@@ -77,8 +77,8 @@ BASE_PIPELINES = [
     {"from": "CP-001", "to": "SV-001", "type": "15 NB CW", "flow_dir": "right"},
     {"from": "CPA-001", "to": "PG-001", "type": "10 NB", "flow_dir": "left"},
     {"from": "DP-001", "to": "CPNL-001", "type": "SIGNAL", "flow_dir": "right"},
-    # ... add more for full reference
 ]
+
 layout_order = [
     "Flame Arrestor", "Suction Filter", "Suction Condenser", "Catch Pot",
     "Catch Pot (Auto)", "Dry Pump Model KDP330", "Discharge Condenser",
@@ -124,7 +124,6 @@ tag_prefix_map = {
     "Strainer": "STR",
 }
 
-# --- UTILS ---
 def get_font(size=14, bold=False):
     try:
         if bold:
@@ -135,6 +134,12 @@ def get_font(size=14, bold=False):
 
 def today_str():
     return datetime.date.today().isoformat()
+
+def draw_grid(draw, width, height, spacing):
+    for i in range(0, width, spacing):
+        draw.line([(i, 0), (i, height)], fill="#e0e0e0", width=1)
+    for j in range(0, height, spacing):
+        draw.line([(0, j), (width, j)], fill="#e0e0e0", width=1)
 
 def load_symbol(symbol_name, width, height):
     symbol_path = os.path.join("symbols", symbol_name)
@@ -181,7 +186,6 @@ def symbol_or_missing(symbol_name, width, height):
     return img
 
 def circled_tag(draw, x, y, tag, position="bottom"):
-    # Tag bubble: white, 20px radius, black border, shadow, all caps font
     font = get_font(TAG_FONT_SIZE, bold=True)
     r = 20
     if position == "left":
@@ -202,7 +206,6 @@ def circled_tag(draw, x, y, tag, position="bottom"):
     draw.text((cx - w//2, cy - h//2), tag.upper(), fill="black", font=font)
 
 def draw_thin_arrow(draw, start, end, color="black"):
-    # Draws a thin triangle arrow at the end of a line
     from math import atan2, sin, cos, pi
     x0, y0 = start
     x1, y1 = end
@@ -215,12 +218,10 @@ def draw_thin_arrow(draw, start, end, color="black"):
     draw.polygon([end, p1, p2], fill=color, outline=color)
 
 def draw_elbow_pipe(draw, x1, y1, x2, y2, flow_dir, label=None):
-    # Orthogonal routing: first axis, then perpendicular. T-junction for branches.
     mx, my = x1, y2 if abs(x2-x1) < abs(y2-y1) else x2, y1
     draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
     draw_thin_arrow(draw, (mx, my), (x2, y2))
     if label:
-        # Place label at the first elbow
         font = get_font(PIPE_LABEL_FONT_SIZE, bold=True)
         txt = label.upper()
         lx, ly = (mx, my) if abs(x2-x1) > abs(y2-y1) else ((x1+x2)//2, (y1+y2)//2)
@@ -230,7 +231,6 @@ def draw_elbow_pipe(draw, x1, y1, x2, y2, flow_dir, label=None):
         draw.text((lx-w//2, ly-h//2), txt, fill="black", font=font)
 
 def auto_layout(components, layout_order, direction_map):
-    # Assigns x_hint/y_hint with stagger/branch logic
     pos_map = {}
     col = GRID_COLS // 2
     row = 2
@@ -241,7 +241,6 @@ def auto_layout(components, layout_order, direction_map):
             comp["y_hint"] = row
             pos_map[ctype] = (col, row)
             row += 2 if ctype != "Scrubber" else 0
-    # Branches: right, left, or staggered
     for comp in components:
         ctype = comp.get("type")
         if ctype not in layout_order:
@@ -344,7 +343,7 @@ for idx, eq in enumerate(st.session_state.equipment):
         st.session_state.equipment.pop(idx)
         break
 
-# --- Inline Instrument Section ---
+# --- Inline Instruments Section ---
 st.subheader("Inline Instruments")
 with st.form("add_inline_form"):
     inline_types = sorted(set(c["type"] for c in BASE_INLINES))
@@ -411,7 +410,6 @@ img = Image.new("RGB", (canvas_w, canvas_h), "white")
 draw = ImageDraw.Draw(img)
 draw_grid(draw, canvas_w, canvas_h, GRID_SPACING)
 
-# Equipment
 for eq in st.session_state.equipment:
     tag = eq["tag"]
     typ = eq["type"]
@@ -424,7 +422,6 @@ for eq in st.session_state.equipment:
     draw.text((x, y+height//2+22), tag.upper(), anchor="mm", fill="black", font=font)
     circled_tag(draw, x, y, tag, position=st.session_state.tag_position)
 
-# Inline Instruments
 for ic in st.session_state.inlines:
     tag = ic["tag"]
     x, y = coord_map.get(tag, (None, None))
@@ -436,7 +433,6 @@ for ic in st.session_state.inlines:
         draw.text((x, y+height//2+22), tag.upper(), anchor="mm", fill="black", font=font)
         circled_tag(draw, x, y, tag, position=st.session_state.tag_position)
 
-# Pipelines with elbows, arrows, and pipe labels
 for idx, pl in enumerate(st.session_state.pipelines):
     from_tag = pl["from"]
     to_tag = pl["to"]
@@ -470,7 +466,6 @@ for i, item in enumerate(legend_items):
     symbol = symbol_or_missing(item["Symbol"], MIN_WIDTH, MIN_WIDTH)
     img.paste(symbol, (legend_x+220, legend_y+28*(i+1)), symbol)
 
-# --- Title Block (bottom right) ---
 tb_x = canvas_w - TITLE_BLOCK_WIDTH - PADDING
 tb_y = canvas_h - TITLE_BLOCK_HEIGHT - PADDING
 draw.rectangle([tb_x, tb_y, canvas_w-PADDING, canvas_h-PADDING], outline="black", width=2)
@@ -487,7 +482,6 @@ buf = io.BytesIO()
 img.save(buf, format="PNG")
 st.download_button("Download PNG", data=buf.getvalue(), file_name="pid.png", mime="image/png")
 
-# --- DXF Export ---
 def export_dxf():
     doc = ezdxf.new()
     msp = doc.modelspace()
@@ -519,7 +513,6 @@ if st.button("Download DXF"):
     dxf_bytes = export_dxf()
     st.download_button("Save DXF", data=dxf_bytes, file_name="pid.dxf", mime="application/dxf")
 
-# --- AI Suggestions Section ---
 ai_suggestions_dict = generate_ai_suggestions(st.session_state.equipment, st.session_state.pipelines)
 st.subheader("🔍 AI Recommendations")
 st.json(ai_suggestions_dict)
