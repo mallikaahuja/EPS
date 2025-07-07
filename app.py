@@ -27,7 +27,7 @@ LEGEND_FONT_SIZE = st.sidebar.slider("Legend Font Size", 8, 20, 10)
 ARROW_LENGTH = st.sidebar.slider("Arrow Length", 8, 40, 15)
 PIPE_LABEL_FONT_SIZE = st.sidebar.slider("Pipe Label Size", 6, 16, 8)
 PADDING = 80
-
+LEGEND_WIDTH = 350
 TITLE_BLOCK_HEIGHT = 120
 TITLE_BLOCK_WIDTH = 420
 TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
@@ -229,8 +229,6 @@ def draw_elbow_pipe(draw, x1, y1, x2, y2, flow_dir, label=None):
         w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
         draw.rectangle([lx-w//2-2, ly-h//2-1, lx+w//2+2, ly+h//2+1], fill="#fff")
         draw.text((lx-w//2, ly-h//2), txt, fill="black", font=font)
-
-
 
 def auto_layout(components, layout_order, direction_map):
     pos_map = {}
@@ -501,7 +499,7 @@ def export_dxf():
         if from_tag in coord_map and to_tag in coord_map:
             x1, y1 = coord_map[from_tag]
             x2, y2 = coord_map[to_tag]
-            mx, my = x1, y2 if abs(x2-x1)<abs(y2-y1) else x2, y1
+            mx, my = (x1, y2) if abs(x2-x1) < abs(y2-y1) else (x2, y1)
             msp.add_lwpolyline([(x1, y1), (mx, my), (x2, y2)])
     msp.add_text("EPS Interactive P&ID", dxfattribs={"height": 30}).dxf.insert = (tb_x+10, tb_y+10)
     msp.add_text(f"Date: {today_str()}", dxfattribs={"height": 20}).dxf.insert = (tb_x+10, tb_y+40)
