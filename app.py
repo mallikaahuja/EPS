@@ -9,16 +9,16 @@ import openai
 import requests
 import base64
 
-# --- ENVIRONMENT VARIABLES (Railway: set these in your project) ---
+# --- ENVIRONMENT VARIABLES ---
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 STABILITY_API_KEY = os.environ.get("STABILITY_API_KEY")
 
 # --- SIDEBAR: Layout & Visual Controls ---
 st.sidebar.markdown("### Layout & Visual Controls")
-GRID_ROWS = st.sidebar.slider("Grid Rows", 6, 20, 12, 1, help="Number of grid rows (A–L = 12)")
-GRID_COLS = st.sidebar.slider("Grid Columns", 6, 20, 12, 1, help="Number of grid columns (1–12 = 12)")
-GRID_SPACING = st.sidebar.slider("Grid Spacing (px)", 60, 200, 120, 5, help="Distance between grid points")
-SYMBOL_SCALE = st.sidebar.slider("Symbol Scale", 0.5, 2.0, 1.1, 0.1, help="Resize symbols relative to grid spacing")
+GRID_ROWS = st.sidebar.slider("Grid Rows", 6, 20, 12, 1)
+GRID_COLS = st.sidebar.slider("Grid Columns", 6, 20, 12, 1)
+GRID_SPACING = st.sidebar.slider("Grid Spacing (px)", 60, 200, 120, 5)
+SYMBOL_SCALE = st.sidebar.slider("Symbol Scale", 0.5, 2.0, 1.1, 0.1)
 MIN_WIDTH = st.sidebar.slider("Symbol Min Width", 20, 120, 60, 5)
 MAX_WIDTH = st.sidebar.slider("Symbol Max Width", 80, 200, 140, 5)
 PIPE_WIDTH = st.sidebar.slider("Pipe Width", 1, 8, 2)
@@ -33,7 +33,48 @@ TITLE_BLOCK_HEIGHT = 120
 TITLE_BLOCK_WIDTH = 420
 TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
 
-# --- Layout order and direction map for custom P&ID logic ---
+# --- Baseline Template: ALL 36 COMPONENTS ---
+BASE_COMPONENTS = [
+    # (Fill out all 36 component entries as needed for your baseline)
+    {"type": "Flame Arrestor", "symbol": "flame_arrestor.png"},
+    {"type": "Suction Filter", "symbol": "suction_filter.png"},
+    {"type": "Suction Condenser", "symbol": "suction_condenser.png"},
+    {"type": "Catch Pot", "symbol": "catch_pot_manual.png"},
+    {"type": "Catch Pot (Auto)", "symbol": "catch_pot_auto.png"},
+    {"type": "Dry Pump Model KDP330", "symbol": "dry_pump_model.png"},
+    {"type": "Discharge Condenser", "symbol": "discharge_condenser.png"},
+    {"type": "Catch Pot (Manual, Disch)", "symbol": "catch_pot_manual.png"},
+    {"type": "Catch Pot (Auto, Disch)", "symbol": "catch_pot_auto.png"},
+    {"type": "Discharge Silencer", "symbol": "discharge_silencer.png"},
+    {"type": "Receiver", "symbol": "receiver.png"},
+    {"type": "Scrubber", "symbol": "scrubber.png"},
+    {"type": "Control Panel (FLP)", "symbol": "flp_control_panel.png"},
+    {"type": "Solenoid Valve", "symbol": "solenoid_valve.png"},
+    {"type": "Pressure Gauge", "symbol": "pressure_gauge.png"},
+    {"type": "Pressure Transmitter", "symbol": "pressure_transmitter.png"},
+    {"type": "Temperature Gauge", "symbol": "temperature_gauge.png"},
+    {"type": "Flow Switch", "symbol": "flow_switch.png"},
+    {"type": "Strainer", "symbol": "strainer.png"},
+    # ...add all the rest until 36 items
+]
+# For demo, include inlines in BASE_COMPONENTS for editing
+BASE_PIPELINES = [
+    {"from": "FA-001", "to": "SF-001", "type": "Suction Pipe", "flow_dir": "down"},
+    {"from": "SF-001", "to": "SC-001", "type": "Suction Pipe", "flow_dir": "down"},
+    {"from": "SC-001", "to": "CP-001", "type": "Suction Pipe", "flow_dir": "down"},
+    {"from": "CP-001", "to": "CPA-001", "type": "Suction Pipe", "flow_dir": "down"},
+    {"from": "CPA-001", "to": "DP-001", "type": "Suction Pipe", "flow_dir": "down"},
+    {"from": "DP-001", "to": "DC-001", "type": "Discharge Pipe", "flow_dir": "down"},
+    {"from": "DC-001", "to": "CPD-001", "type": "Discharge Pipe", "flow_dir": "down"},
+    {"from": "CPD-001", "to": "CPAD-001", "type": "Discharge Pipe", "flow_dir": "down"},
+    {"from": "CPAD-001", "to": "DS-001", "type": "Discharge Pipe", "flow_dir": "down"},
+    {"from": "DS-001", "to": "R-001", "type": "Discharge Pipe", "flow_dir": "down"},
+    {"from": "R-001", "to": "S-001", "type": "Discharge Pipe", "flow_dir": "right"},
+    {"from": "CP-001", "to": "SV-001", "type": "Purge", "flow_dir": "right"},
+    {"from": "CPA-001", "to": "PG-001", "type": "Gauge", "flow_dir": "left"},
+    {"from": "DP-001", "to": "CPNL-001", "type": "Control", "flow_dir": "right"},
+]
+
 layout_order = [
     "Flame Arrestor", "Suction Filter", "Suction Condenser", "Catch Pot",
     "Catch Pot (Auto)", "Dry Pump Model KDP330", "Discharge Condenser",
@@ -53,7 +94,6 @@ component_direction_map = {
     "Discharge Silencer": "bottom",
     "Receiver": "bottom",
     "Scrubber": "right",
-    # Branches
     "Control Panel (FLP)": "right",
     "Solenoid Valve": "right",
     "Pressure Gauge": "left",
@@ -80,56 +120,12 @@ tag_prefix_map = {
     "Strainer": "STR",
 }
 
-BASE_COMPONENTS = [
-    # main train, then branches (x_hint, y_hint will be auto-set)
-    {"type": "Flame Arrestor", "symbol": "flame_arrestor.png"},
-    {"type": "Suction Filter", "symbol": "suction_filter.png"},
-    {"type": "Suction Condenser", "symbol": "suction_condenser.png"},
-    {"type": "Catch Pot", "symbol": "catch_pot_manual.png"},
-    {"type": "Catch Pot (Auto)", "symbol": "catch_pot_auto.png"},
-    {"type": "Dry Pump Model KDP330", "symbol": "dry_pump_model.png"},
-    {"type": "Discharge Condenser", "symbol": "discharge_condenser.png"},
-    {"type": "Catch Pot (Manual, Disch)", "symbol": "catch_pot_manual.png"},
-    {"type": "Catch Pot (Auto, Disch)", "symbol": "catch_pot_auto.png"},
-    {"type": "Discharge Silencer", "symbol": "discharge_silencer.png"},
-    {"type": "Receiver", "symbol": "receiver.png"},
-    {"type": "Scrubber", "symbol": "scrubber.png"},
-    # Side branches
-    {"type": "Control Panel (FLP)", "symbol": "flp_control_panel.png"},
-    {"type": "Solenoid Valve", "symbol": "solenoid_valve.png"},
-    {"type": "Pressure Gauge", "symbol": "pressure_gauge.png"},
-]
-BASE_INLINE = [
-    {"type": "Pressure Transmitter", "symbol": "pressure_transmitter.png"},
-    {"type": "Temperature Gauge", "symbol": "temperature_gauge.png"},
-    {"type": "Flow Switch", "symbol": "flow_switch.png"},
-    {"type": "Strainer", "symbol": "strainer.png"},
-]
-BASE_PIPELINES = [
-    # (from_tag, to_tag, flow_dir)
-    {"from": "FA-001", "to": "SF-001", "type": "Suction Pipe", "flow_dir": "down"},
-    {"from": "SF-001", "to": "SC-001", "type": "Suction Pipe", "flow_dir": "down"},
-    {"from": "SC-001", "to": "CP-001", "type": "Suction Pipe", "flow_dir": "down"},
-    {"from": "CP-001", "to": "CPA-001", "type": "Suction Pipe", "flow_dir": "down"},
-    {"from": "CPA-001", "to": "DP-001", "type": "Suction Pipe", "flow_dir": "down"},
-    {"from": "DP-001", "to": "DC-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    {"from": "DC-001", "to": "CPD-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    {"from": "CPD-001", "to": "CPAD-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    {"from": "CPAD-001", "to": "DS-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    {"from": "DS-001", "to": "R-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    {"from": "R-001", "to": "S-001", "type": "Discharge Pipe", "flow_dir": "right"},
-    # Side branches
-    {"from": "CP-001", "to": "SV-001", "type": "Purge", "flow_dir": "right"},
-    {"from": "CPA-001", "to": "PG-001", "type": "Gauge", "flow_dir": "left"},
-    {"from": "DP-001", "to": "CPNL-001", "type": "Control", "flow_dir": "right"},
-]
-
 def get_font(size=14, bold=False):
     try:
         if bold:
             return ImageFont.truetype("arialbd.ttf", size)
         return ImageFont.truetype("arial.ttf", size)
-    except:
+    except Exception:
         return ImageFont.load_default()
 
 def today_str():
@@ -140,10 +136,8 @@ def load_symbol(symbol_name, width, height):
     if os.path.isfile(symbol_path):
         img = Image.open(symbol_path).convert("RGBA").resize((width, height))
         return img
-    # --- Stability AI fallback if enabled and API key is set ---
     if STABILITY_API_KEY:
         prompt = f"Clean ISA S5.1 style black-and-white transparent symbol for {symbol_name.split('.')[0].replace('_',' ')}"
-        engine = "stable-diffusion-xl-1024-v1-0"
         try:
             response = requests.post(
                 "https://api.stability.ai/v2beta/stable-image/generate/core",
@@ -239,16 +233,13 @@ def auto_layout(components, layout_order, direction_map):
     pos_map = {}
     col = GRID_COLS // 2
     row = 2
-    # Defensive: ensure we only assign layout to dicts missing x_hint/y_hint or if forced
     for comp in components:
         ctype = comp.get("type")
-        # Always assign for layout_order, or if missing x_hint/y_hint
         if ctype in layout_order or ("x_hint" not in comp or "y_hint" not in comp):
             comp["x_hint"] = col
             comp["y_hint"] = row
             pos_map[ctype] = (col, row)
             row += 2
-    # Branches
     for comp in components:
         ctype = comp.get("type")
         if ctype not in layout_order:
@@ -272,14 +263,20 @@ def auto_tag(components, tag_prefix_map):
         tag_count[prefix] += 1
     return components
 
-def generate_ai_suggestions(component_list):
+def reset_to_baseline():
+    eqs = [dict(x) for x in BASE_COMPONENTS]
+    eqs = auto_layout(eqs, layout_order, component_direction_map)
+    eqs = auto_tag(eqs, tag_prefix_map)
+    return eqs
+
+def generate_ai_suggestions(components):
     if not OPENAI_API_KEY:
         return [
             "🔧 Maintenance: Inspect filters and strainers regularly.",
             "💡 Utility: Add bypass for easier maintenance.",
             "🌱 Sustainability: Use heat recovery in condensers.",
         ]
-    comp_names = ", ".join([f"{c['type']} ({c['tag']})" for c in component_list])
+    comp_names = ", ".join([f"{c['type']} ({c['tag']})" for c in components])
     prompt = f"""You are an expert process engineer.
 Given these P&ID components and tags: {comp_names}
 Suggest:
@@ -291,17 +288,18 @@ Suggest:
 Please answer in concise bullet points and always include at least one sustainability idea.
 """
     try:
-        openai.api_key = OPENAI_API_KEY
-        resp = openai.ChatCompletion.create(
+        # openai>=1.0.0 API
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        chat_response = client.chat.completions.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": "You are an expert process engineer for chemical plants and vacuum systems."},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": prompt}
             ],
             max_tokens=256,
             temperature=0.7,
         )
-        msg = resp["choices"][0]["message"]["content"]
+        msg = chat_response.choices[0].message.content
         return [f"• {l.strip()}" for l in msg.split("\n") if l.strip()]
     except Exception as e:
         return [
@@ -310,34 +308,66 @@ Please answer in concise bullet points and always include at least one sustainab
             "Add condensate recovery to reduce water loss.",
         ]
 
-# --- SESSION STATE ---
+# --- SESSION STATE INIT ---
 if "equipment" not in st.session_state:
-    eqs = [dict(x) for x in BASE_COMPONENTS]
-    eqs = auto_layout(eqs, layout_order, component_direction_map)
-    eqs = auto_tag(eqs, tag_prefix_map)
-    st.session_state.equipment = eqs
-    ils = [dict(x) for x in BASE_INLINE]
-    ils = auto_tag(ils, tag_prefix_map)
-    st.session_state.inline = ils
+    st.session_state.equipment = reset_to_baseline()
     st.session_state.pipelines = [dict(x) for x in BASE_PIPELINES]
     st.session_state.tag_position = "bottom"
 
-# --- FIX: Always (re-)layout and (re-)tag before using coordinates ---
+# --- UI: Add/Remove Equipment ---
+st.title("EPS Interactive P&ID Generator")
+st.write("**Equipment/Instrument Editor**")
+
+# --- Add Equipment Dropdowns ---
+with st.form("add_equipment_form"):
+    types = [c["type"] for c in BASE_COMPONENTS]
+    symbols = sorted(list({c["symbol"] for c in BASE_COMPONENTS}))
+    new_type = st.selectbox("Component Type", types, index=0)
+    new_symbol = st.selectbox("Symbol", symbols, index=symbols.index([c["symbol"] for c in BASE_COMPONENTS if c["type"]==new_type][0]))
+    add_equipment = st.form_submit_button("Add Equipment")
+    if add_equipment:
+        st.session_state.equipment.append({"type": new_type, "symbol": new_symbol})
+
+# --- Remove Equipment ---
+if st.button("Reset to Reference Baseline (36 components)"):
+    st.session_state.equipment = reset_to_baseline()
+
+eq_data = pd.DataFrame(st.session_state.equipment)
+st.dataframe(eq_data, hide_index=True, use_container_width=True)
+
+# --- Equipment/Tag/AutoLayout Logic ---
 st.session_state.equipment = auto_layout(st.session_state.equipment, layout_order, component_direction_map)
 st.session_state.equipment = auto_tag(st.session_state.equipment, tag_prefix_map)
-st.session_state.inline = auto_tag(st.session_state.inline, tag_prefix_map)
 
-all_components = st.session_state.equipment + st.session_state.inline
+# --- Pipelines Add/Remove ---
+st.write("**Pipeline Editor**")
+with st.form("add_pipeline_form"):
+    tag_list = [c["tag"] for c in st.session_state.equipment]
+    from_tag = st.selectbox("From", tag_list)
+    to_tag = st.selectbox("To", tag_list)
+    pipe_type = st.text_input("Pipe Type", "Suction Pipe")
+    flow_dir = st.selectbox("Direction", ["down", "right", "left", "up"], index=0)
+    add_pipe = st.form_submit_button("Add Pipeline")
+    if add_pipe:
+        st.session_state.pipelines.append({"from": from_tag, "to": to_tag, "type": pipe_type, "flow_dir": flow_dir})
+
+# --- Remove pipeline rows ---
+if st.session_state.pipelines:
+    for i, pl in enumerate(st.session_state.pipelines):
+        st.write(f"{pl['from']} → {pl['to']} [{pl['type']}, {pl['flow_dir']}]")
+        if st.button(f"Remove Pipeline {i+1}", key=f"remove_pipe_{i}"):
+            st.session_state.pipelines.pop(i)
+            break
+
+# --- Tag circle position
+st.selectbox("Tag Circle Position", ["left", "top", "bottom", "right"], key="tag_position")
+
+# --- Prepare for Drawing ---
+all_components = st.session_state.equipment
 coord_map = {}
 for c in all_components:
-    # Defensive: provide fallback for any missing x_hint/y_hint
-    x_hint = c.get("x_hint")
-    y_hint = c.get("y_hint")
-    if x_hint is None or y_hint is None:
-        # fallback to layout function
-        st.session_state.equipment = auto_layout(st.session_state.equipment, layout_order, component_direction_map)
-        x_hint = c.get("x_hint", GRID_COLS // 2)
-        y_hint = c.get("y_hint", 2)
+    x_hint = c.get("x_hint", GRID_COLS // 2)
+    y_hint = c.get("y_hint", 2)
     width = int(GRID_SPACING * SYMBOL_SCALE)
     height = int(width * 2) if any(word in c["type"].lower() for word in ["column", "condenser", "filter", "scrubber"]) else width
     c["width"] = max(MIN_WIDTH, min(MAX_WIDTH, width))
@@ -360,27 +390,13 @@ for eq in st.session_state.equipment:
             "Symbol": eq["symbol"],
             "Tag": eq["tag"]
         })
-for ic in st.session_state.inline:
-    if ic["type"] not in used_types:
-        used_types.add(ic["type"])
-        legend_items.append({
-            "Type": ic["type"],
-            "Symbol": ic["symbol"],
-            "Tag": ic["tag"]
-        })
 
-# --- MAIN UI ---
-st.title("EPS Interactive P&ID Generator")
-st.write("**Equipment, Pipeline & Inline Component Editor**")
-st.selectbox("Tag Circle Position", ["left", "top", "bottom", "right"], key="tag_position")
-
-# --- CANVAS PREVIEW ---
-st.subheader("P&ID Drawing (Professional Layout)")
+# --- MAIN DRAWING ---
+st.subheader("P&ID Drawing (Reference-Matched Layout)")
 img = Image.new("RGB", (canvas_w, canvas_h), "white")
 draw = ImageDraw.Draw(img)
 draw_grid(draw, canvas_w, canvas_h, GRID_SPACING)
 
-# Draw all equipment
 for eq in st.session_state.equipment:
     tag = eq["tag"]
     typ = eq["type"]
@@ -393,18 +409,6 @@ for eq in st.session_state.equipment:
     draw.text((x, y+height//2+20), tag, anchor="mm", fill="black", font=font)
     circled_tag(draw, x, y, tag, position=st.session_state.tag_position)
 
-# Draw inline components
-for ic in st.session_state.inline:
-    tag = ic["tag"]
-    x, y = coord_map[tag]
-    width, height = ic.get("width", MIN_WIDTH), ic.get("height", MIN_WIDTH)
-    symbol_img = symbol_or_missing(ic["symbol"], width, height)
-    img.paste(symbol_img, (int(x-width//2), int(y-height//2)), symbol_img)
-    font = get_font(TAG_FONT_SIZE, bold=True)
-    draw.text((x, y+height//2+20), tag, anchor="mm", fill="black", font=font)
-    circled_tag(draw, x, y, tag, position=st.session_state.tag_position)
-
-# Draw pipelines (elbowed, arrows, circled tags at joints)
 for idx, pl in enumerate(st.session_state.pipelines):
     from_tag = pl["from"]
     to_tag = pl["to"]
@@ -436,7 +440,6 @@ for idx, pl in enumerate(st.session_state.pipelines):
         circled_tag(draw, x2, y2, str(idx+1), position="right")
         draw.text(((x1+x2)//2, (y1+y2)//2-18), pl["type"], anchor="mm", fill="gray", font=get_font(TAG_FONT_SIZE))
 
-# Draw legend box and BOM on canvas
 legend_x = canvas_w - LEGEND_WIDTH - PADDING
 legend_y = PADDING
 draw.rectangle([legend_x, legend_y, canvas_w-PADDING, legend_y+30*(len(legend_items)+2)], outline="black", width=2)
@@ -447,7 +450,6 @@ for i, item in enumerate(legend_items):
     symbol = symbol_or_missing(item["Symbol"], MIN_WIDTH, MIN_WIDTH)
     img.paste(symbol, (legend_x+220, legend_y+30*(i+1)), symbol)
 
-# Draw title block (bottom right)
 tb_x = canvas_w - TITLE_BLOCK_WIDTH - PADDING
 tb_y = canvas_h - TITLE_BLOCK_HEIGHT - PADDING
 draw.rectangle([tb_x, tb_y, canvas_w-PADDING, canvas_h-PADDING], outline="black", width=2)
@@ -500,6 +502,6 @@ with st.expander("🔍 AI Suggestions & Improvements", expanded=True):
     for idea in ai_ideas:
         st.markdown(idea)
 
-missing_syms = [eq["symbol"] for eq in st.session_state.equipment+st.session_state.inline if not load_symbol(eq["symbol"], MIN_WIDTH, MIN_WIDTH)]
+missing_syms = [eq["symbol"] for eq in st.session_state.equipment if not load_symbol(eq["symbol"], MIN_WIDTH, MIN_WIDTH)]
 if missing_syms:
     st.warning(f"Missing symbols: {', '.join(set(missing_syms))} (shown as gray box). Please add PNGs in /symbols or let Stability AI generate fallback PNGs.")
