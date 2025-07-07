@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import os
 import datetime
 import io
@@ -9,33 +9,31 @@ import openai
 import requests
 import base64
 
-# --- ENVIRONMENT VARIABLES ---
+# --- ENVIRONMENT VARIABLES (Railway: set these in your project) ---
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 STABILITY_API_KEY = os.environ.get("STABILITY_API_KEY")
 
-# --- SIDEBAR: Layout & Visual Controls ---
+# --- Sidebar: Layout & Visual Controls ---
 st.sidebar.markdown("### Layout & Visual Controls")
 GRID_ROWS = st.sidebar.slider("Grid Rows", 6, 20, 12, 1)
 GRID_COLS = st.sidebar.slider("Grid Columns", 6, 20, 12, 1)
-GRID_SPACING = st.sidebar.slider("Grid Spacing (px)", 60, 200, 120, 5)
-SYMBOL_SCALE = st.sidebar.slider("Symbol Scale", 0.5, 2.0, 1.1, 0.1)
-MIN_WIDTH = st.sidebar.slider("Symbol Min Width", 20, 120, 60, 5)
-MAX_WIDTH = st.sidebar.slider("Symbol Max Width", 80, 200, 140, 5)
-PIPE_WIDTH = st.sidebar.slider("Pipe Width", 1, 8, 2)
-TAG_FONT_SIZE = st.sidebar.slider("Tag Font Size", 8, 20, 12)
+GRID_SPACING = st.sidebar.slider("Grid Spacing (px)", 60, 220, 120, 5)
+SYMBOL_SCALE = st.sidebar.slider("Symbol Scale", 1.0, 2.0, 1.8, 0.05)
+MIN_WIDTH = st.sidebar.slider("Symbol Min Width", 100, 180, 132, 4)
+MAX_WIDTH = st.sidebar.slider("Symbol Max Width", 132, 220, 180, 4)
+PIPE_WIDTH = st.sidebar.slider("Pipe Width", 1, 6, 2)
+TAG_FONT_SIZE = st.sidebar.slider("Tag Font Size", 8, 24, 12)
 LEGEND_FONT_SIZE = st.sidebar.slider("Legend Font Size", 8, 20, 10)
-ARROW_LENGTH = st.sidebar.slider("Arrow Length", 8, 30, 15)
-MARGIN_Y = st.sidebar.slider("Vertical Margin Y", 40, 200, 100, 10)
+ARROW_LENGTH = st.sidebar.slider("Arrow Length", 8, 40, 15)
+PIPE_LABEL_FONT_SIZE = st.sidebar.slider("Pipe Label Size", 6, 16, 8)
+PADDING = 80
 
-PADDING = 60
-LEGEND_WIDTH = 350
 TITLE_BLOCK_HEIGHT = 120
 TITLE_BLOCK_WIDTH = 420
 TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
 
-# --- Baseline Template: ALL 36 COMPONENTS ---
+# --- Baseline: 36 Reference Components (truncated for brevity, add all for production) ---
 BASE_COMPONENTS = [
-    # (Fill out all 36 component entries as needed for your baseline)
     {"type": "Flame Arrestor", "symbol": "flame_arrestor.png"},
     {"type": "Suction Filter", "symbol": "suction_filter.png"},
     {"type": "Suction Condenser", "symbol": "suction_condenser.png"},
@@ -55,26 +53,32 @@ BASE_COMPONENTS = [
     {"type": "Temperature Gauge", "symbol": "temperature_gauge.png"},
     {"type": "Flow Switch", "symbol": "flow_switch.png"},
     {"type": "Strainer", "symbol": "strainer.png"},
-    # ...add all the rest until 36 items
+    # ... (extend to 36 for production, use your canonical list)
 ]
-# For demo, include inlines in BASE_COMPONENTS for editing
+BASE_INLINES = [
+    {"type": "Pressure Transmitter", "symbol": "pressure_transmitter.png"},
+    {"type": "Temperature Gauge", "symbol": "temperature_gauge.png"},
+    {"type": "Flow Switch", "symbol": "flow_switch.png"},
+    {"type": "Strainer", "symbol": "strainer.png"},
+]
 BASE_PIPELINES = [
-    {"from": "FA-001", "to": "SF-001", "type": "Suction Pipe", "flow_dir": "down"},
-    {"from": "SF-001", "to": "SC-001", "type": "Suction Pipe", "flow_dir": "down"},
-    {"from": "SC-001", "to": "CP-001", "type": "Suction Pipe", "flow_dir": "down"},
-    {"from": "CP-001", "to": "CPA-001", "type": "Suction Pipe", "flow_dir": "down"},
-    {"from": "CPA-001", "to": "DP-001", "type": "Suction Pipe", "flow_dir": "down"},
-    {"from": "DP-001", "to": "DC-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    {"from": "DC-001", "to": "CPD-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    {"from": "CPD-001", "to": "CPAD-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    {"from": "CPAD-001", "to": "DS-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    {"from": "DS-001", "to": "R-001", "type": "Discharge Pipe", "flow_dir": "down"},
-    {"from": "R-001", "to": "S-001", "type": "Discharge Pipe", "flow_dir": "right"},
-    {"from": "CP-001", "to": "SV-001", "type": "Purge", "flow_dir": "right"},
-    {"from": "CPA-001", "to": "PG-001", "type": "Gauge", "flow_dir": "left"},
-    {"from": "DP-001", "to": "CPNL-001", "type": "Control", "flow_dir": "right"},
+    {"from": "FA-001", "to": "SF-001", "type": "15 NB CWS", "flow_dir": "down"},
+    {"from": "SF-001", "to": "SC-001", "type": "15 NB CWS", "flow_dir": "down"},
+    {"from": "SC-001", "to": "CP-001", "type": "15 NB CWS", "flow_dir": "down"},
+    {"from": "CP-001", "to": "CPA-001", "type": "15 NB", "flow_dir": "down"},
+    {"from": "CPA-001", "to": "DP-001", "type": "15 NB", "flow_dir": "down"},
+    {"from": "DP-001", "to": "DC-001", "type": "15 NB", "flow_dir": "down"},
+    {"from": "DC-001", "to": "CPD-001", "type": "15 NB", "flow_dir": "down"},
+    {"from": "CPD-001", "to": "CPAD-001", "type": "15 NB", "flow_dir": "down"},
+    {"from": "CPAD-001", "to": "DS-001", "type": "15 NB", "flow_dir": "down"},
+    {"from": "DS-001", "to": "R-001", "type": "15 NB", "flow_dir": "down"},
+    {"from": "R-001", "to": "S-001", "type": "15 NB", "flow_dir": "right"},
+    # Side branches
+    {"from": "CP-001", "to": "SV-001", "type": "15 NB CW", "flow_dir": "right"},
+    {"from": "CPA-001", "to": "PG-001", "type": "10 NB", "flow_dir": "left"},
+    {"from": "DP-001", "to": "CPNL-001", "type": "SIGNAL", "flow_dir": "right"},
+    # ... add more for full reference
 ]
-
 layout_order = [
     "Flame Arrestor", "Suction Filter", "Suction Condenser", "Catch Pot",
     "Catch Pot (Auto)", "Dry Pump Model KDP330", "Discharge Condenser",
@@ -120,6 +124,7 @@ tag_prefix_map = {
     "Strainer": "STR",
 }
 
+# --- UTILS ---
 def get_font(size=14, bold=False):
     try:
         if bold:
@@ -141,10 +146,7 @@ def load_symbol(symbol_name, width, height):
         try:
             response = requests.post(
                 "https://api.stability.ai/v2beta/stable-image/generate/core",
-                headers={
-                    "authorization": f"Bearer {STABILITY_API_KEY}",
-                    "accept": "application/json"
-                },
+                headers={"authorization": f"Bearer {STABILITY_API_KEY}", "accept": "application/json"},
                 json={
                     "prompt": prompt,
                     "output_format": "png",
@@ -179,57 +181,56 @@ def symbol_or_missing(symbol_name, width, height):
     return img
 
 def circled_tag(draw, x, y, tag, position="bottom"):
+    # Tag bubble: white, 20px radius, black border, shadow, all caps font
     font = get_font(TAG_FONT_SIZE, bold=True)
-    r = 24
+    r = 20
     if position == "left":
-        cx, cy = x-40, y
+        cx, cy = x-38, y
     elif position == "top":
-        cx, cy = x, y-40
+        cx, cy = x, y-38
     elif position == "bottom":
-        cx, cy = x, y+40
+        cx, cy = x, y+38
     elif position == "right":
-        cx, cy = x+40, y
+        cx, cy = x+38, y
     else:
         cx, cy = x, y
-    draw.ellipse([cx-r, cy-r, cx+r, cy+r], outline="black", fill="white", width=2)
-    bbox = draw.textbbox((0,0), tag, font=font)
+    # shadow
+    draw.ellipse([cx-r+2, cy-r+2, cx+r+2, cy+r+2], fill=(180,180,180,80))
+    draw.ellipse([cx-r, cy-r, cx+r, cy+r], outline="black", fill="#fff", width=2)
+    bbox = draw.textbbox((0,0), tag.upper(), font=font)
     w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text((cx - w//2, cy - h//2), tag, fill="black", font=font)
+    draw.text((cx - w//2, cy - h//2), tag.upper(), fill="black", font=font)
 
-def draw_arrow(draw, start, end, flow_dir, color="black"):
-    draw.line([start, end], fill=color, width=PIPE_WIDTH)
-    _arrow(draw, start, end, flow_dir, color)
-    _arrow(draw, end, start, flow_dir, color)
-    mx = (start[0] + end[0]) // 2
-    my = (start[1] + end[1]) // 2
-    font = get_font(ARROW_LENGTH)
-    if flow_dir == "down":
-        draw.text((mx-7, my+8), "↓", fill=color, font=font)
-    elif flow_dir == "right":
-        draw.text((mx+8, my-9), "→", fill=color, font=font)
-    elif flow_dir == "left":
-        draw.text((mx-20, my-9), "←", fill=color, font=font)
-    elif flow_dir == "up":
-        draw.text((mx-7, my-20), "↑", fill=color, font=font)
+def draw_thin_arrow(draw, start, end, color="black"):
+    # Draws a thin triangle arrow at the end of a line
+    from math import atan2, sin, cos, pi
+    x0, y0 = start
+    x1, y1 = end
+    draw.line([start, end], fill=color, width=1)
+    angle = atan2(y1-y0, x1-x0)
+    length = ARROW_LENGTH
+    arrow_angle = pi/7
+    p1 = (int(x1 - length*cos(angle-arrow_angle)), int(y1 - length*sin(angle-arrow_angle)))
+    p2 = (int(x1 - length*cos(angle+arrow_angle)), int(y1 - length*sin(angle+arrow_angle)))
+    draw.polygon([end, p1, p2], fill=color, outline=color)
 
-def _arrow(draw, tip, tail, flow_dir, color):
-    dx = tail[0]-tip[0]
-    dy = tail[1]-tip[1]
-    length = (dx**2 + dy**2) ** 0.5
-    if length == 0: length = 1
-    ux = dx/length
-    uy = dy/length
-    p1 = (tip[0] + ARROW_LENGTH*ux - ARROW_LENGTH*uy, tip[1] + ARROW_LENGTH*uy + ARROW_LENGTH*ux)
-    p2 = (tip[0] + ARROW_LENGTH*ux + ARROW_LENGTH*uy, tip[1] + ARROW_LENGTH*uy - ARROW_LENGTH*ux)
-    draw.polygon([tip, p1, p2], outline=color, fill=color)
-
-def draw_grid(draw, width, height, spacing):
-    for i in range(0, width, spacing):
-        draw.line([(i, 0), (i, height)], fill="#e0e0e0", width=1)
-    for j in range(0, height, spacing):
-        draw.line([(0, j), (width, j)], fill="#e0e0e0", width=1)
+def draw_elbow_pipe(draw, x1, y1, x2, y2, flow_dir, label=None):
+    # Orthogonal routing: first axis, then perpendicular. T-junction for branches.
+    mx, my = x1, y2 if abs(x2-x1) < abs(y2-y1) else x2, y1
+    draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
+    draw_thin_arrow(draw, (mx, my), (x2, y2))
+    if label:
+        # Place label at the first elbow
+        font = get_font(PIPE_LABEL_FONT_SIZE, bold=True)
+        txt = label.upper()
+        lx, ly = (mx, my) if abs(x2-x1) > abs(y2-y1) else ((x1+x2)//2, (y1+y2)//2)
+        bbox = draw.textbbox((0,0), txt, font=font)
+        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw.rectangle([lx-w//2-2, ly-h//2-1, lx+w//2+2, ly+h//2+1], fill="#fff")
+        draw.text((lx-w//2, ly-h//2), txt, fill="black", font=font)
 
 def auto_layout(components, layout_order, direction_map):
+    # Assigns x_hint/y_hint with stagger/branch logic
     pos_map = {}
     col = GRID_COLS // 2
     row = 2
@@ -239,7 +240,8 @@ def auto_layout(components, layout_order, direction_map):
             comp["x_hint"] = col
             comp["y_hint"] = row
             pos_map[ctype] = (col, row)
-            row += 2
+            row += 2 if ctype != "Scrubber" else 0
+    # Branches: right, left, or staggered
     for comp in components:
         ctype = comp.get("type")
         if ctype not in layout_order:
@@ -247,7 +249,7 @@ def auto_layout(components, layout_order, direction_map):
                 comp["x_hint"] = col + 4
                 comp["y_hint"] = pos_map.get("Dry Pump Model KDP330", (col, 10))[1]
             elif direction_map.get(ctype, "") == "left":
-                comp["x_hint"] = col - 2
+                comp["x_hint"] = col - 3
                 comp["y_hint"] = pos_map.get("Catch Pot (Auto)", (col, 6))[1]
             elif "x_hint" not in comp or "y_hint" not in comp:
                 comp["x_hint"] = col + 2
@@ -267,28 +269,26 @@ def reset_to_baseline():
     eqs = [dict(x) for x in BASE_COMPONENTS]
     eqs = auto_layout(eqs, layout_order, component_direction_map)
     eqs = auto_tag(eqs, tag_prefix_map)
-    return eqs
+    ils = [dict(x) for x in BASE_INLINES]
+    ils = auto_tag(ils, tag_prefix_map)
+    return eqs, ils
 
-def generate_ai_suggestions(components):
+def generate_ai_suggestions(components, pipelines):
     if not OPENAI_API_KEY:
-        return [
-            "🔧 Maintenance: Inspect filters and strainers regularly.",
-            "💡 Utility: Add bypass for easier maintenance.",
-            "🌱 Sustainability: Use heat recovery in condensers.",
-        ]
-    comp_names = ", ".join([f"{c['type']} ({c['tag']})" for c in components])
-    prompt = f"""You are an expert process engineer.
-Given these P&ID components and tags: {comp_names}
-Suggest:
-1. Maintenance reminders (for reliability)
-2. Utility/cooling/steam optimization ideas
-3. Sustainability upgrades (reduce loss, improve energy)
-4. Efficiency improvements specific to this train
-
-Please answer in concise bullet points and always include at least one sustainability idea.
-"""
+        return {
+            "Efficiency Tips": ["Reduce piping bends for improved flow."],
+            "Predictive Maintenance": ["Inspect DP-001 every 60 cycles."],
+            "Sustainability": ["Reuse cooling water from scrubber loop."]
+        }
+    tags = [c['tag'] for c in components]
+    connections = [f"{p['from']}→{p['to']}" for p in pipelines]
+    prompt = (
+        f"Given this P&ID: tags {', '.join(tags)}, connections {', '.join(connections)}.\n"
+        f"Generate short, specific suggestions in JSON with keys: 'Efficiency Tips', 'Predictive Maintenance', 'Sustainability'. "
+        "Always give at least one for each. Keep each suggestion under 16 words. Example format:\n"
+        '{\n  "Efficiency Tips": [...],\n  "Predictive Maintenance": [...],\n  "Sustainability": [...]\n}'
+    )
     try:
-        # openai>=1.0.0 API
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
         chat_response = client.chat.completions.create(
             model="gpt-4",
@@ -297,20 +297,24 @@ Please answer in concise bullet points and always include at least one sustainab
                 {"role": "user", "content": prompt}
             ],
             max_tokens=256,
-            temperature=0.7,
+            temperature=0.6,
+            response_format={"type": "json_object"}
         )
         msg = chat_response.choices[0].message.content
-        return [f"• {l.strip()}" for l in msg.split("\n") if l.strip()]
+        import json
+        return json.loads(msg)
     except Exception as e:
-        return [
-            f"AI suggestion error: {e}",
-            "Fallback: Inspect all suction-side filters monthly.",
-            "Add condensate recovery to reduce water loss.",
-        ]
+        return {
+            "Efficiency Tips": [f"AI suggestion error: {e}"],
+            "Predictive Maintenance": ["Fallback: Inspect all suction-side filters monthly."],
+            "Sustainability": ["Add condensate recovery to reduce water loss."]
+        }
 
 # --- SESSION STATE INIT ---
 if "equipment" not in st.session_state:
-    st.session_state.equipment = reset_to_baseline()
+    eqs, ils = reset_to_baseline()
+    st.session_state.equipment = eqs
+    st.session_state.inlines = ils
     st.session_state.pipelines = [dict(x) for x in BASE_PIPELINES]
     st.session_state.tag_position = "bottom"
 
@@ -318,60 +322,82 @@ if "equipment" not in st.session_state:
 st.title("EPS Interactive P&ID Generator")
 st.write("**Equipment/Instrument Editor**")
 
-# --- Add Equipment Dropdowns ---
+# Add Equipment
 with st.form("add_equipment_form"):
-    types = [c["type"] for c in BASE_COMPONENTS]
-    symbols = sorted(list({c["symbol"] for c in BASE_COMPONENTS}))
-    new_type = st.selectbox("Component Type", types, index=0)
-    new_symbol = st.selectbox("Symbol", symbols, index=symbols.index([c["symbol"] for c in BASE_COMPONENTS if c["type"]==new_type][0]))
+    types = sorted(set(c["type"] for c in BASE_COMPONENTS))
+    symbols = sorted(set(c["symbol"] for c in BASE_COMPONENTS))
+    new_type = st.selectbox("Component Type", types)
+    new_symbol = st.selectbox("Symbol", symbols)
     add_equipment = st.form_submit_button("Add Equipment")
     if add_equipment:
         st.session_state.equipment.append({"type": new_type, "symbol": new_symbol})
 
-# --- Remove Equipment ---
 if st.button("Reset to Reference Baseline (36 components)"):
-    st.session_state.equipment = reset_to_baseline()
+    eqs, ils = reset_to_baseline()
+    st.session_state.equipment = eqs
+    st.session_state.inlines = ils
 
-eq_data = pd.DataFrame(st.session_state.equipment)
-st.dataframe(eq_data, hide_index=True, use_container_width=True)
+# Remove Equipment
+for idx, eq in enumerate(st.session_state.equipment):
+    st.write(f"{eq['tag']}: {eq['type']} ({eq['symbol']})")
+    if st.button(f"Remove Equipment {idx+1}", key=f"rm_eq_{idx}"):
+        st.session_state.equipment.pop(idx)
+        break
 
-# --- Equipment/Tag/AutoLayout Logic ---
-st.session_state.equipment = auto_layout(st.session_state.equipment, layout_order, component_direction_map)
-st.session_state.equipment = auto_tag(st.session_state.equipment, tag_prefix_map)
+# --- Inline Instrument Section ---
+st.subheader("Inline Instruments")
+with st.form("add_inline_form"):
+    inline_types = sorted(set(c["type"] for c in BASE_INLINES))
+    inline_symbols = sorted(set(c["symbol"] for c in BASE_INLINES))
+    new_itype = st.selectbox("Inline Type", inline_types)
+    new_isymbol = st.selectbox("Inline Symbol", inline_symbols)
+    add_inline = st.form_submit_button("Add Inline")
+    if add_inline:
+        st.session_state.inlines.append({"type": new_itype, "symbol": new_isymbol})
 
-# --- Pipelines Add/Remove ---
-st.write("**Pipeline Editor**")
-with st.form("add_pipeline_form"):
+for idx, il in enumerate(st.session_state.inlines):
+    st.write(f"{il['type']} ({il['symbol']})")
+    if st.button(f"Remove Inline {idx+1}", key=f"rm_il_{idx}"):
+        st.session_state.inlines.pop(idx)
+        break
+
+# --- Pipelines Section ---
+st.subheader("Pipelines")
+with st.form("add_pipe_form"):
     tag_list = [c["tag"] for c in st.session_state.equipment]
-    from_tag = st.selectbox("From", tag_list)
-    to_tag = st.selectbox("To", tag_list)
-    pipe_type = st.text_input("Pipe Type", "Suction Pipe")
+    from_tag = st.selectbox("From", tag_list, key="pipe_from")
+    to_tag = st.selectbox("To", tag_list, key="pipe_to")
+    pipe_type = st.text_input("Pipe Label", "15 NB CWS")
     flow_dir = st.selectbox("Direction", ["down", "right", "left", "up"], index=0)
     add_pipe = st.form_submit_button("Add Pipeline")
     if add_pipe:
         st.session_state.pipelines.append({"from": from_tag, "to": to_tag, "type": pipe_type, "flow_dir": flow_dir})
 
-# --- Remove pipeline rows ---
-if st.session_state.pipelines:
-    for i, pl in enumerate(st.session_state.pipelines):
-        st.write(f"{pl['from']} → {pl['to']} [{pl['type']}, {pl['flow_dir']}]")
-        if st.button(f"Remove Pipeline {i+1}", key=f"remove_pipe_{i}"):
-            st.session_state.pipelines.pop(i)
-            break
+for i, pl in enumerate(st.session_state.pipelines):
+    st.write(f"{pl['from']} → {pl['to']} [{pl['type']}, {pl['flow_dir']}]")
+    if st.button(f"Remove Pipeline {i+1}", key=f"rm_pipe_{i}"):
+        st.session_state.pipelines.pop(i)
+        break
 
 # --- Tag circle position
 st.selectbox("Tag Circle Position", ["left", "top", "bottom", "right"], key="tag_position")
 
+# --- Reapply layout/tag logic ---
+st.session_state.equipment = auto_layout(st.session_state.equipment, layout_order, component_direction_map)
+st.session_state.equipment = auto_tag(st.session_state.equipment, tag_prefix_map)
+st.session_state.inlines = auto_tag(st.session_state.inlines, tag_prefix_map)
+
 # --- Prepare for Drawing ---
-all_components = st.session_state.equipment
+all_components = st.session_state.equipment + st.session_state.inlines
 coord_map = {}
 for c in all_components:
     x_hint = c.get("x_hint", GRID_COLS // 2)
     y_hint = c.get("y_hint", 2)
     width = int(GRID_SPACING * SYMBOL_SCALE)
-    height = int(width * 2) if any(word in c["type"].lower() for word in ["column", "condenser", "filter", "scrubber"]) else width
-    c["width"] = max(MIN_WIDTH, min(MAX_WIDTH, width))
-    c["height"] = max(MIN_WIDTH, min(MAX_WIDTH*2, height))
+    width = max(MIN_WIDTH, min(MAX_WIDTH, width))
+    height = width
+    c["width"] = width
+    c["height"] = height
     x = PADDING + x_hint * GRID_SPACING
     y = PADDING + y_hint * GRID_SPACING
     coord_map[c["tag"]] = (x, y)
@@ -379,24 +405,13 @@ for c in all_components:
 canvas_w = (GRID_COLS+6) * GRID_SPACING
 canvas_h = (GRID_ROWS+6) * GRID_SPACING
 
-# --- LEGEND / BOM ---
-legend_items = []
-used_types = set()
-for eq in st.session_state.equipment:
-    if eq["type"] not in used_types:
-        used_types.add(eq["type"])
-        legend_items.append({
-            "Type": eq["type"],
-            "Symbol": eq["symbol"],
-            "Tag": eq["tag"]
-        })
-
-# --- MAIN DRAWING ---
-st.subheader("P&ID Drawing (Reference-Matched Layout)")
+# --- Main Drawing ---
+st.subheader("P&ID Drawing (Reference-Style Orthogonal Layout)")
 img = Image.new("RGB", (canvas_w, canvas_h), "white")
 draw = ImageDraw.Draw(img)
 draw_grid(draw, canvas_w, canvas_h, GRID_SPACING)
 
+# Equipment
 for eq in st.session_state.equipment:
     tag = eq["tag"]
     typ = eq["type"]
@@ -406,50 +421,56 @@ for eq in st.session_state.equipment:
     symbol_img = symbol_or_missing(symbol, width, height)
     img.paste(symbol_img, (int(x-width//2), int(y-height//2)), symbol_img)
     font = get_font(TAG_FONT_SIZE, bold=True)
-    draw.text((x, y+height//2+20), tag, anchor="mm", fill="black", font=font)
+    draw.text((x, y+height//2+22), tag.upper(), anchor="mm", fill="black", font=font)
     circled_tag(draw, x, y, tag, position=st.session_state.tag_position)
 
+# Inline Instruments
+for ic in st.session_state.inlines:
+    tag = ic["tag"]
+    x, y = coord_map.get(tag, (None, None))
+    if x is not None and y is not None:
+        width, height = ic.get("width", MIN_WIDTH), ic.get("height", MIN_WIDTH)
+        symbol_img = symbol_or_missing(ic["symbol"], width, height)
+        img.paste(symbol_img, (int(x-width//2), int(y-height//2)), symbol_img)
+        font = get_font(TAG_FONT_SIZE, bold=True)
+        draw.text((x, y+height//2+22), tag.upper(), anchor="mm", fill="black", font=font)
+        circled_tag(draw, x, y, tag, position=st.session_state.tag_position)
+
+# Pipelines with elbows, arrows, and pipe labels
 for idx, pl in enumerate(st.session_state.pipelines):
     from_tag = pl["from"]
     to_tag = pl["to"]
+    label = pl.get("type", "")
     flow_dir = pl.get("flow_dir", "down")
     if from_tag in coord_map and to_tag in coord_map:
         x1, y1 = coord_map[from_tag]
         x2, y2 = coord_map[to_tag]
-        if flow_dir == "down":
-            mx, my = x1, y2
-            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
-            draw_arrow(draw, (x1, y1), (mx, my), flow_dir)
-            draw_arrow(draw, (mx, my), (x2, y2), flow_dir)
-        elif flow_dir == "right":
-            mx, my = x2, y1
-            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
-            draw_arrow(draw, (x1, y1), (mx, my), flow_dir)
-            draw_arrow(draw, (mx, my), (x2, y2), flow_dir)
-        elif flow_dir == "left":
-            mx, my = x2, y1
-            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
-            draw_arrow(draw, (x1, y1), (mx, my), flow_dir)
-            draw_arrow(draw, (mx, my), (x2, y2), flow_dir)
-        elif flow_dir == "up":
-            mx, my = x1, y2
-            draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
-            draw_arrow(draw, (x1, y1), (mx, my), flow_dir)
-            draw_arrow(draw, (mx, my), (x2, y2), flow_dir)
+        draw_elbow_pipe(draw, x1, y1, x2, y2, flow_dir, label=label)
         circled_tag(draw, x1, y1, str(idx+1), position="left")
         circled_tag(draw, x2, y2, str(idx+1), position="right")
-        draw.text(((x1+x2)//2, (y1+y2)//2-18), pl["type"], anchor="mm", fill="gray", font=get_font(TAG_FONT_SIZE))
 
+# --- Legend / BOM ---
+legend_items = []
+used_types = set()
+for eq in st.session_state.equipment + st.session_state.inlines:
+    if eq["type"] not in used_types:
+        used_types.add(eq["type"])
+        legend_items.append({
+            "Type": eq["type"],
+            "Symbol": eq["symbol"],
+            "Tag": eq["tag"]
+        })
 legend_x = canvas_w - LEGEND_WIDTH - PADDING
 legend_y = PADDING
-draw.rectangle([legend_x, legend_y, canvas_w-PADDING, legend_y+30*(len(legend_items)+2)], outline="black", width=2)
+draw.rectangle([legend_x, legend_y, canvas_w-PADDING, legend_y+28*(len(legend_items)+2)], outline="black", width=2)
 font = get_font(LEGEND_FONT_SIZE)
-draw.text((legend_x+10, legend_y+5), "Legend / BOM", fill="black", font=font)
+draw.text((legend_x+10, legend_y+6), "Legend / BOM", fill="black", font=font)
 for i, item in enumerate(legend_items):
-    draw.text((legend_x+10, legend_y+30*(i+1)+5), f"{item['Type']} [{item['Tag']}]", fill="black", font=font)
+    draw.text((legend_x+10, legend_y+28*(i+1)+6), f"{item['Type'].upper()} [{item['Tag']}]", fill="black", font=font)
     symbol = symbol_or_missing(item["Symbol"], MIN_WIDTH, MIN_WIDTH)
-    img.paste(symbol, (legend_x+220, legend_y+30*(i+1)), symbol)
+    img.paste(symbol, (legend_x+220, legend_y+28*(i+1)), symbol)
 
+# --- Title Block (bottom right) ---
 tb_x = canvas_w - TITLE_BLOCK_WIDTH - PADDING
 tb_y = canvas_h - TITLE_BLOCK_HEIGHT - PADDING
 draw.rectangle([tb_x, tb_y, canvas_w-PADDING, canvas_h-PADDING], outline="black", width=2)
@@ -466,10 +487,11 @@ buf = io.BytesIO()
 img.save(buf, format="PNG")
 st.download_button("Download PNG", data=buf.getvalue(), file_name="pid.png", mime="image/png")
 
+# --- DXF Export ---
 def export_dxf():
     doc = ezdxf.new()
     msp = doc.modelspace()
-    for eq in st.session_state.equipment:
+    for eq in st.session_state.equipment + st.session_state.inlines:
         tag = eq["tag"]
         x, y = coord_map[tag]
         width = eq.get("width", MIN_WIDTH)
@@ -483,7 +505,7 @@ def export_dxf():
         if from_tag in coord_map and to_tag in coord_map:
             x1, y1 = coord_map[from_tag]
             x2, y2 = coord_map[to_tag]
-            mx, my = x1, y2
+            mx, my = x1, y2 if abs(x2-x1)<abs(y2-y1) else x2, y1
             msp.add_lwpolyline([(x1, y1), (mx, my), (x2, y2)])
     msp.add_text("EPS Interactive P&ID", dxfattribs={"height": 30}).dxf.insert = (tb_x+10, tb_y+10)
     msp.add_text(f"Date: {today_str()}", dxfattribs={"height": 20}).dxf.insert = (tb_x+10, tb_y+40)
@@ -497,11 +519,11 @@ if st.button("Download DXF"):
     dxf_bytes = export_dxf()
     st.download_button("Save DXF", data=dxf_bytes, file_name="pid.dxf", mime="application/dxf")
 
-ai_ideas = generate_ai_suggestions(st.session_state.equipment)
-with st.expander("🔍 AI Suggestions & Improvements", expanded=True):
-    for idea in ai_ideas:
-        st.markdown(idea)
+# --- AI Suggestions Section ---
+ai_suggestions_dict = generate_ai_suggestions(st.session_state.equipment, st.session_state.pipelines)
+st.subheader("🔍 AI Recommendations")
+st.json(ai_suggestions_dict)
 
-missing_syms = [eq["symbol"] for eq in st.session_state.equipment if not load_symbol(eq["symbol"], MIN_WIDTH, MIN_WIDTH)]
+missing_syms = [eq["symbol"] for eq in st.session_state.equipment+st.session_state.inlines if not load_symbol(eq["symbol"], MIN_WIDTH, MIN_WIDTH)]
 if missing_syms:
     st.warning(f"Missing symbols: {', '.join(set(missing_syms))} (shown as gray box). Please add PNGs in /symbols or let Stability AI generate fallback PNGs.")
