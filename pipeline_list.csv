@@ -1,7 +1,14 @@
-type,ISA_Code,Tag Prefix,Symbol_Image
-Vacuum Line,PL,VL,vacuum_line.png
-Cooling Water Line,WL,CW,cooling_water_line.png
-Steam Line,SL,ST,steam_line.png
-Nitrogen Purge Line,NL,NP,nitrogen_purge_line.png
-Process Fluid Line,FL,PF,process_fluid_line.png
-Drain Line,DL,DR,drain_line.png
+# File: piping.csv
+# Purpose: Standard pipe characteristics and line types
+# Created: 2025-07-08
+# Version: 1.0
+# Author: Process Engineering Team
+# id: unique identifier | Name: line type | Service: fluid/service | Min_Diameter_DN: minimum diameter (DN) | Max_Diameter_DN: maximum diameter (DN) | Material: material name | Design_Pressure_bar: design pressure (bar) | Design_Temperature_C: design temperature (°C) | Line_Weight: thickness (px) | Stroke_Dasharray: SVG dash pattern | Flow_Arrow_Required: true/false | Default_Layout_Offset: offset (px)
+id,Name,Service,Min_Diameter_DN,Max_Diameter_DN,Material,Design_Pressure_bar,Design_Temperature_C,Line_Weight,Stroke_Dasharray,Flow_Arrow_Required,Default_Layout_Offset
+PROCESS_LINE,Process Line,Process Fluid,25,600,Carbon Steel,10,120,2,,true,0
+COOLING_WATER,Cooling Water Line,Cooling Water,25,300,Carbon Steel,6,40,1.5,,true,10
+STEAM_LINE,Steam Line,Steam,15,300,Carbon Steel,12,180,2,,true,0
+INSTRUMENT_AIR,Instrument Air Line,Instrument Air,15,50,Carbon Steel,7,30,1,"5 5",false,0
+NITROGEN_PURGE,N2 Purge Line,Nitrogen,15,100,Stainless Steel 304,10,30,1,"5 5",false,5
+ELECTRICAL_CONDUIT,Electrical Conduit,Electrical,10,100,Carbon Steel,1,40,1,"10 2 2 2",false,0
+DRAIN_LINE,Drain Line,Drain,15,150,Carbon Steel,2,60,1,,false,0
