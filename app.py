@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from PIL import Image, ImageDraw, ImageFont
 import os
 import datetime
 import io
@@ -8,20 +7,10 @@ import ezdxf
 import openai
 import requests
 import base64
-
-# Optional: If you have these files, load for future dynamic sizing/tag logic
-try:
-    from tag_rules import next_tag
-    import json
-    with open("isa_config.json") as f:
-        ISA_CONFIG = json.load(f)
-except Exception:
-    next_tag = None
-    ISA_CONFIG = {}
-
-# --- ENVIRONMENT VARIABLES ---
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-STABILITY_API_KEY = os.environ.get("STABILITY_API_KEY")
+from streamlit_js_eval import streamlit_js_eval
+import json
+import re
+import math
 
 # --- SIDEBAR: Layout & Visual Controls ---
 st.sidebar.markdown("### Layout & Visual Controls")
@@ -42,523 +31,257 @@ TITLE_BLOCK_HEIGHT = 120
 TITLE_BLOCK_WIDTH = 420
 TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
 
-def get_symbol_pngs():
-    symbol_dir = "symbols"
-    if not os.path.exists(symbol_dir):
-        return []
-    return sorted([f for f in os.listdir(symbol_dir) if f.lower().endswith('.png')])
+# --- NEW: Paths for Layout Data and SVG Symbols ---
+SVG_SYMBOLS_DIR = "symbols"
+LAYOUT_DATA_DIR = "layout_data" # This is your new folder name!
 
-# COMPONENTS: these are mapped as closely as possible to the .png names from your folder output.
-BASE_COMPONENTS = [
-    {"type": "Dry Pump Model KDP330", "symbol": "positive_displacement_pump.png"},
-    {"type": "Motor – 10HP, 2 POLE , B5", "symbol": "gear_pump.png"},
-    {"type": "VFD", "symbol": "control_panel.png"},
-    {"type": "EPO valve", "symbol": "plug_valve.png"},
-    {"type": "N2 purge assembly", "symbol": "air_vent.png"},
-    {"type": "Liquid flushing assembly", "symbol": "drain.png"},
-    {"type": "Suction condenser", "symbol": "shell_and_tube_exchanger.png"},
-    {"type": "Catch pot for above with manual drain", "symbol": "accumulator.png"},
-    {"type": "Catch pot for above with Auto drain", "symbol": "accumulator.png"},
-    {"type": "Suction filter", "symbol": "filter_cartridge.png"},
-    {"type": "Scrubber", "symbol": "horizontal_vessel.png"},  # closest match
-    {"type": "Flame arrestor at suction", "symbol": "flame_arrestor.png"},
-    {"type": "Flame arrestor at discharge", "symbol": "flame_arrestor.png"},
-    {"type": "Flexible connection at suction", "symbol": "expansion_bellow.png"},
-    {"type": "Flexible connection at discharge", "symbol": "expansion_bellow.png"},
-    {"type": "Pressure transmitter at discharge", "symbol": "pressure_transmitter.png"},
-    {"type": "Discharge condenser", "symbol": "shell_and_tube_exchanger.png"},
-    {"type": "Catch pot for above with manual drain (discharge)", "symbol": "accumulator.png"},
-    {"type": "Catch pot for above with Auto drain (discharge)", "symbol": "accumulator.png"},
-    {"type": "Discharge silencer", "symbol": "silencer.png"},
-    {"type": "Temperature transmitter at suction", "symbol": "temperature_gauge.png"},
-    {"type": "Temperature transmitter at discharge", "symbol": "temperature_gauge.png"},
-    {"type": "Temperature gauge at suction", "symbol": "temperature_gauge.png"},
-    {"type": "Temperature gauge at discharge", "symbol": "temperature_gauge.png"},
-    {"type": "ACG filter at suction", "symbol": "filter_cartridge.png"},
-    {"type": "TCV for cooling water line", "symbol": "temperature_gauge.png"},
-    {"type": "Level switch for liquid purge tank", "symbol": "level_transmitter.png"},
-    {"type": "Flow switch for cooling water line", "symbol": "flow_switch.png"},
-    {"type": "Strainer for cooling water line", "symbol": "y_strainer.png"},
-    {"type": "Base plate", "symbol": "plate_exchanger.png"},  # closest
-    {"type": "Interconnecting piping with line size", "symbol": "pipe.png" if "pipe.png" in get_symbol_pngs() else "expansion_bellow.png"},
-    {"type": "FLP Control panel – mounted on skid", "symbol": "control_panel.png"},
-    {"type": "Control panel – split", "symbol": "control_panel.png"},
-    {"type": "Temperature transmitter at Cooling Jacket", "symbol": "temperature_gauge.png"},
-    {"type": "Pressure transmitter at Suction", "symbol": "pressure_transmitter.png"},
-    {"type": "Pressure switch at nitrogen Purge line", "symbol": "pressure_gauge.png"},
-]
+if 'svg_defs_added' not in st.session_state:
+    st.session_state.svg_defs_added = set()
 
-BASE_INLINES = [
-    {"type": "Pressure Transmitter", "symbol": "pressure_transmitter.png"},
-    {"type": "Temperature Gauge", "symbol": "temperature_gauge.png"},
-    {"type": "Flow Switch", "symbol": "flow_switch.png"},
-    {"type": "Strainer", "symbol": "y_strainer.png"},
-]
+# --- NEW: P&ID Component Class ---
+class PnidComponent:
+    def __init__(self, data_row, symbol_meta):
+        self.id = data_row['id']
+        self.tag = data_row.get('tag', self.id)
+        self.name = data_row['Component']
+        self.subtype = data_row['Component']
+        self.x = data_row['x']
+        self.y = data_row['y']
+        self.width = data_row['Width']
+        self.height = data_row['Height']
+        self.properties = data_row.get('properties', {})
+        if isinstance(self.properties, str):
+            try:
+                self.properties = json.loads(self.properties)
+            except json.JSONDecodeError:
+                self.properties = {}
+        self.ports = symbol_meta.get('ports', {})
 
-BASE_PIPELINES = [
-    {"from": "FA-001", "to": "SF-001", "type": "15 NB CWS", "flow_dir": "down"},
-    {"from": "SF-001", "to": "SC-001", "type": "15 NB CWS", "flow_dir": "down"},
-    {"from": "SC-001", "to": "CPM-001", "type": "15 NB CWS", "flow_dir": "down"},
-    {"from": "CPM-001", "to": "CPA-001", "type": "15 NB", "flow_dir": "down"},
-    {"from": "CPA-001", "to": "DP-001", "type": "15 NB", "flow_dir": "down"},
-    {"from": "DP-001", "to": "DC-001", "type": "15 NB", "flow_dir": "down"},
-    {"from": "DC-001", "to": "CPMD-001", "type": "15 NB", "flow_dir": "down"},
-    {"from": "CPMD-001", "to": "CPAD-001", "type": "15 NB", "flow_dir": "down"},
-    {"from": "CPAD-001", "to": "DS-001", "type": "15 NB", "flow_dir": "down"},
-    {"from": "DS-001", "to": "R-001", "type": "15 NB", "flow_dir": "down"},
-    {"from": "R-001", "to": "S-001", "type": "15 NB", "flow_dir": "right"},
-    {"from": "CPM-001", "to": "SV-001", "type": "15 NB CW", "flow_dir": "right"},
-    {"from": "CPA-001", "to": "PG-001", "type": "10 NB", "flow_dir": "left"},
-    {"from": "DP-001", "to": "CPNL-001", "type": "SIGNAL", "flow_dir": "right"},
-]
+    def get_port_coords(self, port_name):
+        port_def = self.ports.get(port_name)
+        if port_def:
+            return (self.x + port_def['dx'], self.y + port_def['dy'])
+        else:
+            st.warning(f"Port '{port_name}' not defined for component '{self.id}' ({self.name}). Check your component_mapping.json.")
+            return (self.x + self.width / 2, self.y + self.height / 2)
 
-layout_order = [
-    "Dry Pump Model KDP330", "Suction filter", "Suction condenser", "Catch pot for above with manual drain",
-    "Catch pot for above with Auto drain", "Scrubber", "Discharge condenser",
-    "Catch pot for above with manual drain (discharge)", "Catch pot for above with Auto drain (discharge)",
-    "Discharge silencer", "FLP Control panel – mounted on skid", "Control panel – split"
-]
-component_direction_map = {
-    "Dry Pump Model KDP330": "bottom",
-    "Suction filter": "bottom",
-    "Suction condenser": "bottom",
-    "Catch pot for above with manual drain": "bottom",
-    "Catch pot for above with Auto drain": "bottom",
-    "Scrubber": "right",
-    "Discharge condenser": "bottom",
-    "Catch pot for above with manual drain (discharge)": "bottom",
-    "Catch pot for above with Auto drain (discharge)": "bottom",
-    "Discharge silencer": "bottom",
-    "FLP Control panel – mounted on skid": "right",
-    "Control panel – split": "right",
-    "Pressure transmitter at discharge": "right",
-    "Pressure transmitter at Suction": "left",
-    "Temperature transmitter at discharge": "right",
-    "Temperature transmitter at suction": "left",
-    "Temperature transmitter at Cooling Jacket": "left",
-    "Pressure switch at nitrogen Purge line": "left",
-    "EPO valve": "right",
-    "Flexible connection at suction": "left",
-    "Flexible connection at discharge": "right",
-}
-tag_prefix_map = {
-    "Dry Pump Model KDP330": "DP",
-    "Motor – 10HP, 2 POLE , B5": "MTR",
-    "VFD": "VFD",
-    "EPO valve": "EPO",
-    "N2 purge assembly": "N2",
-    "Liquid flushing assembly": "LFA",
-    "Suction condenser": "SC",
-    "Catch pot for above with manual drain": "CPM",
-    "Catch pot for above with Auto drain": "CPA",
-    "Suction filter": "SF",
-    "Scrubber": "SCR",
-    "Flame arrestor at suction": "FAS",
-    "Flame arrestor at discharge": "FAD",
-    "Flexible connection at suction": "FCS",
-    "Flexible connection at discharge": "FCD",
-    "Pressure transmitter at discharge": "PTD",
-    "Discharge condenser": "DC",
-    "Catch pot for above with manual drain (discharge)": "CPMD",
-    "Catch pot for above with Auto drain (discharge)": "CPAD",
-    "Discharge silencer": "DS",
-    "Temperature transmitter at suction": "TTS",
-    "Temperature transmitter at discharge": "TTD",
-    "Temperature gauge at suction": "TGS",
-    "Temperature gauge at discharge": "TGD",
-    "ACG filter at suction": "ACGS",
-    "TCV for cooling water line": "TCV",
-    "Level switch for liquid purge tank": "LS",
-    "Flow switch for cooling water line": "FS",
-    "Strainer for cooling water line": "STR",
-    "Base plate": "BP",
-    "Interconnecting piping with line size": "PIP",
-    "FLP Control panel – mounted on skid": "FLPCP",
-    "Control panel – split": "CPS",
-    "Temperature transmitter at Cooling Jacket": "TTCJ",
-    "Pressure transmitter at Suction": "PTS",
-    "Pressure switch at nitrogen Purge line": "PSN2",
-}
+# --- NEW: P&ID Pipe Class ---
+class PnidPipe:
+    def __init__(self, data_row):
+        self.id = data_row['Pipe No.']
+        self.from_comp_name = data_row['From Component']
+        self.from_port_name = data_row['From Port']
+        self.to_comp_name = data_row['To Component']
+        self.to_port_name = data_row['To Port']
+        raw_points = data_row['Polyline Points (x, y)']
+        # Extract numbers: "(260, 200) → (330, 200) → (330, 280)"
+        coords_list = re.findall(r'\((\d+),\s*(\d+)\)', raw_points)
+        self.svg_polyline_points = " ".join([f"{x},{y}" for x, y in coords_list])
+        self.line_weight = PIPE_WIDTH
+        self.stroke_dasharray = ""
+        self.flow_arrow_required = True
+        self.label = data_row.get('Label', f"Pipe {self.id}")
 
-def get_font(size=14, bold=False):
+# --- NEW: Data Loading Function (Loads your PRE-CALCULATED Layout Data) ---
+@st.cache_data
+def load_layout_data():
     try:
-        if bold:
-            return ImageFont.truetype("arialbd.ttf", size)
-        return ImageFont.truetype("arial.ttf", size)
-    except Exception:
-        return ImageFont.load_default()
+        enhanced_equipment_layout_df = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, 'enhanced_equipment_layout.csv'))
+        pipe_connections_layout_df = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, 'pipe_connections_layout.csv'))
+        with open(os.path.join(LAYOUT_DATA_DIR, 'component_mapping.json'), 'r') as f:
+            component_mapping_data = json.load(f)
+        piping_df = pd.DataFrame({'type_id': [], 'line_weight': [], 'stroke_dasharray': [], 'flow_arrow_required': []}) 
+    except FileNotFoundError as e:
+        st.error(f"Error loading layout data files. Make sure they are in the '{LAYOUT_DATA_DIR}' folder. Missing: {e}")
+        st.stop()
 
-def today_str():
-    return datetime.date.today().isoformat()
+    svg_symbols_library = {}
+    svg_symbol_metadata = {}
+    for filename in os.listdir(SVG_SYMBOLS_DIR):
+        if filename.endswith(".svg"):
+            subtype = filename.replace(".svg", "")
+            filepath = os.path.join(SVG_SYMBOLS_DIR, filename)
+            with open(filepath, 'r') as f:
+                svg_content = f.read()
+                svg_symbols_library[subtype] = svg_content
+                viewbox_match = re.search(r'viewBox="([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)"', svg_content)
+                viewBox = [float(x) for x in viewbox_match.groups()] if viewbox_match else [0, 0, 100, 100]
+                ports = {}
+                for port_entry in component_mapping_data:
+                    if port_entry.get('Component') == subtype:
+                        port_name = port_entry.get('Port Name')
+                        if port_name and port_name != '—':
+                            try:
+                                ports[port_name] = {
+                                    'dx': float(port_entry.get('dx', 0)),
+                                    'dy': float(port_entry.get('dy', 0))
+                                }
+                            except (ValueError, TypeError):
+                                st.warning(f"Invalid dx/dy for port {port_name} in {subtype}.")
+                svg_symbol_metadata[subtype] = {
+                    'viewBox': viewBox,
+                    'default_width_px': viewBox[2],
+                    'default_height_px': viewBox[3],
+                    'ports': ports
+                }
 
-def draw_grid(draw, width, height, spacing):
-    for i in range(0, width, spacing):
-        draw.line([(i, 0), (i, height)], fill="#e0e0e0", width=1)
-    for j in range(0, height, spacing):
-        draw.line([(0, j), (width, j)], fill="#e0e0e0", width=1)
+    return (enhanced_equipment_layout_df, pipe_connections_layout_df,
+            component_mapping_data, piping_df,
+            svg_symbols_library, svg_symbol_metadata)
 
-def load_symbol(symbol_name, width, height):
-    symbol_path = os.path.join("symbols", symbol_name)
-    if os.path.isfile(symbol_path):
-        img = Image.open(symbol_path).convert("RGBA").resize((width, height))
-        return img
-    return None
+# --- Call the new data loading function ---
+(enhanced_equipment_layout_df, pipe_connections_layout_df,
+ component_mapping_data, piping_df,
+ svg_symbols_library, svg_symbol_metadata) = load_layout_data()
 
-def symbol_or_missing(symbol_name, width, height):
-    symbol = load_symbol(symbol_name, width, height)
-    if symbol:
-        return symbol
-    img = Image.new("RGBA", (width, height), (240, 240, 240, 255))
-    draw = ImageDraw.Draw(img)
-    draw.rectangle([5,5,width-5,height-5], outline="gray", width=2)
-    font = get_font(12)
-    draw.text((10, height//2-10), "Missing\nSymbol", fill="gray", font=font)
-    return img
+# --- NEW: Function to Generate SVG ---
+def generate_pnid_svg(
+    components, pipes, svg_symbols_library, svg_symbol_metadata,
+    grid_spacing, symbol_scale, pipe_width, tag_font_size, pipe_label_font_size,
+    arrow_length, legend_width, title_block_height, title_block_width, client_name
+):
+    max_x = max([c.x + c.width for c in components]) if components else 0
+    max_y = max([c.y + c.height for c in components]) if components else 0
+    canvas_width = max_x + PADDING + legend_width
+    canvas_height = max_y + PADDING + title_block_height
 
-def circled_tag(draw, x, y, tag, position="bottom"):
-    font = get_font(TAG_FONT_SIZE, bold=True)
-    r = 20
-    if position == "left":
-        cx, cy = x-38, y
-    elif position == "top":
-        cx, cy = x, y-38
-    elif position == "bottom":
-        cx, cy = x, y+38
-    elif position == "right":
-        cx, cy = x+38, y
-    else:
-        cx, cy = x, y
-    draw.ellipse([cx-r+2, cy-r+2, cx+r+2, cy+r+2], fill=(180,180,180,80))
-    draw.ellipse([cx-r, cy-r, cx+r, cy+r], outline="black", fill="#fff", width=2)
-    bbox = draw.textbbox((0,0), tag.upper(), font=font)
-    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text((cx - w//2, cy - h//2), tag.upper(), fill="black", font=font)
+    svg_elements = []
 
-def draw_thin_arrow(draw, start, end, color="black"):
-    from math import atan2, sin, cos, pi
-    x0, y0 = start
-    x1, y1 = end
-    draw.line([start, end], fill=color, width=1)
-    angle = atan2(y1-y0, x1-x0)
-    length = ARROW_LENGTH
-    arrow_angle = pi/7
-    p1 = (int(x1 - length*cos(angle-arrow_angle)), int(y1 - length*sin(angle-arrow_angle)))
-    p2 = (int(x1 - length*cos(angle+arrow_angle)), int(y1 - length*sin(angle+arrow_angle)))
-    draw.polygon([end, p1, p2], fill=color, outline=color)
+    # 2. Draw Components
+    for component in components:
+        symbol_data = svg_symbol_metadata.get(component.subtype)
+        if not symbol_data:
+            st.warning(f"SVG symbol '{component.subtype}.svg' not found in '{SVG_SYMBOLS_DIR}'. Skipping '{component.id}'.")
+            continue
 
-def draw_elbow_pipe(draw, x1, y1, x2, y2, flow_dir, label=None):
-    mx, my = (x1, y2) if abs(x2-x1) < abs(y2-y1) else (x2, y1)
-    draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
-    draw_thin_arrow(draw, (mx, my), (x2, y2))
-    if label:
-        font = get_font(PIPE_LABEL_FONT_SIZE, bold=True)
-        txt = label.upper()
-        lx, ly = (mx, my) if abs(x2-x1) > abs(y2-y1) else ((x1+x2)//2, (y1+y2)//2)
-        bbox = draw.textbbox((0,0), txt, font=font)
-        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-        draw.rectangle([lx-w//2-2, ly-h//2-1, lx+w//2+2, ly+h//2+1], fill="#fff")
-        draw.text((lx-w//2, ly-h//2), txt, fill="black", font=font)
+        viewBox_width = symbol_data['viewBox'][2]
+        viewBox_height = symbol_data['viewBox'][3]
 
-def auto_layout(components, layout_order, direction_map):
-    pos_map = {}
-    col = GRID_COLS // 2
-    row = 2
-    for comp in components:
-        ctype = comp.get("type")
-        if ctype in layout_order or ("x_hint" not in comp or "y_hint" not in comp):
-            comp["x_hint"] = col
-            comp["y_hint"] = row
-            pos_map[ctype] = (col, row)
-            row += 2 if ctype != "Scrubber" else 0
-    for comp in components:
-        ctype = comp.get("type")
-        if ctype not in layout_order:
-            if direction_map.get(ctype, "") == "right":
-                comp["x_hint"] = col + 4
-                comp["y_hint"] = pos_map.get("Dry Pump Model KDP330", (col, 10))[1]
-            elif direction_map.get(ctype, "") == "left":
-                comp["x_hint"] = col - 3
-                comp["y_hint"] = pos_map.get("Catch Pot Auto", (col, 6))[1]
-            elif "x_hint" not in comp or "y_hint" not in comp:
-                comp["x_hint"] = col + 2
-                comp["y_hint"] = 4
-    return components
+        transform_scale_x = component.width / viewBox_width if viewBox_width > 0 else 1
+        transform_scale_y = component.height / viewBox_height if viewBox_height > 0 else 1
 
-def auto_tag(components, tag_prefix_map):
-    tag_count = {}
-    for comp in components:
-        prefix = tag_prefix_map.get(comp["type"], comp["type"][:2].upper())
-        tag_count.setdefault(prefix, 1)
-        comp["tag"] = f"{prefix}-{tag_count[prefix]:03d}"
-        tag_count[prefix] += 1
-    return components
+        if component.subtype not in st.session_state.svg_defs_added:
+            symbol_content = svg_symbols_library[component.subtype]
+            symbol_content = re.sub(r'<svg(.*?)>', f'<symbol id="{component.subtype}"\\1>', symbol_content, count=1)
+            symbol_content = symbol_content.replace('</svg>', '</symbol>', count=1)
+            svg_elements.append(symbol_content)
+            st.session_state.svg_defs_added.add(component.subtype)
 
-def reset_to_baseline():
-    eqs = [dict(x) for x in BASE_COMPONENTS]
-    eqs = auto_layout(eqs, layout_order, component_direction_map)
-    eqs = auto_tag(eqs, tag_prefix_map)
-    ils = [dict(x) for x in BASE_INLINES]
-    ils = auto_tag(ils, tag_prefix_map)
-    return eqs, ils
-
-def generate_ai_suggestions(components, pipelines):
-    if not OPENAI_API_KEY:
-        return {
-            "Process Optimization Tips": ["Reduce piping bends for improved flow."],
-            "Utility Reduction & Sustainability": ["Reuse cooling water from scrubber loop."],
-            "Maintenance & Safety Reminders": ["Inspect DP-001 every 60 cycles."]
-        }
-    tags = [c['tag'] for c in components]
-    comp_types = [c['type'] for c in components]
-    connections = [f"{p['from']}→{p['to']}" for p in pipelines]
-    prompt = (
-        f"Suggest process optimization, sustainability upgrades, and predictive maintenance for a process with: "
-        f"{', '.join(comp_types)}. Connections: {', '.join(connections)}."
-        " Return three lists: Process Optimization Tips, Utility Reduction & Sustainability, Maintenance & Safety Reminders."
-    )
-    try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        chat_response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are an expert process engineer for chemical plants and vacuum systems."},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=256,
-            temperature=0.6,
+        svg_elements.append(
+            f'<use href="#{component.subtype}" '
+            f'x="{component.x}" y="{component.y}" '
+            f'width="{component.width}" height="{component.height}" '
+            f'fill="black" stroke="black" stroke-width="1"/>'
         )
-        msg = chat_response.choices[0].message.content
-        try:
-            import json
-            return json.loads(msg)
-        except Exception:
-            tips = {"Process Optimization Tips": [], "Utility Reduction & Sustainability": [], "Maintenance & Safety Reminders": []}
-            current = None
-            for line in msg.splitlines():
-                if "optimization" in line.lower():
-                    current = "Process Optimization Tips"
-                elif "utility" in line.lower() or "sustainability" in line.lower():
-                    current = "Utility Reduction & Sustainability"
-                elif "maintenance" in line.lower() or "safety" in line.lower():
-                    current = "Maintenance & Safety Reminders"
-                elif line.strip().startswith(("-", "*")) and current:
-                    tips[current].append(line.strip('-* ').strip())
-            return tips
-    except Exception as e:
-        return {
-            "Process Optimization Tips": [f"AI suggestion error: {e}"],
-            "Utility Reduction & Sustainability": ["Fallback: Add condensate recovery to reduce water loss."],
-            "Maintenance & Safety Reminders": ["Fallback: Inspect all suction-side filters monthly."]
-        }
 
-if "equipment" not in st.session_state:
-    eqs, ils = reset_to_baseline()
-    st.session_state.equipment = eqs
-    st.session_state.inlines = ils
-    st.session_state.pipelines = [dict(x) for x in BASE_PIPELINES]
-    st.session_state.tag_position = "bottom"
+        svg_elements.append(
+            f'<text x="{component.x + component.width / 2}" y="{component.y + component.height + tag_font_size + 5}" '
+            f'text-anchor="middle" font-size="{tag_font_size}" fill="black">{component.tag}</text>'
+        )
 
-st.title("EPS Interactive P&ID Generator")
-st.write("**Equipment/Instrument Editor**")
+    # 3. Draw Pipes
+    component_map = {c.name: c for c in components}
+    component_id_map = {c.id: c for c in components}
 
-with st.form("add_equipment_form"):
-    types = sorted(set(c["type"] for c in BASE_COMPONENTS))
-    symbol_pngs = get_symbol_pngs()
-    new_type = st.selectbox("Component Type", types)
-    new_symbol = st.selectbox("Symbol", symbol_pngs)
-    add_equipment = st.form_submit_button("Add Equipment")
-    if add_equipment:
-        st.session_state.equipment.append({"type": new_type, "symbol": new_symbol})
+    for pipe in pipes:
+        from_comp = component_map.get(pipe.from_comp_name) or component_id_map.get(pipe.from_comp_name)
+        to_comp = component_map.get(pipe.to_comp_name) or component_id_map.get(pipe.to_comp_name)
 
-if st.button("Reset to Reference Baseline (36 components)"):
-    eqs, ils = reset_to_baseline()
-    st.session_state.equipment = eqs
-    st.session_state.inlines = ils
+        if not from_comp:
+            st.warning(f"Source component '{pipe.from_comp_name}' for pipe '{pipe.id}' not found. Skipping pipe.")
+            continue
+        if not to_comp:
+            st.warning(f"Target component '{pipe.to_comp_name}' for pipe '{pipe.id}' not found. Skipping pipe.")
+            continue
 
-for idx, eq in enumerate(st.session_state.equipment):
-    st.write(f"{eq['tag']}: {eq['type']} ({eq['symbol']})")
-    if st.button(f"Remove Equipment {idx+1}", key=f"rm_eq_{idx}"):
-        st.session_state.equipment.pop(idx)
-        break
+        raw_points = pipe.svg_polyline_points
+        coords_list = [tuple(map(int, pair.split(','))) for pair in raw_points.split()]
+        svg_polyline_points = " ".join([f"{x},{y}" for x, y in coords_list])
 
-st.subheader("Inline Instruments")
-with st.form("add_inline_form"):
-    inline_types = sorted(set(c["type"] for c in BASE_INLINES))
-    symbol_pngs = get_symbol_pngs()
-    new_itype = st.selectbox("Inline Type", inline_types)
-    new_isymbol = st.selectbox("Inline Symbol", symbol_pngs)
-    add_inline = st.form_submit_button("Add Inline")
-    if add_inline:
-        st.session_state.inlines.append({"type": new_itype, "symbol": new_isymbol})
+        svg_elements.append(
+            f'<polyline points="{svg_polyline_points}" '
+            f'fill="none" stroke="black" stroke-width="{pipe_width}" '
+            f'stroke-dasharray="{pipe.stroke_dasharray}" marker-end="url(#arrowhead)"/>'
+        )
 
-for idx, il in enumerate(st.session_state.inlines):
-    st.write(f"{il['type']} ({il['symbol']})")
-    if st.button(f"Remove Inline {idx+1}", key=f"rm_il_{idx}"):
-        st.session_state.inlines.pop(idx)
-        break
+        if pipe.flow_arrow_required and coords_list and len(coords_list) >= 2:
+            pass # marker-end above handles arrows
 
-st.subheader("Pipelines")
-with st.form("add_pipe_form"):
-    tag_list = [c["tag"] for c in st.session_state.equipment]
-    from_tag = st.selectbox("From", tag_list, key="pipe_from")
-    to_tag = st.selectbox("To", tag_list, key="pipe_to")
-    pipe_type = st.text_input("Pipe Label", "15 NB CWS")
-    flow_dir = st.selectbox("Direction", ["down", "right", "left", "up"], index=0)
-    add_pipe = st.form_submit_button("Add Pipeline")
-    if add_pipe:
-        st.session_state.pipelines.append({"from": from_tag, "to": to_tag, "type": pipe_type, "flow_dir": flow_dir})
+        mid_point_index = int(len(coords_list) / 2) -1
+        if mid_point_index >= 0:
+            mid_segment_start_x, mid_segment_start_y = coords_list[mid_point_index]
+            mid_segment_end_x, mid_segment_end_y = coords_list[mid_point_index+1]
+            mid_x = (mid_segment_start_x + mid_segment_end_x) / 2
+            mid_y = (mid_segment_start_y + mid_segment_end_y) / 2
+            svg_elements.append(
+                f'<text x="{mid_x}" y="{mid_y - 5}" '
+                f'text-anchor="middle" font-size="{pipe_label_font_size}" fill="black">{pipe.label}</text>'
+            )
 
-for i, pl in enumerate(st.session_state.pipelines):
-    st.write(f"{pl['from']} → {pl['to']} [{pl['type']}, {pl['flow_dir']}]")
-    if st.button(f"Remove Pipeline {i+1}", key=f"rm_pipe_{i}"):
-        st.session_state.pipelines.pop(i)
-        break
+    full_svg = f'''
+    <svg width="{canvas_width}" height="{canvas_height}" viewBox="0 0 {canvas_width} {canvas_height}" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+            <marker id="arrowhead" markerWidth="10" markerHeight="7"
+                    refX="0" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="black" />
+            </marker>
+            {"".join([el for el in svg_elements if '<symbol id=' in el])}
+        </defs>
+        {"".join([el for el in svg_elements if '<symbol id=' not in el and '<marker id=' not in el])}
+        <rect x="{canvas_width - title_block_width}" y="{canvas_height - title_block_height}" 
+              width="{title_block_width}" height="{title_block_height}" 
+              fill="none" stroke="black" stroke-width="1"/>
+        <text x="{canvas_width - title_block_width + 10}" y="{canvas_height - title_block_height + 20}" 
+              font-size="14" fill="black">Client: {client_name}</text>
+        <text x="{canvas_width - title_block_width + 10}" y="{canvas_height - title_block_height + 40}" 
+              font-size="14" fill="black">Date: {datetime.date.today().strftime('%Y-%m-%d')}</text>
+        <text x="{canvas_width - title_block_width + 10}" y="{canvas_height - title_block_height + 60}" 
+              font-size="14" fill="black">P&ID Version: 1.0</text>
 
-st.selectbox("Tag Circle Position", ["left", "top", "bottom", "right"], key="tag_position")
+        <rect x="{canvas_width - legend_width}" y="10" 
+              width="{legend_width - 20}" height="150" 
+              fill="none" stroke="black" stroke-width="1"/>
+        <text x="{canvas_width - legend_width + 10}" y="30" font-size="{LEGEND_FONT_SIZE}" fill="black">Legend:</text>
+        <text x="{canvas_width - legend_width + 10}" y="50" font-size="{LEGEND_FONT_SIZE}" fill="black">--- Process Line</text>
+        <text x="{canvas_width - legend_width + 10}" y="70" font-size="{LEGEND_FONT_SIZE}" fill="black">-- -- Instrument Line</text>
+        <text x="{canvas_width - legend_width + 10}" y="90" font-size="{LEGEND_FONT_SIZE}" fill="black">-- • -- Electrical Line</text>
+    </svg>
+    '''
+    return full_svg
 
-st.session_state.equipment = auto_layout(st.session_state.equipment, layout_order, component_direction_map)
-st.session_state.equipment = auto_tag(st.session_state.equipment, tag_prefix_map)
-st.session_state.inlines = auto_tag(st.session_state.inlines, tag_prefix_map)
+# --- Generate and Display SVG ---
+all_components = []
+for index, row in enhanced_equipment_layout_df.iterrows():
+    subtype = row['Component']
+    symbol_meta = svg_symbol_metadata.get(subtype, {})
+    all_components.append(PnidComponent(row, symbol_meta))
 
-all_components = st.session_state.equipment + st.session_state.inlines
-coord_map = {}
-for c in all_components:
-    x_hint = c.get("x_hint", GRID_COLS // 2)
-    y_hint = c.get("y_hint", 2)
-    width = int(GRID_SPACING * SYMBOL_SCALE)
-    width = max(MIN_WIDTH, min(MAX_WIDTH, width))
-    height = width
-    if "Symbol_Width" in c:
-        width = c["Symbol_Width"]
-    if "Symbol_Height" in c:
-        height = c["Symbol_Height"]
-    c["width"] = width
-    c["height"] = height
-    x = PADDING + x_hint * GRID_SPACING
-    y = PADDING + y_hint * GRID_SPACING
-    coord_map[c["tag"]] = (x, y)
+all_pipes = []
+for index, row in pipe_connections_layout_df.iterrows():
+    all_pipes.append(PnidPipe(row))
 
-canvas_w = (GRID_COLS+6) * GRID_SPACING
-canvas_h = (GRID_ROWS+6) * GRID_SPACING
+pnid_svg_content = generate_pnid_svg(
+    components=all_components,
+    pipes=all_pipes,
+    svg_symbols_library=svg_symbols_library,
+    svg_symbol_metadata=svg_symbol_metadata,
+    grid_spacing=GRID_SPACING,
+    symbol_scale=SYMBOL_SCALE,
+    pipe_width=PIPE_WIDTH,
+    tag_font_size=TAG_FONT_SIZE,
+    pipe_label_font_size=PIPE_LABEL_FONT_SIZE,
+    arrow_length=ARROW_LENGTH,
+    legend_width=LEGEND_WIDTH,
+    title_block_height=TITLE_BLOCK_HEIGHT,
+    title_block_width=TITLE_BLOCK_WIDTH,
+    client_name=TITLE_BLOCK_CLIENT
+)
 
-st.subheader("P&ID Drawing (Reference-Style Orthogonal Layout)")
-img = Image.new("RGB", (canvas_w, canvas_h), "white")
-draw = ImageDraw.Draw(img)
-draw_grid(draw, canvas_w, canvas_h, GRID_SPACING)
+st.markdown(pnid_svg_content, unsafe_allow_html=True)
 
-for eq in st.session_state.equipment:
-    tag = eq["tag"]
-    typ = eq["type"]
-    symbol = eq["symbol"]
-    x, y = coord_map[tag]
-    width, height = eq.get("width", MIN_WIDTH), eq.get("height", MIN_WIDTH)
-    symbol_img = symbol_or_missing(symbol, width, height)
-    img.paste(symbol_img, (int(x-width//2), int(y-height//2)), symbol_img)
-    font = get_font(TAG_FONT_SIZE, bold=True)
-    draw.text((x, y+height//2+22), tag.upper(), anchor="mm", fill="black", font=font)
-    circled_tag(draw, x, y, tag, position=st.session_state.tag_position)
-
-for ic in st.session_state.inlines:
-    tag = ic["tag"]
-    x, y = coord_map.get(tag, (None, None))
-    if x is not None and y is not None:
-        width, height = ic.get("width", MIN_WIDTH), ic.get("height", MIN_WIDTH)
-        symbol_img = symbol_or_missing(ic["symbol"], width, height)
-        img.paste(symbol_img, (int(x-width//2), int(y-height//2)), symbol_img)
-        font = get_font(TAG_FONT_SIZE, bold=True)
-        draw.text((x, y+height//2+22), tag.upper(), anchor="mm", fill="black", font=font)
-        circled_tag(draw, x, y, tag, position=st.session_state.tag_position)
-
-for idx, pl in enumerate(st.session_state.pipelines):
-    from_tag = pl["from"]
-    to_tag = pl["to"]
-    label = pl.get("type", "")
-    flow_dir = pl.get("flow_dir", "down")
-    if from_tag in coord_map and to_tag in coord_map:
-        x1, y1 = coord_map[from_tag]
-        x2, y2 = coord_map[to_tag]
-        draw_elbow_pipe(draw, x1, y1, x2, y2, flow_dir, label=label)
-        circled_tag(draw, x1, y1, str(idx+1), position="left")
-        circled_tag(draw, x2, y2, str(idx+1), position="right")
-
-legend_items = []
-used_types = set()
-for eq in st.session_state.equipment + st.session_state.inlines:
-    if eq["type"] not in used_types:
-        used_types.add(eq["type"])
-        legend_items.append({
-            "Type": eq["type"],
-            "Symbol": eq["symbol"],
-            "Tag": eq["tag"]
-        })
-legend_x = canvas_w - LEGEND_WIDTH - PADDING
-legend_y = PADDING
-draw.rectangle([legend_x, legend_y, canvas_w-PADDING, legend_y+28*(len(legend_items)+2)], outline="black", width=2)
-font = get_font(LEGEND_FONT_SIZE)
-draw.text((legend_x+10, legend_y+6), "Legend / BOM", fill="black", font=font)
-for i, item in enumerate(legend_items):
-    draw.text((legend_x+10, legend_y+28*(i+1)+6), f"{item['Type'].upper()} [{item['Tag']}]", fill="black", font=font)
-    symbol = symbol_or_missing(item["Symbol"], MIN_WIDTH, MIN_WIDTH)
-    img.paste(symbol, (legend_x+220, legend_y+28*(i+1)), symbol)
-
-tb_x = canvas_w - TITLE_BLOCK_WIDTH - PADDING
-tb_y = canvas_h - TITLE_BLOCK_HEIGHT - PADDING
-draw.rectangle([tb_x, tb_y, canvas_w-PADDING, canvas_h-PADDING], outline="black", width=2)
-font = get_font(14)
-draw.text((tb_x+10, tb_y+10), "EPS Interactive P&ID", fill="black", font=font)
-draw.text((tb_x+10, tb_y+40), f"Date: {today_str()}", fill="black", font=font)
-draw.text((tb_x+10, tb_y+70), f"Sheet: 1 of 1", fill="black", font=font)
-draw.text((tb_x+220, tb_y+10), f"CLIENT: {TITLE_BLOCK_CLIENT}", fill="black", font=font)
-draw.rectangle([PADDING, PADDING, canvas_w-PADDING, canvas_h-PADDING], outline="#bbbbbb", width=1)
-
-st.image(img, use_container_width=True)
-
-buf = io.BytesIO()
-img.save(buf, format="PNG")
-st.download_button("Download PNG", data=buf.getvalue(), file_name="pid.png", mime="image/png")
-
-def export_dxf():
-    doc = ezdxf.new()
-    msp = doc.modelspace()
-    for eq in st.session_state.equipment + st.session_state.inlines:
-        tag = eq["tag"]
-        x, y = coord_map[tag]
-        width = eq.get("width", MIN_WIDTH)
-        height = eq.get("height", MIN_WIDTH)
-        msp.add_lwpolyline([(x-width//2, y-height//2), (x+width//2, y-height//2), (x+width//2, y+height//2), (x-width//2, y+height//2), (x-width//2, y-height//2)], close=True)
-        txt = msp.add_text(tag, dxfattribs={"height": TAG_FONT_SIZE})
-        txt.dxf.insert = (x, y+height//2+20)
-    for pl in st.session_state.pipelines:
-        from_tag = pl["from"]
-        to_tag = pl["to"]
-        if from_tag in coord_map and to_tag in coord_map:
-            x1, y1 = coord_map[from_tag]
-            x2, y2 = coord_map[to_tag]
-            mx, my = (x1, y2) if abs(x2-x1) < abs(y2-y1) else (x2, y1)
-            msp.add_lwpolyline([(x1, y1), (mx, my), (x2, y2)])
-    msp.add_text("EPS Interactive P&ID", dxfattribs={"height": 30}).dxf.insert = (tb_x+10, tb_y+10)
-    msp.add_text(f"Date: {today_str()}", dxfattribs={"height": 20}).dxf.insert = (tb_x+10, tb_y+40)
-    msp.add_text("Sheet: 1 of 1", dxfattribs={"height": 20}).dxf.insert = (tb_x+10, tb_y+70)
-    msp.add_text(f"CLIENT: {TITLE_BLOCK_CLIENT}", dxfattribs={"height": 20}).dxf.insert = (tb_x+220, tb_y+10)
-    buf = io.BytesIO()
-    doc.saveas(buf)
-    return buf.getvalue()
-
-if st.button("Download DXF"):
-    dxf_bytes = export_dxf()
-    st.download_button("Save DXF", data=dxf_bytes, file_name="pid.dxf", mime="application/dxf")
-
-ai_suggestions_dict = generate_ai_suggestions(st.session_state.equipment, st.session_state.pipelines)
-with st.sidebar.expander("🤖 AI Suggestions & Improvements", expanded=True):
-    for group, tips in ai_suggestions_dict.items():
-        st.markdown(f"**{group}**")
-        for tip in tips:
-            st.markdown(f"- {tip}")
-
-missing_syms = []
-existing_symbols = set(get_symbol_pngs())
-for eq in st.session_state.equipment+st.session_state.inlines:
-    if eq["symbol"] not in existing_symbols:
-        missing_syms.append(eq["symbol"])
-if missing_syms:
-    st.warning(f"Missing symbols: {', '.join(set(missing_syms))} (shown as gray box). Please add PNGs in /symbols.")
+st.download_button(
+    label="Download P&ID as SVG",
+    data=pnid_svg_content,
+    file_name="pnid_layout.svg",
+    mime="image/svg+xml"
+)
