@@ -42,7 +42,6 @@ TITLE_BLOCK_HEIGHT = 120
 TITLE_BLOCK_WIDTH = 420
 TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
 
-# --- Baseline: 36 Reference Components (truncated for brevity, add all for production) ---
 BASE_COMPONENTS = [
     {"type": "Flame Arrestor", "symbol": "flame_arrestor.png"},
     {"type": "Suction Filter", "symbol": "suction_filter.png"},
@@ -63,7 +62,6 @@ BASE_COMPONENTS = [
     {"type": "Temperature Gauge", "symbol": "temperature_gauge.png"},
     {"type": "Flow Switch", "symbol": "flow_switch.png"},
     {"type": "Strainer", "symbol": "strainer.png"},
-    # ...extend to 36 for full production baseline
 ]
 BASE_INLINES = [
     {"type": "Pressure Transmitter", "symbol": "pressure_transmitter.png"},
@@ -227,18 +225,9 @@ def draw_thin_arrow(draw, start, end, color="black"):
     draw.polygon([end, p1, p2], fill=color, outline=color)
 
 def draw_elbow_pipe(draw, x1, y1, x2, y2, flow_dir, label=None):
-    # ✳️ Module 2: Pipe Routing with Elbows (L-shaped or 90° turns)
-    # Draw pipes as elbowed L-shaped connections (not straight lines).
-    # If equipment A is at (x1, y1) and B is at (x2, y2), draw a horizontal line to x2, then vertical to y2.
-    # Use draw.line or draw.line + draw.arc to make it clean.
-    # Also add flow arrowheads at the end of the pipe to indicate direction.
     mx, my = (x1, y2) if abs(x2-x1) < abs(y2-y1) else (x2, y1)
     draw.line([(x1, y1), (mx, my), (x2, y2)], fill="black", width=PIPE_WIDTH)
     draw_thin_arrow(draw, (mx, my), (x2, y2))
-    # ✳️ Module 4: Pipe Labels + Size Tags
-    # Add pipe size labels (like "100 NB", "CWS", "TO CONDENSER") at midpoint of pipe lines.
-    # Use draw.text to render centered labels along pipes or next to elbow junctions.
-    # Labels should come from a new column in the pipeline CSV: Label
     if label:
         font = get_font(PIPE_LABEL_FONT_SIZE, bold=True)
         txt = label.upper()
@@ -249,12 +238,6 @@ def draw_elbow_pipe(draw, x1, y1, x2, y2, flow_dir, label=None):
         draw.text((lx-w//2, ly-h//2), txt, fill="black", font=font)
 
 def auto_layout(components, layout_order, direction_map):
-    # ✳️ Module 1: Flow-Based Auto Layout (Pump → Column → Condenser → Receiver + branches)
-    # Define a directed flow sequence for auto-layout of P&ID components.
-    # Each component has a type, tag, and should be positioned based on flow order (left to right or top-down).
-    # Use a dictionary or graph to represent flow logic.
-    # For example: "DP-001" (Pump) → "CL-001" (Column) → "CD-001" (Condenser) → "RCV-001" (Receiver)
-    # Assign default x, y grid positions based on the order in the flow sequence.
     pos_map = {}
     col = GRID_COLS // 2
     row = 2
@@ -297,14 +280,6 @@ def reset_to_baseline():
     return eqs, ils
 
 def generate_ai_suggestions(components, pipelines):
-    # ✳️ Module 8: AI Suggestions Sidebar (Always-On Sustainability + Optimization)
-    # Add an always-on AI Suggestions box in the Streamlit sidebar or right panel.
-    # Include three sections:
-    # 1. Process Optimization Tips
-    # 2. Utility Reduction & Sustainability
-    # 3. Maintenance & Safety Reminders
-    # Use OpenAI API to generate suggestions based on component types and tags in the layout.
-    # Prompt example: "Suggest sustainability upgrades and predictive maintenance for a process including pump, condenser, receiver, and vacuum column"
     if not OPENAI_API_KEY:
         return {
             "Process Optimization Tips": ["Reduce piping bends for improved flow."],
@@ -341,7 +316,6 @@ def generate_ai_suggestions(components, pipelines):
             "Maintenance & Safety Reminders": ["Fallback: Inspect all suction-side filters monthly."]
         }
 
-# --- SESSION STATE INIT ---
 if "equipment" not in st.session_state:
     eqs, ils = reset_to_baseline()
     st.session_state.equipment = eqs
@@ -349,16 +323,21 @@ if "equipment" not in st.session_state:
     st.session_state.pipelines = [dict(x) for x in BASE_PIPELINES]
     st.session_state.tag_position = "bottom"
 
-# --- UI: Add/Remove Equipment ---
 st.title("EPS Interactive P&ID Generator")
 st.write("**Equipment/Instrument Editor**")
 
-# Add Equipment
+# --- MODIFIED: List all PNGs in symbols/ folder for dropdowns ---
+def get_symbol_pngs():
+    symbol_dir = "symbols"
+    if not os.path.exists(symbol_dir):
+        return []
+    return sorted([f for f in os.listdir(symbol_dir) if f.lower().endswith('.png')])
+
 with st.form("add_equipment_form"):
     types = sorted(set(c["type"] for c in BASE_COMPONENTS))
-    symbols = sorted(set(c["symbol"] for c in BASE_COMPONENTS))
+    symbol_pngs = get_symbol_pngs()
     new_type = st.selectbox("Component Type", types)
-    new_symbol = st.selectbox("Symbol", symbols)
+    new_symbol = st.selectbox("Symbol", symbol_pngs)
     add_equipment = st.form_submit_button("Add Equipment")
     if add_equipment:
         st.session_state.equipment.append({"type": new_type, "symbol": new_symbol})
@@ -368,20 +347,18 @@ if st.button("Reset to Reference Baseline (36 components)"):
     st.session_state.equipment = eqs
     st.session_state.inlines = ils
 
-# Remove Equipment
 for idx, eq in enumerate(st.session_state.equipment):
     st.write(f"{eq['tag']}: {eq['type']} ({eq['symbol']})")
     if st.button(f"Remove Equipment {idx+1}", key=f"rm_eq_{idx}"):
         st.session_state.equipment.pop(idx)
         break
 
-# --- Inline Instruments Section ---
 st.subheader("Inline Instruments")
 with st.form("add_inline_form"):
     inline_types = sorted(set(c["type"] for c in BASE_INLINES))
-    inline_symbols = sorted(set(c["symbol"] for c in BASE_INLINES))
+    symbol_pngs = get_symbol_pngs()
     new_itype = st.selectbox("Inline Type", inline_types)
-    new_isymbol = st.selectbox("Inline Symbol", inline_symbols)
+    new_isymbol = st.selectbox("Inline Symbol", symbol_pngs)
     add_inline = st.form_submit_button("Add Inline")
     if add_inline:
         st.session_state.inlines.append({"type": new_itype, "symbol": new_isymbol})
@@ -392,7 +369,6 @@ for idx, il in enumerate(st.session_state.inlines):
         st.session_state.inlines.pop(idx)
         break
 
-# --- Pipelines Section ---
 st.subheader("Pipelines")
 with st.form("add_pipe_form"):
     tag_list = [c["tag"] for c in st.session_state.equipment]
@@ -410,24 +386,17 @@ for i, pl in enumerate(st.session_state.pipelines):
         st.session_state.pipelines.pop(i)
         break
 
-# --- Tag circle position
 st.selectbox("Tag Circle Position", ["left", "top", "bottom", "right"], key="tag_position")
 
-# --- Reapply layout/tag logic ---
 st.session_state.equipment = auto_layout(st.session_state.equipment, layout_order, component_direction_map)
 st.session_state.equipment = auto_tag(st.session_state.equipment, tag_prefix_map)
 st.session_state.inlines = auto_tag(st.session_state.inlines, tag_prefix_map)
 
-# --- Prepare for Drawing ---
 all_components = st.session_state.equipment + st.session_state.inlines
 coord_map = {}
 for c in all_components:
     x_hint = c.get("x_hint", GRID_COLS // 2)
     y_hint = c.get("y_hint", 2)
-    # ✳️ Module 5: Symbol-Specific Sizing
-    # Allow each symbol to define its width and height individually (in px or grid units).
-    # Use new columns in equipment_list.csv: Symbol_Width, Symbol_Height
-    # Modify the rendering logic so symbols are resized accordingly instead of using one global scale.
     width = int(GRID_SPACING * SYMBOL_SCALE)
     width = max(MIN_WIDTH, min(MAX_WIDTH, width))
     height = width
@@ -444,7 +413,6 @@ for c in all_components:
 canvas_w = (GRID_COLS+6) * GRID_SPACING
 canvas_h = (GRID_ROWS+6) * GRID_SPACING
 
-# --- Main Drawing ---
 st.subheader("P&ID Drawing (Reference-Style Orthogonal Layout)")
 img = Image.new("RGB", (canvas_w, canvas_h), "white")
 draw = ImageDraw.Draw(img)
@@ -461,11 +429,6 @@ for eq in st.session_state.equipment:
     font = get_font(TAG_FONT_SIZE, bold=True)
     draw.text((x, y+height//2+22), tag.upper(), anchor="mm", fill="black", font=font)
     circled_tag(draw, x, y, tag, position=st.session_state.tag_position)
-    # ✳️ Module 3: Instrument Attachment (PTs, TGs, LTs)
-    # Attach instruments like PT (Pressure Transmitter), TG (Temp Gauge), LT (Level Transmitter) to the parent equipment.
-    # Based on equipment type, offset instruments to top, bottom, or side (e.g., LT on tank side, PT on top).
-    # Render small symbols next to the parent and label them (e.g., "PT-101").
-    # Instruments should be pulled from a CSV with columns: Equipment_Tag, Instrument_Type, ISA_Tag
 
 for ic in st.session_state.inlines:
     tag = ic["tag"]
@@ -490,11 +453,6 @@ for idx, pl in enumerate(st.session_state.pipelines):
         circled_tag(draw, x1, y1, str(idx+1), position="left")
         circled_tag(draw, x2, y2, str(idx+1), position="right")
 
-# --- Legend / BOM ---
-# ✳️ Module 7: Legend Panel & Control Box Positioning
-# Fix the legend and control panel positions so they always render in a reserved space (e.g., top-right corner of canvas).
-# Use absolute canvas coordinates (like x=1600, y=100) to draw the legend consistently.
-# Consider separating instrument loop logic into a separate "Control Logic Block" area.
 legend_items = []
 used_types = set()
 for eq in st.session_state.equipment + st.session_state.inlines:
@@ -515,12 +473,6 @@ for i, item in enumerate(legend_items):
     symbol = symbol_or_missing(item["Symbol"], MIN_WIDTH, MIN_WIDTH)
     img.paste(symbol, (legend_x+220, legend_y+28*(i+1)), symbol)
 
-# ✳️ Module 6: Sheet Border + Title Block (Like Engineering Drawing)
-# Add an outer A3/A4 border rectangle to the P&ID canvas.
-# Inside the bottom-right corner, draw a title block with fields:
-# Project Title, Drawing No, Rev, Date, Drawn By
-# Pull these from Streamlit text inputs and draw using draw.text.
-# Ensure the drawing fits inside the bordered region.
 tb_x = canvas_w - TITLE_BLOCK_WIDTH - PADDING
 tb_y = canvas_h - TITLE_BLOCK_HEIGHT - PADDING
 draw.rectangle([tb_x, tb_y, canvas_w-PADDING, canvas_h-PADDING], outline="black", width=2)
@@ -530,11 +482,6 @@ draw.text((tb_x+10, tb_y+40), f"Date: {today_str()}", fill="black", font=font)
 draw.text((tb_x+10, tb_y+70), f"Sheet: 1 of 1", fill="black", font=font)
 draw.text((tb_x+220, tb_y+10), f"CLIENT: {TITLE_BLOCK_CLIENT}", fill="black", font=font)
 draw.rectangle([PADDING, PADDING, canvas_w-PADDING, canvas_h-PADDING], outline="#bbbbbb", width=1)
-
-# 📍 Bonus : View Scaling Based on Drawing Size
-# After rendering all components and pipes, calculate the bounding box (min_x, max_x, min_y, max_y).
-# Automatically scale the canvas view (or set image DPI/resolution) to fit the layout cleanly.
-# Prevent cutoff or empty space around the drawing.
 
 st.image(img, use_container_width=True)
 
