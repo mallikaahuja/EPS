@@ -8,6 +8,16 @@ import ezdxf
 import openai
 import requests
 import base64
+import json
+
+# Optional: If you have these files, load for future dynamic sizing/tag logic
+try:
+    from tag_rules import next_tag
+    with open("isa_config.json") as f:
+        ISA_CONFIG = json.load(f)
+except Exception:
+    next_tag = None
+    ISA_CONFIG = {}
 
 # --- ENVIRONMENT VARIABLES ---
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -198,7 +208,6 @@ def circled_tag(draw, x, y, tag, position="bottom"):
         cx, cy = x+38, y
     else:
         cx, cy = x, y
-    # shadow
     draw.ellipse([cx-r+2, cy-r+2, cx+r+2, cy+r+2], fill=(180,180,180,80))
     draw.ellipse([cx-r, cy-r, cx+r, cy+r], outline="black", fill="#fff", width=2)
     bbox = draw.textbbox((0,0), tag.upper(), font=font)
@@ -514,8 +523,11 @@ if st.button("Download DXF"):
     st.download_button("Save DXF", data=dxf_bytes, file_name="pid.dxf", mime="application/dxf")
 
 ai_suggestions_dict = generate_ai_suggestions(st.session_state.equipment, st.session_state.pipelines)
-st.subheader("🔍 AI Recommendations")
-st.json(ai_suggestions_dict)
+with st.sidebar.expander("🤖 AI Suggestions & Improvements", expanded=True):
+    for group, tips in ai_suggestions_dict.items():
+        st.markdown(f"**{group}**")
+        for tip in tips:
+            st.markdown(f"- {tip}")
 
 missing_syms = [eq["symbol"] for eq in st.session_state.equipment+st.session_state.inlines if not load_symbol(eq["symbol"], MIN_WIDTH, MIN_WIDTH)]
 if missing_syms:
