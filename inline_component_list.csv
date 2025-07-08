@@ -1,9 +1,16 @@
-type,ISA_Code,Tag Prefix,Symbol_Image
-Vacuum Control Valve,V,PV,vacuum_valve.png
-Vacuum Transmitter,PT,PT,vacuum_transmitter.png
-Temperature Transmitter,TT,TT,temperature_transmitter.png
-Level Sensor,LT,LT,level_sensor.png
-Check Valve,CV,CV,check_valve.png
-Butterfly Valve,BFV,BFV,butterfly_valve.png
-Filter,F,FT,filter.png
-Sight Glass,SG,SG,sight_glass.png
+# File: inline_components.csv
+# Purpose: Inline components for P&ID (valves, sensors, etc.)
+# Created: 2025-07-08
+# Version: 1.0
+# Author: Process Engineering Team
+# id: unique identifier | tag_prefix: component tag | name: component name | type: category | subtype: symbol name | isa_code: instrument code | default_properties: JSON of default specs | default_width_px: symbol width (px) | default_height_px: symbol height (px) | port_definitions: JSON of connection points (mm) | placement_rule: how placed on pipe | cost_usd: estimated cost | manufacturer: supplier name | efficiency_pct: efficiency (%)
+id,tag_prefix,name,type,subtype,isa_code,default_properties,default_width_px,default_height_px,port_definitions,placement_rule,cost_usd,manufacturer,efficiency_pct
+ball_valve,hv,ball valve,valve,ball_valve,,"{""actuation"": ""Manual""}",50,50,"{""left_mm"": [0, 25], ""right_mm"": [50, 25]}",inline,150,ValveCo,90
+strainer,st,strainer,filter,y_strainer,,"{""mesh_size"": ""100""}",60,40,"{""inlet_mm"": [0, 20], ""outlet_mm"": [60, 20]}",inline,200,FilterCo,85
+vfd,vfd,variable frequency drive,electrical,vfd,,"{""control"": ""Speed""}",60,60,"{""power_in_mm"": [0, 30], ""power_out_mm"": [60, 30]}",inline,1200,ElecTech,95
+motor,mtr,motor,electrical,motor,,"{""power"": ""10HP""}",60,60,"{""power_in_mm"": [0, 30], ""power_out_mm"": [60, 30]}",inline,3000,MotorWorks,90
+catch_pot,cp,catch pot,fitting,catch_pot,,"{""volume"": ""10 L""}",40,40,"{""inlet_mm"": [0, 20], ""outlet_mm"": [40, 20]}",inline,500,FittingCo,85
+drain_valve,dv,drain valve,valve,drain_valve,,"{""actuation"": ""Manual""}",30,30,"{""left_mm"": [0, 15], ""right_mm"": [30, 15]}",inline,100,ValveCo,90
+pressure_gauge,pg,pressure gauge,instrument,pressure_gauge,pg,"{""range"": ""0-10 bar""}",50,50,"{""process_connection_mm"": [5, 25]}",tapped_above,400,GaugeCo,95
+level_transmitter,lt,level transmitter,instrument,level_transmitter,lt,"{""range"": ""0-10 m""}",50,50,"{""process_connection_mm"": [5, 25]}",tapped_above,600,TransmitterCo,90
+condenser,c,condenser,heat exchanger,shell_and_tube_exchanger,,"{""duty"": ""Condensing""}",150,100,"{""tube_in_mm"": [10, 20], ""tube_out_mm"": [140, 80], ""shell_in_mm"": [75, 0], ""shell_out_mm"": [75, 100]}",inline,14000,HeatExchangers Inc.,88
