@@ -42,60 +42,59 @@ TITLE_BLOCK_HEIGHT = 120
 TITLE_BLOCK_WIDTH = 420
 TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
 
-# --- ALWAYS get all PNGs from the folder for accurate dropdown and matching ---
 def get_symbol_pngs():
     symbol_dir = "symbols"
     if not os.path.exists(symbol_dir):
         return []
     return sorted([f for f in os.listdir(symbol_dir) if f.lower().endswith('.png')])
 
-# --- UPDATE THE BASE_COMPONENTS LIST TO MATCH THE ACTUAL SYMBOL NAMES IN YOUR FOLDER ---
-# Please ensure this list matches your actual 'symbols' folder PNGs, all lowercase, underscores, .png!
+# COMPONENTS: these are mapped as closely as possible to the .png names from your folder output.
 BASE_COMPONENTS = [
-    {"type": "Flame Arrestor", "symbol": "flame_arrestor.png"},
-    {"type": "Suction Filter", "symbol": "suction_filter.png"},
-    {"type": "Suction Condenser", "symbol": "suction_condenser.png"},
-    {"type": "Catch Pot Manual", "symbol": "catch_pot_manual.png"},
-    {"type": "Catch Pot Auto", "symbol": "catch_pot_auto.png"},
-    {"type": "Dry Pump Model KDP330", "symbol": "dry_pump_model_kdp330.png"},
-    {"type": "Discharge Condenser", "symbol": "discharge_condenser.png"},
-    {"type": "Catch Pot Manual Disch", "symbol": "catch_pot_manual_disch.png"},
-    {"type": "Catch Pot Auto Disch", "symbol": "catch_pot_auto_disch.png"},
-    {"type": "Discharge Silencer", "symbol": "discharge_silencer.png"},
-    {"type": "Receiver", "symbol": "receiver.png"},
-    {"type": "Scrubber", "symbol": "scrubber.png"},
-    {"type": "Control Panel FLP", "symbol": "control_panel_flp.png"},
-    {"type": "Solenoid Valve", "symbol": "solenoid_valve.png"},
-    {"type": "Pressure Gauge", "symbol": "pressure_gauge.png"},
-    {"type": "Pressure Transmitter", "symbol": "pressure_transmitter.png"},
-    {"type": "Temperature Gauge", "symbol": "temperature_gauge.png"},
-    {"type": "Flow Switch", "symbol": "flow_switch.png"},
-    {"type": "Strainer", "symbol": "strainer.png"},
-    {"type": "Pump", "symbol": "pump.png"},
-    {"type": "Ball Valve", "symbol": "ball_valve.png"},
-    {"type": "Butterfly Valve", "symbol": "butterfly_valve.png"},
-    {"type": "Gate Valve", "symbol": "gate_valve.png"},
-    {"type": "Globe Valve", "symbol": "globe_valve.png"},
-    {"type": "Plug Valve", "symbol": "plug_valve.png"},
-    {"type": "Check Valve", "symbol": "check_valve.png"},
-    {"type": "Relief Valve", "symbol": "relief_valve.png"},
-    {"type": "Diaphragm Valve", "symbol": "diaphragm_valve.png"},
-    {"type": "Needle Valve", "symbol": "needle_valve.png"},
-    {"type": "Orifice Plate", "symbol": "orifice_plate.png"},
-    {"type": "Venturi Tube", "symbol": "venturi_tube.png"},
-    {"type": "Sight Glass", "symbol": "sight_glass.png"},
-    {"type": "Level Transmitter", "symbol": "level_transmitter.png"},
-    {"type": "Flame Detector", "symbol": "flame_detector.png"},
-    {"type": "Flow Meter", "symbol": "flow_meter.png"},
-    {"type": "Y Strainer", "symbol": "y_strainer.png"},
-    # ...add your exact 36 here with real file names from your symbols folder...
+    {"type": "Dry Pump Model KDP330", "symbol": "positive_displacement_pump.png"},
+    {"type": "Motor – 10HP, 2 POLE , B5", "symbol": "gear_pump.png"},
+    {"type": "VFD", "symbol": "control_panel.png"},
+    {"type": "EPO valve", "symbol": "plug_valve.png"},
+    {"type": "N2 purge assembly", "symbol": "air_vent.png"},
+    {"type": "Liquid flushing assembly", "symbol": "drain.png"},
+    {"type": "Suction condenser", "symbol": "shell_and_tube_exchanger.png"},
+    {"type": "Catch pot for above with manual drain", "symbol": "accumulator.png"},
+    {"type": "Catch pot for above with Auto drain", "symbol": "accumulator.png"},
+    {"type": "Suction filter", "symbol": "filter_cartridge.png"},
+    {"type": "Scrubber", "symbol": "horizontal_vessel.png"},  # closest match
+    {"type": "Flame arrestor at suction", "symbol": "flame_arrestor.png"},
+    {"type": "Flame arrestor at discharge", "symbol": "flame_arrestor.png"},
+    {"type": "Flexible connection at suction", "symbol": "expansion_bellow.png"},
+    {"type": "Flexible connection at discharge", "symbol": "expansion_bellow.png"},
+    {"type": "Pressure transmitter at discharge", "symbol": "pressure_transmitter.png"},
+    {"type": "Discharge condenser", "symbol": "shell_and_tube_exchanger.png"},
+    {"type": "Catch pot for above with manual drain (discharge)", "symbol": "accumulator.png"},
+    {"type": "Catch pot for above with Auto drain (discharge)", "symbol": "accumulator.png"},
+    {"type": "Discharge silencer", "symbol": "silencer.png"},
+    {"type": "Temperature transmitter at suction", "symbol": "temperature_gauge.png"},
+    {"type": "Temperature transmitter at discharge", "symbol": "temperature_gauge.png"},
+    {"type": "Temperature gauge at suction", "symbol": "temperature_gauge.png"},
+    {"type": "Temperature gauge at discharge", "symbol": "temperature_gauge.png"},
+    {"type": "ACG filter at suction", "symbol": "filter_cartridge.png"},
+    {"type": "TCV for cooling water line", "symbol": "temperature_gauge.png"},
+    {"type": "Level switch for liquid purge tank", "symbol": "level_transmitter.png"},
+    {"type": "Flow switch for cooling water line", "symbol": "flow_switch.png"},
+    {"type": "Strainer for cooling water line", "symbol": "y_strainer.png"},
+    {"type": "Base plate", "symbol": "plate_exchanger.png"},  # closest
+    {"type": "Interconnecting piping with line size", "symbol": "pipe.png" if "pipe.png" in get_symbol_pngs() else "expansion_bellow.png"},
+    {"type": "FLP Control panel – mounted on skid", "symbol": "control_panel.png"},
+    {"type": "Control panel – split", "symbol": "control_panel.png"},
+    {"type": "Temperature transmitter at Cooling Jacket", "symbol": "temperature_gauge.png"},
+    {"type": "Pressure transmitter at Suction", "symbol": "pressure_transmitter.png"},
+    {"type": "Pressure switch at nitrogen Purge line", "symbol": "pressure_gauge.png"},
 ]
+
 BASE_INLINES = [
     {"type": "Pressure Transmitter", "symbol": "pressure_transmitter.png"},
     {"type": "Temperature Gauge", "symbol": "temperature_gauge.png"},
     {"type": "Flow Switch", "symbol": "flow_switch.png"},
-    {"type": "Strainer", "symbol": "strainer.png"},
+    {"type": "Strainer", "symbol": "y_strainer.png"},
 ]
+
 BASE_PIPELINES = [
     {"from": "FA-001", "to": "SF-001", "type": "15 NB CWS", "flow_dir": "down"},
     {"from": "SF-001", "to": "SC-001", "type": "15 NB CWS", "flow_dir": "down"},
@@ -114,65 +113,71 @@ BASE_PIPELINES = [
 ]
 
 layout_order = [
-    "Flame Arrestor", "Suction Filter", "Suction Condenser", "Catch Pot Manual",
-    "Catch Pot Auto", "Dry Pump Model KDP330", "Discharge Condenser",
-    "Catch Pot Manual Disch", "Catch Pot Auto Disch", "Discharge Silencer",
-    "Receiver", "Scrubber"
+    "Dry Pump Model KDP330", "Suction filter", "Suction condenser", "Catch pot for above with manual drain",
+    "Catch pot for above with Auto drain", "Scrubber", "Discharge condenser",
+    "Catch pot for above with manual drain (discharge)", "Catch pot for above with Auto drain (discharge)",
+    "Discharge silencer", "FLP Control panel – mounted on skid", "Control panel – split"
 ]
 component_direction_map = {
-    "Flame Arrestor": "bottom",
-    "Suction Filter": "bottom",
-    "Suction Condenser": "bottom",
-    "Catch Pot Manual": "bottom",
-    "Catch Pot Auto": "bottom",
     "Dry Pump Model KDP330": "bottom",
-    "Discharge Condenser": "bottom",
-    "Catch Pot Manual Disch": "bottom",
-    "Catch Pot Auto Disch": "bottom",
-    "Discharge Silencer": "bottom",
-    "Receiver": "bottom",
+    "Suction filter": "bottom",
+    "Suction condenser": "bottom",
+    "Catch pot for above with manual drain": "bottom",
+    "Catch pot for above with Auto drain": "bottom",
     "Scrubber": "right",
-    "Control Panel FLP": "right",
-    "Solenoid Valve": "right",
-    "Pressure Gauge": "left",
+    "Discharge condenser": "bottom",
+    "Catch pot for above with manual drain (discharge)": "bottom",
+    "Catch pot for above with Auto drain (discharge)": "bottom",
+    "Discharge silencer": "bottom",
+    "FLP Control panel – mounted on skid": "right",
+    "Control panel – split": "right",
+    "Pressure transmitter at discharge": "right",
+    "Pressure transmitter at Suction": "left",
+    "Temperature transmitter at discharge": "right",
+    "Temperature transmitter at suction": "left",
+    "Temperature transmitter at Cooling Jacket": "left",
+    "Pressure switch at nitrogen Purge line": "left",
+    "EPO valve": "right",
+    "Flexible connection at suction": "left",
+    "Flexible connection at discharge": "right",
 }
 tag_prefix_map = {
-    "Flame Arrestor": "FA",
-    "Suction Filter": "SF",
-    "Suction Condenser": "SC",
-    "Catch Pot Manual": "CPM",
-    "Catch Pot Auto": "CPA",
     "Dry Pump Model KDP330": "DP",
-    "Discharge Condenser": "DC",
-    "Catch Pot Manual Disch": "CPMD",
-    "Catch Pot Auto Disch": "CPAD",
-    "Discharge Silencer": "DS",
-    "Receiver": "R",
-    "Scrubber": "S",
-    "Control Panel FLP": "CPNL",
-    "Solenoid Valve": "SV",
-    "Pressure Gauge": "PG",
-    "Pressure Transmitter": "PT",
-    "Temperature Gauge": "TG",
-    "Flow Switch": "FS",
-    "Strainer": "STR",
-    "Pump": "P",
-    "Ball Valve": "BV",
-    "Butterfly Valve": "BFV",
-    "Gate Valve": "GV",
-    "Globe Valve": "GLV",
-    "Plug Valve": "PLV",
-    "Check Valve": "CV",
-    "Relief Valve": "RV",
-    "Diaphragm Valve": "DV",
-    "Needle Valve": "NV",
-    "Orifice Plate": "OP",
-    "Venturi Tube": "VT",
-    "Sight Glass": "SG",
-    "Level Transmitter": "LT",
-    "Flame Detector": "FD",
-    "Flow Meter": "FM",
-    "Y Strainer": "YS",
+    "Motor – 10HP, 2 POLE , B5": "MTR",
+    "VFD": "VFD",
+    "EPO valve": "EPO",
+    "N2 purge assembly": "N2",
+    "Liquid flushing assembly": "LFA",
+    "Suction condenser": "SC",
+    "Catch pot for above with manual drain": "CPM",
+    "Catch pot for above with Auto drain": "CPA",
+    "Suction filter": "SF",
+    "Scrubber": "SCR",
+    "Flame arrestor at suction": "FAS",
+    "Flame arrestor at discharge": "FAD",
+    "Flexible connection at suction": "FCS",
+    "Flexible connection at discharge": "FCD",
+    "Pressure transmitter at discharge": "PTD",
+    "Discharge condenser": "DC",
+    "Catch pot for above with manual drain (discharge)": "CPMD",
+    "Catch pot for above with Auto drain (discharge)": "CPAD",
+    "Discharge silencer": "DS",
+    "Temperature transmitter at suction": "TTS",
+    "Temperature transmitter at discharge": "TTD",
+    "Temperature gauge at suction": "TGS",
+    "Temperature gauge at discharge": "TGD",
+    "ACG filter at suction": "ACGS",
+    "TCV for cooling water line": "TCV",
+    "Level switch for liquid purge tank": "LS",
+    "Flow switch for cooling water line": "FS",
+    "Strainer for cooling water line": "STR",
+    "Base plate": "BP",
+    "Interconnecting piping with line size": "PIP",
+    "FLP Control panel – mounted on skid": "FLPCP",
+    "Control panel – split": "CPS",
+    "Temperature transmitter at Cooling Jacket": "TTCJ",
+    "Pressure transmitter at Suction": "PTS",
+    "Pressure switch at nitrogen Purge line": "PSN2",
 }
 
 def get_font(size=14, bold=False):
@@ -192,7 +197,6 @@ def draw_grid(draw, width, height, spacing):
     for j in range(0, height, spacing):
         draw.line([(0, j), (width, j)], fill="#e0e0e0", width=1)
 
-# --- Always use exact file name from dropdown for symbol ---
 def load_symbol(symbol_name, width, height):
     symbol_path = os.path.join("symbols", symbol_name)
     if os.path.isfile(symbol_path):
@@ -551,7 +555,6 @@ with st.sidebar.expander("🤖 AI Suggestions & Improvements", expanded=True):
         for tip in tips:
             st.markdown(f"- {tip}")
 
-# --- Only warn for missing files (not found in folder) ---
 missing_syms = []
 existing_symbols = set(get_symbol_pngs())
 for eq in st.session_state.equipment+st.session_state.inlines:
