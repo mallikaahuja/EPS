@@ -1,8 +1,16 @@
-type,ISA_Code,Tag Prefix,Symbol_Image
-Dry Pump,P,PT,dry_pump.png
-Vacuum Receiver,V,VR,vacuum_receiver.png
-Condenser,C,CD,condenser.png
-Cooling Coil,T,CC,cooling_coil.png
-Evaporator,E,EV,evaporator.png
-Heat Exchanger,E,HE,heat_exchanger.png
-Control Panel,CP,CP,control_panel.png
+id,Tag_Prefix,Name,Type,Subtype,ISA_Code,Default_Properties,Default_Width,Default_Height,Port_Definitions,Default_Layout_Offset_Y,Associated_Components
+CENTRIFUGAL_PUMP,P,Centrifugal Pump,Pump,centrifugal_pump,,{"Motor_HP":"10HP","Poles":"2 Pole"},100,100,{"suction":[10,50],"discharge":[90,50]},70,{"VFD":"True","Motor":"True","Strainer":"True","Catch_Pot":"Optional"}
+GEAR_PUMP,P,Gear Pump,Pump,gear_pump,,{"Motor_HP":"5HP"},100,100,{"suction":[10,50],"discharge":[90,50]},70,{"VFD":"Optional","Motor":"True","Strainer":"Optional"}
+DIAPHRAGM_PUMP,P,Diaphragm Pump,Pump,diaphragm_pump,,{"Motor_HP":"2HP"},100,100,{"suction":[10,50],"discharge":[90,50]},70,{"Motor":"True"}
+POSITIVE_DISPLACEMENT_PUMP,P,Positive Displacement Pump,Pump,positive_displacement_pump,,{"Motor_HP":"8HP"},100,100,{"suction":[10,50],"discharge":[90,50]},70,{"VFD":"Optional","Motor":"True","Strainer":"Optional"}
+ABSORPTION_COLUMN,C,Absorption Column,Vessel,absorption_column,,{"Material":"SS316","Design_Pressure_bar":"5"},100,200,{"inlet":[50,0],"outlet":[50,200]},80,{"Control_Panel":"True","Condenser":"True","Level_Transmitter":"Optional"}
+DISTILLATION_COLUMN,C,Distillation Column,Vessel,distillation_column,,{"Stages":"20"},100,200,{"feed":[50,0],"bottoms":[50,200]},80,{"Control_Panel":"True","Condenser":"True","Level_Transmitter":"Optional"}
+STRIPPING_COLUMN,C,Stripping Column,Vessel,stripping_column,,{"Stages":"15"},100,200,{"feed":[50,0],"bottoms":[50,200]},80,{"Control_Panel":"Optional","Reboiler":"Optional"}
+FILTER_CARTRIDGE,FC,Cartridge Filter,Filter,filter_cartridge,,{"Type":"Cartridge","Material":"SS304"},60,100,{"inlet_top":[30,0],"outlet_bottom":[30,100]},50,{"Drain_Valve":"True","Pressure_Gauge":"True"}
+NUTSCHE_FILTER_DRYER,NFD,Nutsche Filter Dryer,Filter,nutsche_filter_dryer,,{"Volume":"300L"},120,120,{"inlet":[60,0],"outlet":[60,120]},60,{"Drain_Valve":"True","Pressure_Gauge":"True"}
+HORIZONTAL_VESSEL,V,Horizontal Vessel,Vessel,horizontal_vessel,,{"Volume":"2000L"},150,80,{"left":[0,40],"right":[150,40]},40,{"Level_Transmitter":"Optional","Pressure_Gauge":"Optional"}
+VERTICAL_VESSEL,V,Vertical Vessel,Vessel,vertical_vessel,,{"Volume":"1000L"},100,200,{"top":[50,0],"bottom":[50,200]},80,{"Level_Transmitter":"Optional","Pressure_Gauge":"Optional"}
+SHELL_AND_TUBE_EXCHANGER,E,Shell & Tube Exchanger,Heat Exchanger,shell_and_tube_exchanger,,{"Duty":"Heat Exchange","Area_sqm":"15"},150,100,{"tube_in":[10,20],"tube_out":[140,80],"shell_in":[75,0],"shell_out":[75,100]},80,{"Temperature_Gauge":"Optional","Pressure_Gauge":"Optional"}
+PLATE_EXCHANGER,E,Plate Heat Exchanger,Heat Exchanger,plate_exchanger,,{"Duty":"Heat Exchange"},120,80,{"inlet":[0,40],"outlet":[120,40]},40,{"Temperature_Gauge":"Optional","Pressure_Gauge":"Optional"}
+COOLING_TOWER,CT,Cooling Tower,Heat Exchanger,cooling_tower,,{"Duty":"Cooling","Area_sqm":"20"},120,120,{"inlet":[0,60],"outlet":[120,60]},60,{"Pump":"Optional"}
+CONTROL_PANEL,CP,Control Panel,Control Panel,control_panel,CP,{"Panel_Type":"FLP Mounted Skid"},100,80,{},50,{"Instrumentation":"Optional"}
