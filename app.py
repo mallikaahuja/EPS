@@ -8,12 +8,11 @@ import ezdxf
 import openai
 import requests
 import base64
-import json
-import re
 
 # Optional: If you have these files, load for future dynamic sizing/tag logic
 try:
     from tag_rules import next_tag
+    import json
     with open("isa_config.json") as f:
         ISA_CONFIG = json.load(f)
 except Exception:
@@ -43,26 +42,53 @@ TITLE_BLOCK_HEIGHT = 120
 TITLE_BLOCK_WIDTH = 420
 TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
 
+# --- ALWAYS get all PNGs from the folder for accurate dropdown and matching ---
+def get_symbol_pngs():
+    symbol_dir = "symbols"
+    if not os.path.exists(symbol_dir):
+        return []
+    return sorted([f for f in os.listdir(symbol_dir) if f.lower().endswith('.png')])
+
+# --- UPDATE THE BASE_COMPONENTS LIST TO MATCH THE ACTUAL SYMBOL NAMES IN YOUR FOLDER ---
+# Please ensure this list matches your actual 'symbols' folder PNGs, all lowercase, underscores, .png!
 BASE_COMPONENTS = [
     {"type": "Flame Arrestor", "symbol": "flame_arrestor.png"},
     {"type": "Suction Filter", "symbol": "suction_filter.png"},
     {"type": "Suction Condenser", "symbol": "suction_condenser.png"},
-    {"type": "Catch Pot", "symbol": "catch_pot_manual.png"},
-    {"type": "Catch Pot (Auto)", "symbol": "catch_pot_auto.png"},
-    {"type": "Dry Pump Model KDP330", "symbol": "dry_pump_model.png"},
+    {"type": "Catch Pot Manual", "symbol": "catch_pot_manual.png"},
+    {"type": "Catch Pot Auto", "symbol": "catch_pot_auto.png"},
+    {"type": "Dry Pump Model KDP330", "symbol": "dry_pump_model_kdp330.png"},
     {"type": "Discharge Condenser", "symbol": "discharge_condenser.png"},
-    {"type": "Catch Pot (Manual, Disch)", "symbol": "catch_pot_manual.png"},
-    {"type": "Catch Pot (Auto, Disch)", "symbol": "catch_pot_auto.png"},
+    {"type": "Catch Pot Manual Disch", "symbol": "catch_pot_manual_disch.png"},
+    {"type": "Catch Pot Auto Disch", "symbol": "catch_pot_auto_disch.png"},
     {"type": "Discharge Silencer", "symbol": "discharge_silencer.png"},
     {"type": "Receiver", "symbol": "receiver.png"},
     {"type": "Scrubber", "symbol": "scrubber.png"},
-    {"type": "Control Panel (FLP)", "symbol": "flp_control_panel.png"},
+    {"type": "Control Panel FLP", "symbol": "control_panel_flp.png"},
     {"type": "Solenoid Valve", "symbol": "solenoid_valve.png"},
     {"type": "Pressure Gauge", "symbol": "pressure_gauge.png"},
     {"type": "Pressure Transmitter", "symbol": "pressure_transmitter.png"},
     {"type": "Temperature Gauge", "symbol": "temperature_gauge.png"},
     {"type": "Flow Switch", "symbol": "flow_switch.png"},
     {"type": "Strainer", "symbol": "strainer.png"},
+    {"type": "Pump", "symbol": "pump.png"},
+    {"type": "Ball Valve", "symbol": "ball_valve.png"},
+    {"type": "Butterfly Valve", "symbol": "butterfly_valve.png"},
+    {"type": "Gate Valve", "symbol": "gate_valve.png"},
+    {"type": "Globe Valve", "symbol": "globe_valve.png"},
+    {"type": "Plug Valve", "symbol": "plug_valve.png"},
+    {"type": "Check Valve", "symbol": "check_valve.png"},
+    {"type": "Relief Valve", "symbol": "relief_valve.png"},
+    {"type": "Diaphragm Valve", "symbol": "diaphragm_valve.png"},
+    {"type": "Needle Valve", "symbol": "needle_valve.png"},
+    {"type": "Orifice Plate", "symbol": "orifice_plate.png"},
+    {"type": "Venturi Tube", "symbol": "venturi_tube.png"},
+    {"type": "Sight Glass", "symbol": "sight_glass.png"},
+    {"type": "Level Transmitter", "symbol": "level_transmitter.png"},
+    {"type": "Flame Detector", "symbol": "flame_detector.png"},
+    {"type": "Flow Meter", "symbol": "flow_meter.png"},
+    {"type": "Y Strainer", "symbol": "y_strainer.png"},
+    # ...add your exact 36 here with real file names from your symbols folder...
 ]
 BASE_INLINES = [
     {"type": "Pressure Transmitter", "symbol": "pressure_transmitter.png"},
@@ -73,41 +99,40 @@ BASE_INLINES = [
 BASE_PIPELINES = [
     {"from": "FA-001", "to": "SF-001", "type": "15 NB CWS", "flow_dir": "down"},
     {"from": "SF-001", "to": "SC-001", "type": "15 NB CWS", "flow_dir": "down"},
-    {"from": "SC-001", "to": "CP-001", "type": "15 NB CWS", "flow_dir": "down"},
-    {"from": "CP-001", "to": "CPA-001", "type": "15 NB", "flow_dir": "down"},
+    {"from": "SC-001", "to": "CPM-001", "type": "15 NB CWS", "flow_dir": "down"},
+    {"from": "CPM-001", "to": "CPA-001", "type": "15 NB", "flow_dir": "down"},
     {"from": "CPA-001", "to": "DP-001", "type": "15 NB", "flow_dir": "down"},
     {"from": "DP-001", "to": "DC-001", "type": "15 NB", "flow_dir": "down"},
-    {"from": "DC-001", "to": "CPD-001", "type": "15 NB", "flow_dir": "down"},
-    {"from": "CPD-001", "to": "CPAD-001", "type": "15 NB", "flow_dir": "down"},
+    {"from": "DC-001", "to": "CPMD-001", "type": "15 NB", "flow_dir": "down"},
+    {"from": "CPMD-001", "to": "CPAD-001", "type": "15 NB", "flow_dir": "down"},
     {"from": "CPAD-001", "to": "DS-001", "type": "15 NB", "flow_dir": "down"},
     {"from": "DS-001", "to": "R-001", "type": "15 NB", "flow_dir": "down"},
     {"from": "R-001", "to": "S-001", "type": "15 NB", "flow_dir": "right"},
-    # Side branches
-    {"from": "CP-001", "to": "SV-001", "type": "15 NB CW", "flow_dir": "right"},
+    {"from": "CPM-001", "to": "SV-001", "type": "15 NB CW", "flow_dir": "right"},
     {"from": "CPA-001", "to": "PG-001", "type": "10 NB", "flow_dir": "left"},
     {"from": "DP-001", "to": "CPNL-001", "type": "SIGNAL", "flow_dir": "right"},
 ]
 
 layout_order = [
-    "Flame Arrestor", "Suction Filter", "Suction Condenser", "Catch Pot",
-    "Catch Pot (Auto)", "Dry Pump Model KDP330", "Discharge Condenser",
-    "Catch Pot (Manual, Disch)", "Catch Pot (Auto, Disch)", "Discharge Silencer",
+    "Flame Arrestor", "Suction Filter", "Suction Condenser", "Catch Pot Manual",
+    "Catch Pot Auto", "Dry Pump Model KDP330", "Discharge Condenser",
+    "Catch Pot Manual Disch", "Catch Pot Auto Disch", "Discharge Silencer",
     "Receiver", "Scrubber"
 ]
 component_direction_map = {
     "Flame Arrestor": "bottom",
     "Suction Filter": "bottom",
     "Suction Condenser": "bottom",
-    "Catch Pot": "bottom",
-    "Catch Pot (Auto)": "bottom",
+    "Catch Pot Manual": "bottom",
+    "Catch Pot Auto": "bottom",
     "Dry Pump Model KDP330": "bottom",
     "Discharge Condenser": "bottom",
-    "Catch Pot (Manual, Disch)": "bottom",
-    "Catch Pot (Auto, Disch)": "bottom",
+    "Catch Pot Manual Disch": "bottom",
+    "Catch Pot Auto Disch": "bottom",
     "Discharge Silencer": "bottom",
     "Receiver": "bottom",
     "Scrubber": "right",
-    "Control Panel (FLP)": "right",
+    "Control Panel FLP": "right",
     "Solenoid Valve": "right",
     "Pressure Gauge": "left",
 }
@@ -115,22 +140,39 @@ tag_prefix_map = {
     "Flame Arrestor": "FA",
     "Suction Filter": "SF",
     "Suction Condenser": "SC",
-    "Catch Pot": "CP",
-    "Catch Pot (Auto)": "CPA",
+    "Catch Pot Manual": "CPM",
+    "Catch Pot Auto": "CPA",
     "Dry Pump Model KDP330": "DP",
     "Discharge Condenser": "DC",
-    "Catch Pot (Manual, Disch)": "CPD",
-    "Catch Pot (Auto, Disch)": "CPAD",
+    "Catch Pot Manual Disch": "CPMD",
+    "Catch Pot Auto Disch": "CPAD",
     "Discharge Silencer": "DS",
     "Receiver": "R",
     "Scrubber": "S",
-    "Control Panel (FLP)": "CPNL",
+    "Control Panel FLP": "CPNL",
     "Solenoid Valve": "SV",
     "Pressure Gauge": "PG",
     "Pressure Transmitter": "PT",
     "Temperature Gauge": "TG",
     "Flow Switch": "FS",
     "Strainer": "STR",
+    "Pump": "P",
+    "Ball Valve": "BV",
+    "Butterfly Valve": "BFV",
+    "Gate Valve": "GV",
+    "Globe Valve": "GLV",
+    "Plug Valve": "PLV",
+    "Check Valve": "CV",
+    "Relief Valve": "RV",
+    "Diaphragm Valve": "DV",
+    "Needle Valve": "NV",
+    "Orifice Plate": "OP",
+    "Venturi Tube": "VT",
+    "Sight Glass": "SG",
+    "Level Transmitter": "LT",
+    "Flame Detector": "FD",
+    "Flow Meter": "FM",
+    "Y Strainer": "YS",
 }
 
 def get_font(size=14, bold=False):
@@ -150,65 +192,12 @@ def draw_grid(draw, width, height, spacing):
     for j in range(0, height, spacing):
         draw.line([(0, j), (width, j)], fill="#e0e0e0", width=1)
 
-def get_symbol_pngs():
-    symbol_dir = "symbols"
-    if not os.path.exists(symbol_dir):
-        return []
-    return sorted([f for f in os.listdir(symbol_dir) if f.lower().endswith('.png')])
-
-# --- Symbol name normalization logic ---
-def normalize_symbol_name(name):
-    """Normalize symbol names for best match: lower, underscores, remove special chars, .png suffix."""
-    base = os.path.splitext(name)[0].lower()
-    base = re.sub(r'[\s\-]+', '_', base)
-    base = re.sub(r'[^a-z0-9_]', '', base)
-    return base
-
-def find_best_symbol_match(symbol_name, available_symbols):
-    """Return the closest match for symbol_name in available_symbols."""
-    # Normalize both symbol_name and available_symbols for best match
-    normalized_wanted = normalize_symbol_name(symbol_name)
-    normalized_dict = {normalize_symbol_name(fn): fn for fn in available_symbols}
-    return normalized_dict.get(normalized_wanted, None)
-
+# --- Always use exact file name from dropdown for symbol ---
 def load_symbol(symbol_name, width, height):
-    available = get_symbol_pngs()
-    match = find_best_symbol_match(symbol_name, available)
-    symbol_path = None
-    if match:
-        symbol_path = os.path.join("symbols", match)
-    else:
-        # fallback for legacy
-        symbol_path = os.path.join("symbols", symbol_name)
-    if symbol_path and os.path.isfile(symbol_path):
+    symbol_path = os.path.join("symbols", symbol_name)
+    if os.path.isfile(symbol_path):
         img = Image.open(symbol_path).convert("RGBA").resize((width, height))
         return img
-    if STABILITY_API_KEY:
-        prompt = f"Clean ISA S5.1 style black-and-white transparent symbol for {os.path.splitext(symbol_name)[0].replace('_',' ')}"
-        try:
-            response = requests.post(
-                "https://api.stability.ai/v2beta/stable-image/generate/core",
-                headers={"authorization": f"Bearer {STABILITY_API_KEY}", "accept": "application/json"},
-                json={
-                    "prompt": prompt,
-                    "output_format": "png",
-                    "steps": 30,
-                    "seed": 0,
-                    "width": width,
-                    "height": height,
-                    "negative_prompt": "color, shading, background, label, icon, border, noise"
-                },
-                timeout=30
-            )
-            if response.ok and response.json().get("artifacts"):
-                png_b64 = response.json()["artifacts"][0]["base64"]
-                img_bytes = base64.b64decode(png_b64)
-                with open(symbol_path, "wb") as f:
-                    f.write(img_bytes)
-                img = Image.open(io.BytesIO(img_bytes)).convert("RGBA").resize((width, height))
-                return img
-        except Exception as e:
-            st.warning(f"Stability AI fallback failed: {e}")
     return None
 
 def symbol_or_missing(symbol_name, width, height):
@@ -285,7 +274,7 @@ def auto_layout(components, layout_order, direction_map):
                 comp["y_hint"] = pos_map.get("Dry Pump Model KDP330", (col, 10))[1]
             elif direction_map.get(ctype, "") == "left":
                 comp["x_hint"] = col - 3
-                comp["y_hint"] = pos_map.get("Catch Pot (Auto)", (col, 6))[1]
+                comp["y_hint"] = pos_map.get("Catch Pot Auto", (col, 6))[1]
             elif "x_hint" not in comp or "y_hint" not in comp:
                 comp["x_hint"] = col + 2
                 comp["y_hint"] = 4
@@ -333,15 +322,12 @@ def generate_ai_suggestions(components, pipelines):
             ],
             max_tokens=256,
             temperature=0.6,
-            # Removed response_format to avoid error 400, just parse as JSON if possible.
         )
         msg = chat_response.choices[0].message.content
-        # Try to extract three lists from the response robustly
         try:
-            # Try to parse as JSON
+            import json
             return json.loads(msg)
         except Exception:
-            # Fallback: parse lists from markdown/text
             tips = {"Process Optimization Tips": [], "Utility Reduction & Sustainability": [], "Maintenance & Safety Reminders": []}
             current = None
             for line in msg.splitlines():
@@ -565,11 +551,11 @@ with st.sidebar.expander("🤖 AI Suggestions & Improvements", expanded=True):
         for tip in tips:
             st.markdown(f"- {tip}")
 
-# --- Enhanced: only warn for truly missing symbols after matching/normalizing ---
-available_symbols = get_symbol_pngs()
+# --- Only warn for missing files (not found in folder) ---
 missing_syms = []
+existing_symbols = set(get_symbol_pngs())
 for eq in st.session_state.equipment+st.session_state.inlines:
-    if not find_best_symbol_match(eq["symbol"], available_symbols):
+    if eq["symbol"] not in existing_symbols:
         missing_syms.append(eq["symbol"])
 if missing_syms:
-    st.warning(f"Missing symbols: {', '.join(set(missing_syms))} (shown as gray box). Please add PNGs in /symbols or let Stability AI generate fallback PNGs.")
+    st.warning(f"Missing symbols: {', '.join(set(missing_syms))} (shown as gray box). Please add PNGs in /symbols.")
