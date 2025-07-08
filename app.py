@@ -38,6 +38,22 @@ LAYOUT_DATA_DIR = "layout_data" # This is your new folder name!
 if 'svg_defs_added' not in st.session_state:
     st.session_state.svg_defs_added = set()
 
+# --- UTILITY: Robust column finder ---
+def find_column(df_or_series, target, alternatives=None):
+    # Robustly find a column by ignoring case and whitespace
+    normalized = lambda s: s.replace(" ", "").replace("_", "").replace("-", "").lower()
+    target_norm = normalized(target)
+    for col in df_or_series:
+        if normalized(col) == target_norm:
+            return col
+    if alternatives:
+        for alt in alternatives:
+            alt_norm = normalized(alt)
+            for col in df_or_series:
+                if normalized(col) == alt_norm:
+                    return col
+    return None
+
 # --- NEW: P&ID Component Class ---
 class PnidComponent:
     def __init__(self, data_row, symbol_meta):
@@ -67,13 +83,13 @@ class PnidComponent:
 
 # --- NEW: P&ID Pipe Class ---
 class PnidPipe:
-    def __init__(self, data_row):
+    def __init__(self, data_row, polyline_col):
         self.id = data_row['Pipe No.']
         self.from_comp_name = data_row['From Component']
         self.from_port_name = data_row['From Port']
         self.to_comp_name = data_row['To Component']
         self.to_port_name = data_row['To Port']
-        raw_points = data_row['Polyline Points (x, y)']
+        raw_points = data_row[polyline_col]
         # Extract numbers: "(260, 200) → (330, 200) → (330, 280)"
         coords_list = re.findall(r'\((\d+),\s*(\d+)\)', raw_points)
         self.svg_polyline_points = " ".join([f"{x},{y}" for x, y in coords_list])
@@ -133,6 +149,19 @@ def load_layout_data():
 (enhanced_equipment_layout_df, pipe_connections_layout_df,
  component_mapping_data, piping_df,
  svg_symbols_library, svg_symbol_metadata) = load_layout_data()
+
+# --- Polyline column robust check ---
+polyline_col = find_column(
+    pipe_connections_layout_df.columns,
+    "Polyline Points (x, y)",
+    alternatives=["polylinepoints(x,y)", "polylinepoints"]
+)
+if polyline_col is None:
+    st.error(
+        f"❌ Could not find the 'Polyline Points (x, y)' column in your pipe_connections_layout.csv file. " +
+        f"Columns found: {list(pipe_connections_layout_df.columns)}. Please ensure the header matches exactly."
+    )
+    st.stop()
 
 # --- NEW: Function to Generate SVG ---
 def generate_pnid_svg(
@@ -258,7 +287,7 @@ for index, row in enhanced_equipment_layout_df.iterrows():
 
 all_pipes = []
 for index, row in pipe_connections_layout_df.iterrows():
-    all_pipes.append(PnidPipe(row))
+    all_pipes.append(PnidPipe(row, polyline_col))
 
 pnid_svg_content = generate_pnid_svg(
     components=all_components,
