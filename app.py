@@ -9,6 +9,7 @@ import openai
 import requests
 import base64
 import json
+import re
 
 # Optional: If you have these files, load for future dynamic sizing/tag logic
 try:
@@ -149,13 +150,41 @@ def draw_grid(draw, width, height, spacing):
     for j in range(0, height, spacing):
         draw.line([(0, j), (width, j)], fill="#e0e0e0", width=1)
 
+def get_symbol_pngs():
+    symbol_dir = "symbols"
+    if not os.path.exists(symbol_dir):
+        return []
+    return sorted([f for f in os.listdir(symbol_dir) if f.lower().endswith('.png')])
+
+# --- Symbol name normalization logic ---
+def normalize_symbol_name(name):
+    """Normalize symbol names for best match: lower, underscores, remove special chars, .png suffix."""
+    base = os.path.splitext(name)[0].lower()
+    base = re.sub(r'[\s\-]+', '_', base)
+    base = re.sub(r'[^a-z0-9_]', '', base)
+    return base
+
+def find_best_symbol_match(symbol_name, available_symbols):
+    """Return the closest match for symbol_name in available_symbols."""
+    # Normalize both symbol_name and available_symbols for best match
+    normalized_wanted = normalize_symbol_name(symbol_name)
+    normalized_dict = {normalize_symbol_name(fn): fn for fn in available_symbols}
+    return normalized_dict.get(normalized_wanted, None)
+
 def load_symbol(symbol_name, width, height):
-    symbol_path = os.path.join("symbols", symbol_name)
-    if os.path.isfile(symbol_path):
+    available = get_symbol_pngs()
+    match = find_best_symbol_match(symbol_name, available)
+    symbol_path = None
+    if match:
+        symbol_path = os.path.join("symbols", match)
+    else:
+        # fallback for legacy
+        symbol_path = os.path.join("symbols", symbol_name)
+    if symbol_path and os.path.isfile(symbol_path):
         img = Image.open(symbol_path).convert("RGBA").resize((width, height))
         return img
     if STABILITY_API_KEY:
-        prompt = f"Clean ISA S5.1 style black-and-white transparent symbol for {symbol_name.split('.')[0].replace('_',' ')}"
+        prompt = f"Clean ISA S5.1 style black-and-white transparent symbol for {os.path.splitext(symbol_name)[0].replace('_',' ')}"
         try:
             response = requests.post(
                 "https://api.stability.ai/v2beta/stable-image/generate/core",
@@ -292,7 +321,7 @@ def generate_ai_suggestions(components, pipelines):
     prompt = (
         f"Suggest process optimization, sustainability upgrades, and predictive maintenance for a process with: "
         f"{', '.join(comp_types)}. Connections: {', '.join(connections)}."
-        "Return JSON with keys: Process Optimization Tips, Utility Reduction & Sustainability, Maintenance & Safety Reminders."
+        " Return three lists: Process Optimization Tips, Utility Reduction & Sustainability, Maintenance & Safety Reminders."
     )
     try:
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
@@ -304,11 +333,27 @@ def generate_ai_suggestions(components, pipelines):
             ],
             max_tokens=256,
             temperature=0.6,
-            response_format={"type": "json_object"}
+            # Removed response_format to avoid error 400, just parse as JSON if possible.
         )
         msg = chat_response.choices[0].message.content
-        import json
-        return json.loads(msg)
+        # Try to extract three lists from the response robustly
+        try:
+            # Try to parse as JSON
+            return json.loads(msg)
+        except Exception:
+            # Fallback: parse lists from markdown/text
+            tips = {"Process Optimization Tips": [], "Utility Reduction & Sustainability": [], "Maintenance & Safety Reminders": []}
+            current = None
+            for line in msg.splitlines():
+                if "optimization" in line.lower():
+                    current = "Process Optimization Tips"
+                elif "utility" in line.lower() or "sustainability" in line.lower():
+                    current = "Utility Reduction & Sustainability"
+                elif "maintenance" in line.lower() or "safety" in line.lower():
+                    current = "Maintenance & Safety Reminders"
+                elif line.strip().startswith(("-", "*")) and current:
+                    tips[current].append(line.strip('-* ').strip())
+            return tips
     except Exception as e:
         return {
             "Process Optimization Tips": [f"AI suggestion error: {e}"],
@@ -325,13 +370,6 @@ if "equipment" not in st.session_state:
 
 st.title("EPS Interactive P&ID Generator")
 st.write("**Equipment/Instrument Editor**")
-
-# --- MODIFIED: List all PNGs in symbols/ folder for dropdowns ---
-def get_symbol_pngs():
-    symbol_dir = "symbols"
-    if not os.path.exists(symbol_dir):
-        return []
-    return sorted([f for f in os.listdir(symbol_dir) if f.lower().endswith('.png')])
 
 with st.form("add_equipment_form"):
     types = sorted(set(c["type"] for c in BASE_COMPONENTS))
@@ -527,6 +565,11 @@ with st.sidebar.expander("🤖 AI Suggestions & Improvements", expanded=True):
         for tip in tips:
             st.markdown(f"- {tip}")
 
-missing_syms = [eq["symbol"] for eq in st.session_state.equipment+st.session_state.inlines if not load_symbol(eq["symbol"], MIN_WIDTH, MIN_WIDTH)]
+# --- Enhanced: only warn for truly missing symbols after matching/normalizing ---
+available_symbols = get_symbol_pngs()
+missing_syms = []
+for eq in st.session_state.equipment+st.session_state.inlines:
+    if not find_best_symbol_match(eq["symbol"], available_symbols):
+        missing_syms.append(eq["symbol"])
 if missing_syms:
     st.warning(f"Missing symbols: {', '.join(set(missing_syms))} (shown as gray box). Please add PNGs in /symbols or let Stability AI generate fallback PNGs.")
