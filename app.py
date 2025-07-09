@@ -9,7 +9,6 @@ import psycopg2
 import ezdxf
 from io import BytesIO
 
-# Streamlit Config
 st.set_page_config(layout="wide")
 st.sidebar.markdown("## EPS Interactive P&ID Generator")
 
@@ -97,17 +96,16 @@ def load_layout_data():
         return None, None, None
 
 def load_dropdown_options():
-    try:
-        eq = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, "equipment_list.csv"))
-        pipe = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, "pipeline_list.csv"))
-        inline = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, "inline_component_list.csv"))
-        equipment_types = sorted(eq['block'].dropna().unique())
-        pipeline_types = sorted(pipe['block'].dropna().unique())
-        inline_types = sorted(inline['block'].dropna().unique())
-        return equipment_types, pipeline_types, inline_types
-    except Exception as e:
-        st.error(f"Dropdown loading error: {e}")
-        return [], [], []
+    def safe_load(fname, col):
+        try:
+            df = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, fname))
+            return sorted(df[col].dropna().unique())
+        except Exception:
+            return []
+    equipment_types = safe_load("equipment_list.csv", "block")
+    pipeline_types = safe_load("pipeline_list.csv", "block")
+    inline_types = safe_load("inline_component_list.csv", "block")
+    return equipment_types, pipeline_types, inline_types
 
 eq_df, pipe_df, mapping = load_layout_data()
 if eq_df is None or pipe_df is None or mapping is None:
@@ -115,8 +113,15 @@ if eq_df is None or pipe_df is None or mapping is None:
 
 equipment_types, pipeline_types, inline_types = load_dropdown_options()
 
-# Build subtype/component palette, skipping blanks
-all_subtypes = sorted({normalize(row.get('block', '')) for _, row in eq_df.iterrows() if normalize(row.get('block', ''))})
+# Build all unique subtypes in the project (from equipment, pipes, and mapping)
+all_subtypes = set()
+for _, row in eq_df.iterrows():
+    if row.get('block', ''):
+        all_subtypes.add(normalize(row.get('block', '')))
+for entry in mapping:
+    if entry.get("Component", ""):
+        all_subtypes.add(normalize(entry.get("Component", "")))
+all_subtypes = sorted(all_subtypes)
 
 svg_defs, svg_meta = {}, {}
 
@@ -286,7 +291,6 @@ def render_svg(components, pipes):
     svg.append('</svg>')
     return "".join(svg)
 
-# --- UI: V39+ Style: Add Components/Piping ---
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Add Components")
 with st.sidebar.expander("➕ Equipment"):
@@ -333,7 +337,8 @@ def export_dxf(components, pipes):
     doc = ezdxf.new()
     msp = doc.modelspace()
     for c in components.values():
-        msp.add_text(c.tag, dxfattribs={'height': 2.5}).set_location((c.x, c.y))
+        txt = msp.add_text(c.tag, dxfattribs={'height': 2.5})  # Fix: use .dxf.insert
+        txt.dxf.insert = (c.x, c.y)
     for p in pipes:
         if len(p.points) >= 2:
             msp.add_lwpolyline(p.points)
