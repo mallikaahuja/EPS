@@ -5,3 +5,7 @@ ezdxf
 openai
 requests
 psycopg2-binary
+Pillow
+cairosvg
+lxml
+python-dotenv
