@@ -1,0 +1,7 @@
+,,id,tag_prefix,name,type,subtype,isa_code,default_properties,default_width_px,default_height_px,port_definitions,default_layout_offset_y_px,associated_components,cost_usd,manufacturer,efficiency_pct
+centrifugal_pump,P,centrifugal pump,pump,centrifugal_pump,,"{""motor_hp"":""10HP""","poles:""2 Pole""","material:""Stainless Steel 316""}",100,100,"{""suction"": [10, 50], ""discharge"": [90, 50]}",70.0,,2800,PumpCo,75.0
+absorption_column,C,absorption column,vessel,absorption_column,,"{""material"":""Stainless Steel 316""","design_pressure_bar:""5""}",100,200,"{""inlet"": [50, 0], ""outlet"": [50, 200]}",80,,6500,ColumnMakers,80,
+shell_and_tube_exchanger,E,shell & tube exchanger,heat exchanger,shell_and_tube_exchanger,,"{""duty"":""Heat Exchange""","area_sqm:""15""}",150,100,"{""tube_in"": [10, 20], ""tube_out"": [140, 80]}",50,,4500,ExchangerInc,85,
+horizontal_vessel,V,horizontal vessel,vessel,horizontal_vessel,,"{""volume"":""2000 L""}",150,80,"{""left"": [0, 40], ""right"": [150, 40]}",40,,2500.0,VesselWorks,90,,
+control_panel,CP,control panel,control panel,control_panel,CP,"{""panel_type"":""FLP Mounted Skid""}",100,80,{},50,,8000.0,ControlSystems,95,,
+atmospheric_tank,TK,atmospheric tank,tank,atmospheric_tank,,"{""volume"": ""3000 L""}",120,100,"{""top"": [60, 0], ""bottom"": [60, 100]}",60,,3000.0,TankInc,91,,
