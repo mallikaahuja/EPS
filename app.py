@@ -1,12 +1,5 @@
-# EPS P&ID Generator — Full Revised app.py
-# Includes fixes for:
-# 1. Port-to-port connection logic
-# 2. SYMBOL_SCALE integration
-# 3. Grid rendering using GRID_SPACING
-# 4. SVG Symbol loading validation
-# 5. Inline legend block
-# 6. Robust error handling for missing symbols
-# 7. Placeholder fallback + CSS styling option (for future)
+# EPS Interactive P&ID Generator — Full Revised app.py
+# Merged UI features from app_Version40.py + SVG Rendering + Port Mapping
 
 import streamlit as st
 import pandas as pd
@@ -50,7 +43,7 @@ def load_data():
     svg_meta = {}
     for file in os.listdir(SVG_SYMBOLS_DIR):
         if file.endswith(".svg"):
-            subtype = file.replace(".svg", "").strip().lower()
+            subtype = re.sub(r'[^a-z0-9]', '_', file.replace(".svg", "").strip().lower())
             with open(os.path.join(SVG_SYMBOLS_DIR, file)) as f:
                 svg = f.read()
             match = re.search(r'viewBox="([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+)"', svg)
@@ -173,108 +166,12 @@ def generate_svg(components, pipes, svg_defs, svg_meta):
 
     return f'<svg width="{max_x}" height="{max_y}" xmlns="http://www.w3.org/2000/svg">{"".join(svg)}</svg>'
 
-# Build components/pipes
+# Build
 components = [PnidComponent(row, svg_meta) for _, row in eq_df.iterrows()]
 component_map = {c.id: c for c in components}
 pipes = [PnidPipe(row, component_map) for _, row in pipe_df.iterrows()]
 
-# Display
+# Render
 svg = generate_svg(components, pipes, svg_defs, svg_meta)
 st.markdown(svg, unsafe_allow_html=True)
 st.download_button("Download SVG", svg, "pnid_output.svg", "image/svg+xml")
-
-class PnidComponent:
-    def __init__(self, row, symbol_meta):
-        self.id = row['id']
-        self.tag = row.get('tag', self.id)
-        self.name = row.get('Component')
-        self.subtype = normalize(row.get('subtype') or row.get('Component') or row.get('name'))
-        self.x = row['x']
-        self.y = row['y']
-        self.width = row['Width']
-        self.height = row['Height']
-        self.ports = symbol_meta.get('ports', {})
-
-    def get_port_coords(self, port_name):
-        port = self.ports.get(port_name)
-        if port:
-            return (self.x + port['dx'], self.y + port['dy'])
-        return (self.x + self.width / 2, self.y + self.height / 2)
-
-# Pipe class
-class PnidPipe:
-    def __init__(self, row):
-        self.id = row['Pipe No.']
-        self.label = row.get('Label', f"Pipe {self.id}")
-        self.points = re.findall(r'\((\d+),\s*(\d+)\)', row['Polyline Points (x, y)'])
-        self.points = [(int(x), int(y)) for x, y in self.points]
-
-# Polyline check
-poly_col = next((col for col in pipe_df.columns if normalize(col) == "polylinepoints(x,y)"), None)
-if not poly_col:
-    st.error("❌ 'Polyline Points (x, y)' column not found.")
-    st.stop()
-
-# Generate SVG
-def generate_svg(components, pipes):
-    max_x = max(c.x + c.width for c in components) + PADDING + LEGEND_WIDTH
-    max_y = max(c.y + c.height for c in components) + PADDING + TITLE_BLOCK_HEIGHT
-
-    svg = []
-
-    # Arrowhead marker
-    svg.append('''
-    <defs>
-    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
-      <polygon points="0 0, 10 3.5, 0 7" fill="black" />
-    </marker>
-    </defs>
-    ''')
-
-    # Add <symbol> defs
-    for subtype, svg_code in svg_defs.items():
-        if subtype not in st.session_state.svg_defs_added:
-            svg_sym = re.sub(r'<svg[^>]*>', f'<symbol id="{subtype}">', svg_code, 1)
-            svg_sym = svg_sym.replace('</svg>', '</symbol>')
-            svg.append(svg_sym)
-            st.session_state.svg_defs_added.add(subtype)
-
-    # Render components
-    for c in components:
-        svg.append(f'<use href="#{c.subtype}" x="{c.x}" y="{c.y}" width="{c.width}" height="{c.height}" />')
-        svg.append(f'<text x="{c.x + c.width/2}" y="{c.y + c.height + TAG_FONT_SIZE + 4}" '
-                   f'text-anchor="middle" font-size="{TAG_FONT_SIZE}">{c.tag}</text>')
-
-    # Render pipes
-    for p in pipes:
-        pts = " ".join(f"{x},{y}" for x, y in p.points)
-        svg.append(f'<polyline points="{pts}" stroke="black" stroke-width="{PIPE_WIDTH}" fill="none" '
-                   f'marker-end="url(#arrowhead)"/>')
-        if len(p.points) >= 2:
-            mx = (p.points[0][0] + p.points[-1][0]) // 2
-            my = (p.points[0][1] + p.points[-1][1]) // 2
-            svg.append(f'<text x="{mx}" y="{my - 5}" font-size="{PIPE_LABEL_FONT_SIZE}" '
-                       f'text-anchor="middle">{p.label}</text>')
-
-    # Title Block
-    svg.append(f'''
-    <rect x="{max_x - TITLE_BLOCK_WIDTH}" y="{max_y - TITLE_BLOCK_HEIGHT}" width="{TITLE_BLOCK_WIDTH}"
-          height="{TITLE_BLOCK_HEIGHT}" stroke="black" fill="none"/>
-    <text x="{max_x - TITLE_BLOCK_WIDTH + 10}" y="{max_y - TITLE_BLOCK_HEIGHT + 20}"
-          font-size="14">Client: {TITLE_BLOCK_CLIENT}</text>
-    <text x="{max_x - TITLE_BLOCK_WIDTH + 10}" y="{max_y - TITLE_BLOCK_HEIGHT + 40}"
-          font-size="14">Date: {datetime.date.today()}</text>
-    <text x="{max_x - TITLE_BLOCK_WIDTH + 10}" y="{max_y - TITLE_BLOCK_HEIGHT + 60}"
-          font-size="14">P&ID Version: 1.0</text>
-    ''')
-
-    return f'<svg width="{max_x}" height="{max_y}" xmlns="http://www.w3.org/2000/svg">{"".join(svg)}</svg>'
-
-# Build components and pipes
-components = [PnidComponent(row, svg_meta.get(normalize(row.get("Component", "")), {})) for _, row in eq_df.iterrows()]
-pipes = [PnidPipe(row) for _, row in pipe_df.iterrows()]
-
-# Render SVG
-svg_out = generate_svg(components, pipes)
-st.markdown(svg_out, unsafe_allow_html=True)
-st.download_button("Download SVG", svg_out, "pnid_output.svg", "image/svg+xml")
