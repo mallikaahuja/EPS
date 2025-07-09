@@ -1,0 +1,6 @@
+Pipe No.,From Component,From Port,To Component,To Port,"Polyline Points (x, y)",Label,pipe_type
+1,atmospheric_tank,bottom,filter_cartridge,inlet_top,"(260, 200) → (330, 200) → (330, 280)",Pipe 1 - Tank to Filter,process_line
+2,filter_cartridge,outlet_bottom,centrifugal_pump,suction,"(330, 380) → (310, 380) → (310, 450)",Pipe 2 - Filter to Pump,process_line
+3,centrifugal_pump,discharge,shell_and_tube_exchanger,tube_in,"(390, 450) → (460, 450) → (460, 370)",Pipe 3 - Pump to Exchanger,process_line
+4,shell_and_tube_exchanger,tube_out,absorption_column,inlet,"(590, 430) → (650, 430) → (650, 200)",Pipe 4 - Exchanger to Column,process_line
+5,absorption_column,outlet,horizontal_vessel,left,"(650, 400) → (750, 400) → (750, 440)",Pipe 5 - Column to Vessel,process_line
