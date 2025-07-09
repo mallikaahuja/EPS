@@ -186,7 +186,7 @@ def generate_pnid_svg(
         if component.subtype not in st.session_state.svg_defs_added:
             symbol_content = svg_symbols_library[component.subtype]
             symbol_content = re.sub(r'<svg(.*?)>', f'<symbol id="{component.subtype}"\\1>', symbol_content, count=1)
-            symbol_content = symbol_content.replace('</svg>', '</symbol>', count=1)
+            symbol_content = symbol_content.replace('</svg>', '</symbol>', 1)
             svg_elements.append(symbol_content)
             st.session_state.svg_defs_added.add(component.subtype)
 
