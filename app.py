@@ -99,21 +99,37 @@ def generate_control_logic_box(components):
             loop_counter += 1
     return "\n".join(logic_lines)
 
-# UI Dropdowns to add components
-st.sidebar.markdown("### Manual Additions")
-comp_subtype = st.sidebar.selectbox("Select Equipment Type", all_subtypes, index=0)
-comp_tag = st.sidebar.text_input("Enter Equipment Tag", f"{comp_subtype[:2].upper()}-AUTO")
-comp_x = st.sidebar.number_input("X", 0, 5000, 100, 10)
-comp_y = st.sidebar.number_input("Y", 0, 5000, 100, 10)
+# Load dropdown options from CSVs in layout_data
+def load_dropdown_options():
+    try:
+        eq = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, "equipment_list.csv"))
+        pipe = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, "pipeline_list.csv"))
+        inline = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, "inline_component_list.csv"))
 
-if st.sidebar.button("Add Equipment to Preview Only"):
-    eq_df = pd.concat([eq_df, pd.DataFrame([{
-        'id': comp_tag,
-        'tag': comp_tag,
-        'block': comp_subtype,
-        'x': comp_x,
-        'y': comp_y
-    }])], ignore_index=True)
+        equipment_types = sorted(eq['block'].dropna().unique())
+        pipeline_types = sorted(pipe['block'].dropna().unique())
+        inline_types = sorted(inline['block'].dropna().unique())
+
+        return equipment_types, pipeline_types, inline_types
+    except Exception as e:
+        st.error(f"Dropdown loading error: {e}")
+        return [], [], []
+
+equipment_types, pipeline_types, inline_types = load_dropdown_options()
+
+# --- UI Dropdowns (real from CSV) ---
+st.sidebar.markdown("### Add Components")
+with st.sidebar.expander("➕ Equipment"):
+    selected_eq = st.selectbox("Select Equipment Type", equipment_types)
+    st.write(f"Selected: {selected_eq}")
+
+with st.sidebar.expander("➕ In-line Component"):
+    selected_inline = st.selectbox("Select Inline Component", inline_types)
+    st.write(f"Selected: {selected_inline}")
+
+with st.sidebar.expander("➕ Pipeline"):
+    selected_pipe = st.selectbox("Select Pipeline Type", pipeline_types)
+    st.write(f"Selected: {selected_pipe}")
 
 # Final re-processing after optional add
 components = {row['id']: PnidComponent(row) for _, row in eq_df.iterrows()}
