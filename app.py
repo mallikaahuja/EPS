@@ -8,8 +8,6 @@ import openai
 import psycopg2
 import ezdxf
 from io import BytesIO
-from PIL import Image
-import base64
 
 # Streamlit Config
 st.set_page_config(layout="wide")
@@ -34,7 +32,7 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 def normalize(s):
-    if not isinstance(s, str): return s
+    if not isinstance(s, str): return ""
     return s.lower().strip().replace(" ", "_").replace("-", "_")
 
 def load_svg_from_db(subtype):
@@ -66,6 +64,8 @@ def save_svg_to_db(subtype, svg_data):
         st.error(f"[DB SAVE ERROR] {e}")
 
 def generate_svg_via_openai(subtype):
+    if not subtype:
+        return None
     prompt = f"Generate an SVG symbol in ISA P&ID style for a {subtype.replace('_', ' ')}. Transparent background. Use black lines only."
     try:
         response = openai.ChatCompletion.create(
@@ -90,13 +90,14 @@ def load_layout_data():
     return eq_df, pipe_df, mapping
 
 def clean_svg(svg: str):
-    # Remove XML declaration and DOCTYPE from start or anywhere in string
+    # Remove XML declaration and DOCTYPE from anywhere in string
     svg = re.sub(r'<\?xml[^>]*\?>', '', svg, flags=re.MULTILINE).strip()
     svg = re.sub(r'<!DOCTYPE[^>]*>', '', svg, flags=re.MULTILINE).strip()
     return svg
 
-# --- Load SVG symbols robustly ---
 def load_symbol_svg(subtype):
+    if not subtype:
+        return None
     fname = os.path.join(SVG_SYMBOLS_DIR, f"{subtype}.svg")
     svg_data = None
     # 1. Try symbols folder
@@ -119,11 +120,15 @@ def load_symbol_svg(subtype):
     return svg_data
 
 eq_df, pipe_df, mapping = load_layout_data()
-# Build subtype/component palette from loaded data
-all_subtypes = sorted(set(normalize(row.get('block', '')) for _, row in eq_df.iterrows() if row.get('block', '')))
+
+# Build subtype/component palette, skipping blanks
+all_subtypes = sorted({normalize(row.get('block', '')) for _, row in eq_df.iterrows() if normalize(row.get('block', ''))})
+
 svg_defs, svg_meta = {}, {}
 
 for subtype in all_subtypes:
+    if not subtype:
+        continue
     svg = load_symbol_svg(subtype)
     if svg:
         # Extract viewBox robustly
@@ -140,8 +145,10 @@ for subtype in all_subtypes:
 
 # --- Populate svg_meta['ports'] using mapping (with float conversion) ---
 for entry in mapping:
-    subtype = normalize(entry["Component"])
-    port_name = entry["Port Name"] if "Port Name" in entry else "default"
+    subtype = normalize(entry.get("Component", ""))
+    if not subtype:
+        continue
+    port_name = entry.get("Port Name", "default")
     dx = entry.get("dx", 0)
     dy = entry.get("dy", 0)
     if subtype not in svg_meta:
@@ -183,13 +190,13 @@ class PnidPipe:
             self.points = [(float(x), float(y)) for x, y in pts]
             # Snap endpoints to port positions if available
             if self.points:
-                if from_comp: self.points[0] = from_comp.get_port_coords(row['From Port'])
-                if to_comp: self.points[-1] = to_comp.get_port_coords(row['To Port'])
+                if from_comp: self.points[0] = from_comp.get_port_coords(row.get('From Port'))
+                if to_comp: self.points[-1] = to_comp.get_port_coords(row.get('To Port'))
         else:
             if from_comp and to_comp:
                 self.points = [
-                    from_comp.get_port_coords(row['From Port']),
-                    to_comp.get_port_coords(row['To Port'])
+                    from_comp.get_port_coords(row.get('From Port')),
+                    to_comp.get_port_coords(row.get('To Port'))
                 ]
 
 def render_svg(components, pipes):
@@ -226,14 +233,18 @@ def render_svg(components, pipes):
     # Legend rendering (gather unique tags/names)
     legend_entries = {}
     for c in components.values():
+        if not c.subtype:
+            continue
         key = (c.tag, c.subtype)
         if key not in legend_entries:
             legend_entries[key] = c.subtype.replace("_", " ").title()
     legend_y_pos = legend_y + 20
     for i, ((tag, subtype), name) in enumerate(legend_entries.items()):
+        if not subtype or subtype not in svg_defs:
+            continue
         sym_pos_y = legend_y_pos + i*28 - 10
         # Bonus: scale legend icon using viewBox for consistent size
-        if svg_defs[subtype]:
+        if svg_defs.get(subtype):
             try:
                 viewBox = svg_meta[subtype]["viewBox"].split(" ")
                 vb_w = float(viewBox[2])
@@ -255,7 +266,9 @@ def render_svg(components, pipes):
 
     # Draw components
     for c in components.values():
-        if c.subtype in svg_defs and svg_defs[c.subtype]:
+        if not c.subtype or c.subtype not in svg_defs:
+            svg.append(f'<rect x="{c.x}" y="{c.y}" width="{c.width}" height="{c.height}" fill="lightgray" stroke="red"/>')
+        elif svg_defs[c.subtype]:
             svg.append(f'<use href="#{c.subtype}" x="{c.x}" y="{c.y}" width="{c.width}" height="{c.height}" />')
             svg.append(f'<text x="{c.x + c.width/2}" y="{c.y + c.height + 14}" font-size="{TAG_FONT_SIZE}" text-anchor="middle">{c.tag}</text>')
         else:
@@ -278,8 +291,10 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("### Component Palette")
 with st.sidebar.expander("Browse/Add Components", expanded=True):
     for subtype in all_subtypes:
+        if not subtype:
+            continue
         # Mini SVG icon
-        if svg_defs[subtype]:
+        if svg_defs.get(subtype):
             viewBox = svg_meta[subtype]["viewBox"].split(" ")
             vb_w = float(viewBox[2])
             vb_h = float(viewBox[3])
@@ -318,7 +333,6 @@ st.markdown(svg_output, unsafe_allow_html=True)
 def export_png(svg_data):
     from cairosvg import svg2png
     output = BytesIO()
-    # Remove any XML/DOCTYPE from svg_data before passing to cairosvg
     svg_data_clean = clean_svg(svg_data)
     svg2png(bytestring=svg_data_clean.encode(), write_to=output)
     return output.getvalue()
