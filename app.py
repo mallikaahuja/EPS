@@ -2,33 +2,23 @@ import streamlit as st
 import pandas as pd
 import os
 import datetime
-import io
-import ezdxf
-import openai
-import requests
-import base64
-from streamlit_js_eval import streamlit_js_eval
 import json
 import re
-import math
 
-# --- SIDEBAR: Layout & Visual Controls ---
+st.set_page_config(layout="wide")
+
+# --- Sidebar Controls ---
 st.sidebar.markdown("### Layout & Visual Controls")
-GRID_ROWS = st.sidebar.slider("Grid Rows", 6, 20, 12, 1)
-GRID_COLS = st.sidebar.slider("Grid Columns", 6, 20, 12, 1)
 GRID_SPACING = st.sidebar.slider("Grid Spacing (px)", 60, 220, 120, 5)
 SYMBOL_SCALE = st.sidebar.slider("Symbol Scale", 1.0, 2.0, 1.8, 0.05)
-MIN_WIDTH = st.sidebar.slider("Symbol Min Width", 100, 180, 132, 4)
-MAX_WIDTH = st.sidebar.slider("Symbol Max Width", 132, 220, 180, 4)
 PIPE_WIDTH = st.sidebar.slider("Pipe Width", 1, 6, 2)
 TAG_FONT_SIZE = st.sidebar.slider("Tag Font Size", 8, 24, 12)
-LEGEND_FONT_SIZE = st.sidebar.slider("Legend Font Size", 8, 20, 10)
-ARROW_LENGTH = st.sidebar.slider("Arrow Length", 8, 40, 15)
 PIPE_LABEL_FONT_SIZE = st.sidebar.slider("Pipe Label Size", 6, 16, 8)
+
 PADDING = 80
-LEGEND_WIDTH = 350
-TITLE_BLOCK_HEIGHT = 120
-TITLE_BLOCK_WIDTH = 420
+LEGEND_WIDTH = 300
+TITLE_BLOCK_HEIGHT = 100
+TITLE_BLOCK_WIDTH = 400
 TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
 
 SVG_SYMBOLS_DIR = "symbols"
@@ -37,274 +27,133 @@ LAYOUT_DATA_DIR = "layout_data"
 if 'svg_defs_added' not in st.session_state:
     st.session_state.svg_defs_added = set()
 
-###############################
-# Robust column finder snippet
-###############################
-def find_column(cols, target):
-    norm = lambda s: s.replace(" ", "").replace("_", "").replace("-", "").lower()
-    t = norm(target)
-    for c in cols:
-        if norm(c) == t:
-            return c
-    return None
-###############################
+# Utility: Normalize field names
+def normalize(s):
+    return s.replace(" ", "").replace("_", "").replace("-", "").lower()
 
-# --- P&ID Component Class ---
+# Load Data
+@st.cache_data
+def load_layout_data():
+    eq_df = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, "enhanced_equipment_layout.csv"))
+    pipe_df = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, "pipe_connections_layout.csv"))
+    with open(os.path.join(LAYOUT_DATA_DIR, "component_mapping.json")) as f:
+        mapping = json.load(f)
+
+    svg_meta = {}
+    svg_defs = {}
+    for file in os.listdir(SVG_SYMBOLS_DIR):
+        if file.endswith(".svg"):
+            subtype = file.replace(".svg", "").strip().lower()
+            with open(os.path.join(SVG_SYMBOLS_DIR, file)) as f:
+                svg = f.read()
+            match = re.search(r'viewBox="([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+)"', svg)
+            viewbox = list(map(float, match.groups())) if match else [0, 0, 100, 100]
+            ports = {}
+            for entry in mapping:
+                if normalize(entry["Component"]) == subtype:
+                    ports[entry["Port Name"]] = {
+                        "dx": float(entry["dx"]),
+                        "dy": float(entry["dy"])
+                    }
+            svg_meta[subtype] = {"viewBox": viewbox, "ports": ports}
+            svg_defs[subtype] = svg
+    return eq_df, pipe_df, mapping, svg_meta, svg_defs
+
+eq_df, pipe_df, mapping, svg_meta, svg_defs = load_layout_data()
+
+# Component class
 class PnidComponent:
-    def __init__(self, data_row, symbol_meta):
-        self.id = data_row['id']
-        self.tag = data_row.get('tag', self.id)
-        self.name = data_row['Component']
-        self.subtype = data_row['Component']
-        self.x = data_row['x']
-        self.y = data_row['y']
-        self.width = data_row['Width']
-        self.height = data_row['Height']
-        self.properties = data_row.get('properties', {})
-        if isinstance(self.properties, str):
-            try:
-                self.properties = json.loads(self.properties)
-            except json.JSONDecodeError:
-                self.properties = {}
+    def __init__(self, row, symbol_meta):
+        self.id = row['id']
+        self.tag = row.get('tag', self.id)
+        self.name = row.get('Component')
+        self.subtype = normalize(row.get('subtype') or row.get('Component') or row.get('name'))
+        self.x = row['x']
+        self.y = row['y']
+        self.width = row['Width']
+        self.height = row['Height']
         self.ports = symbol_meta.get('ports', {})
 
     def get_port_coords(self, port_name):
-        port_def = self.ports.get(port_name)
-        if port_def:
-            return (self.x + port_def['dx'], self.y + port_def['dy'])
-        else:
-            st.warning(f"Port '{port_name}' not defined for component '{self.id}' ({self.name}). Check your component_mapping.json.")
-            return (self.x + self.width / 2, self.y + self.height / 2)
+        port = self.ports.get(port_name)
+        if port:
+            return (self.x + port['dx'], self.y + port['dy'])
+        return (self.x + self.width / 2, self.y + self.height / 2)
 
-# --- P&ID Pipe Class ---
+# Pipe class
 class PnidPipe:
-    def __init__(self, data_row, polyline_col):
-        self.id = data_row['Pipe No.']
-        self.from_comp_name = data_row['From Component']
-        self.from_port_name = data_row['From Port']
-        self.to_comp_name = data_row['To Component']
-        self.to_port_name = data_row['To Port']
-        raw_points = data_row[polyline_col]
-        coords_list = re.findall(r'\((\d+),\s*(\d+)\)', raw_points)
-        self.svg_polyline_points = " ".join([f"{x},{y}" for x, y in coords_list])
-        self.line_weight = PIPE_WIDTH
-        self.stroke_dasharray = ""
-        self.flow_arrow_required = True
-        self.label = data_row.get('Label', f"Pipe {self.id}")
+    def __init__(self, row):
+        self.id = row['Pipe No.']
+        self.label = row.get('Label', f"Pipe {self.id}")
+        self.points = re.findall(r'\((\d+),\s*(\d+)\)', row['Polyline Points (x, y)'])
+        self.points = [(int(x), int(y)) for x, y in self.points]
 
-@st.cache_data
-def load_layout_data():
-    try:
-        enhanced_equipment_layout_df = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, 'enhanced_equipment_layout.csv'))
-        pipe_connections_layout_df = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, 'pipe_connections_layout.csv'))
-        with open(os.path.join(LAYOUT_DATA_DIR, 'component_mapping.json'), 'r') as f:
-            component_mapping_data = json.load(f)
-        piping_df = pd.DataFrame({'type_id': [], 'line_weight': [], 'stroke_dasharray': [], 'flow_arrow_required': []}) 
-    except FileNotFoundError as e:
-        st.error(f"Error loading layout data files. Make sure they are in the '{LAYOUT_DATA_DIR}' folder. Missing: {e}")
-        st.stop()
-
-    svg_symbols_library = {}
-    svg_symbol_metadata = {}
-    for filename in os.listdir(SVG_SYMBOLS_DIR):
-        if filename.endswith(".svg"):
-            subtype = filename.replace(".svg", "")
-            filepath = os.path.join(SVG_SYMBOLS_DIR, filename)
-            with open(filepath, 'r') as f:
-                svg_content = f.read()
-                svg_symbols_library[subtype] = svg_content
-                viewbox_match = re.search(r'viewBox="([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)"', svg_content)
-                viewBox = [float(x) for x in viewbox_match.groups()] if viewbox_match else [0, 0, 100, 100]
-                ports = {}
-                for port_entry in component_mapping_data:
-                    if port_entry.get('Component') == subtype:
-                        port_name = port_entry.get('Port Name')
-                        if port_name and port_name != '—':
-                            try:
-                                ports[port_name] = {
-                                    'dx': float(port_entry.get('dx', 0)),
-                                    'dy': float(port_entry.get('dy', 0))
-                                }
-                            except (ValueError, TypeError):
-                                st.warning(f"Invalid dx/dy for port {port_name} in {subtype}.")
-                svg_symbol_metadata[subtype] = {
-                    'viewBox': viewBox,
-                    'default_width_px': viewBox[2],
-                    'default_height_px': viewBox[3],
-                    'ports': ports
-                }
-    return (enhanced_equipment_layout_df, pipe_connections_layout_df,
-            component_mapping_data, piping_df,
-            svg_symbols_library, svg_symbol_metadata)
-
-# --- Load Data ---
-(enhanced_equipment_layout_df, pipe_connections_layout_df,
- component_mapping_data, piping_df,
- svg_symbols_library, svg_symbol_metadata) = load_layout_data()
-
-# --- Polyline column robust check ---
-# DEBUG PRINT: Show all columns loaded from the CSV for troubleshooting
-st.write("DEBUG: Columns in pipe_connections_layout_df:", list(pipe_connections_layout_df.columns))
-
-polyline_col = find_column(
-    pipe_connections_layout_df.columns,
-    "Polyline Points (x, y)",
-)
-if polyline_col is None:
-    st.error(
-        f"❌ Could not find the 'Polyline Points (x, y)' column in your pipe_connections_layout.csv file. " +
-        f"Columns found: {list(pipe_connections_layout_df.columns)}. Please ensure the header matches exactly."
-    )
+# Polyline check
+poly_col = next((col for col in pipe_df.columns if normalize(col) == "polylinepoints(x,y)"), None)
+if not poly_col:
+    st.error("❌ 'Polyline Points (x, y)' column not found.")
     st.stop()
 
-# --- SVG Generation Function ---
-def generate_pnid_svg(
-    components, pipes, svg_symbols_library, svg_symbol_metadata,
-    grid_spacing, symbol_scale, pipe_width, tag_font_size, pipe_label_font_size,
-    arrow_length, legend_width, title_block_height, title_block_width, client_name
-):
-    max_x = max([c.x + c.width for c in components]) if components else 0
-    max_y = max([c.y + c.height for c in components]) if components else 0
-    canvas_width = max_x + PADDING + legend_width
-    canvas_height = max_y + PADDING + title_block_height
+# Generate SVG
+def generate_svg(components, pipes):
+    max_x = max(c.x + c.width for c in components) + PADDING + LEGEND_WIDTH
+    max_y = max(c.y + c.height for c in components) + PADDING + TITLE_BLOCK_HEIGHT
 
-    svg_elements = []
+    svg = []
 
-    # 2. Draw Components
-    for component in components:
-        symbol_data = svg_symbol_metadata.get(component.subtype)
-        if not symbol_data:
-            st.warning(f"SVG symbol '{component.subtype}.svg' not found in '{SVG_SYMBOLS_DIR}'. Skipping '{component.id}'.")
-            continue
+    # Arrowhead marker
+    svg.append('''
+    <defs>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="black" />
+    </marker>
+    </defs>
+    ''')
 
-        viewBox_width = symbol_data['viewBox'][2]
-        viewBox_height = symbol_data['viewBox'][3]
+    # Add <symbol> defs
+    for subtype, svg_code in svg_defs.items():
+        if subtype not in st.session_state.svg_defs_added:
+            svg_sym = re.sub(r'<svg[^>]*>', f'<symbol id="{subtype}">', svg_code, 1)
+            svg_sym = svg_sym.replace('</svg>', '</symbol>')
+            svg.append(svg_sym)
+            st.session_state.svg_defs_added.add(subtype)
 
-        transform_scale_x = component.width / viewBox_width if viewBox_width > 0 else 1
-        transform_scale_y = component.height / viewBox_height if viewBox_height > 0 else 1
+    # Render components
+    for c in components:
+        svg.append(f'<use href="#{c.subtype}" x="{c.x}" y="{c.y}" width="{c.width}" height="{c.height}" />')
+        svg.append(f'<text x="{c.x + c.width/2}" y="{c.y + c.height + TAG_FONT_SIZE + 4}" '
+                   f'text-anchor="middle" font-size="{TAG_FONT_SIZE}">{c.tag}</text>')
 
-        if component.subtype not in st.session_state.svg_defs_added:
-            symbol_content = svg_symbols_library[component.subtype]
-            symbol_content = re.sub(r'<svg(.*?)>', f'<symbol id="{component.subtype}"\\1>', symbol_content, count=1)
-            symbol_content = symbol_content.replace('</svg>', '</symbol>', 1)
-            svg_elements.append(symbol_content)
-            st.session_state.svg_defs_added.add(component.subtype)
+    # Render pipes
+    for p in pipes:
+        pts = " ".join(f"{x},{y}" for x, y in p.points)
+        svg.append(f'<polyline points="{pts}" stroke="black" stroke-width="{PIPE_WIDTH}" fill="none" '
+                   f'marker-end="url(#arrowhead)"/>')
+        if len(p.points) >= 2:
+            mx = (p.points[0][0] + p.points[-1][0]) // 2
+            my = (p.points[0][1] + p.points[-1][1]) // 2
+            svg.append(f'<text x="{mx}" y="{my - 5}" font-size="{PIPE_LABEL_FONT_SIZE}" '
+                       f'text-anchor="middle">{p.label}</text>')
 
-        svg_elements.append(
-            f'<use href="#{component.subtype}" '
-            f'x="{component.x}" y="{component.y}" '
-            f'width="{component.width}" height="{component.height}" '
-            f'fill="black" stroke="black" stroke-width="1"/>'
-        )
+    # Title Block
+    svg.append(f'''
+    <rect x="{max_x - TITLE_BLOCK_WIDTH}" y="{max_y - TITLE_BLOCK_HEIGHT}" width="{TITLE_BLOCK_WIDTH}"
+          height="{TITLE_BLOCK_HEIGHT}" stroke="black" fill="none"/>
+    <text x="{max_x - TITLE_BLOCK_WIDTH + 10}" y="{max_y - TITLE_BLOCK_HEIGHT + 20}"
+          font-size="14">Client: {TITLE_BLOCK_CLIENT}</text>
+    <text x="{max_x - TITLE_BLOCK_WIDTH + 10}" y="{max_y - TITLE_BLOCK_HEIGHT + 40}"
+          font-size="14">Date: {datetime.date.today()}</text>
+    <text x="{max_x - TITLE_BLOCK_WIDTH + 10}" y="{max_y - TITLE_BLOCK_HEIGHT + 60}"
+          font-size="14">P&ID Version: 1.0</text>
+    ''')
 
-        svg_elements.append(
-            f'<text x="{component.x + component.width / 2}" y="{component.y + component.height + tag_font_size + 5}" '
-            f'text-anchor="middle" font-size="{tag_font_size}" fill="black">{component.tag}</text>'
-        )
+    return f'<svg width="{max_x}" height="{max_y}" xmlns="http://www.w3.org/2000/svg">{"".join(svg)}</svg>'
 
-    # 3. Draw Pipes
-    component_map = {c.name: c for c in components}
-    component_id_map = {c.id: c for c in components}
+# Build components and pipes
+components = [PnidComponent(row, svg_meta.get(normalize(row.get("Component", "")), {})) for _, row in eq_df.iterrows()]
+pipes = [PnidPipe(row) for _, row in pipe_df.iterrows()]
 
-    for pipe in pipes:
-        from_comp = component_map.get(pipe.from_comp_name) or component_id_map.get(pipe.from_comp_name)
-        to_comp = component_map.get(pipe.to_comp_name) or component_id_map.get(pipe.to_comp_name)
-
-        if not from_comp:
-            st.warning(f"Source component '{pipe.from_comp_name}' for pipe '{pipe.id}' not found. Skipping pipe.")
-            continue
-        if not to_comp:
-            st.warning(f"Target component '{pipe.to_comp_name}' for pipe '{pipe.id}' not found. Skipping pipe.")
-            continue
-
-        raw_points = pipe.svg_polyline_points
-        coords_list = [tuple(map(int, pair.split(','))) for pair in raw_points.split()]
-        svg_polyline_points = " ".join([f"{x},{y}" for x, y in coords_list])
-
-        svg_elements.append(
-            f'<polyline points="{svg_polyline_points}" '
-            f'fill="none" stroke="black" stroke-width="{pipe_width}" '
-            f'stroke-dasharray="{pipe.stroke_dasharray}" marker-end="url(#arrowhead)"/>'
-        )
-
-        if pipe.flow_arrow_required and coords_list and len(coords_list) >= 2:
-            pass # marker-end above handles arrows
-
-        mid_point_index = int(len(coords_list) / 2) -1
-        if mid_point_index >= 0:
-            mid_segment_start_x, mid_segment_start_y = coords_list[mid_point_index]
-            mid_segment_end_x, mid_segment_end_y = coords_list[mid_point_index+1]
-            mid_x = (mid_segment_start_x + mid_segment_end_x) / 2
-            mid_y = (mid_segment_start_y + mid_segment_end_y) / 2
-            svg_elements.append(
-                f'<text x="{mid_x}" y="{mid_y - 5}" '
-                f'text-anchor="middle" font-size="{pipe_label_font_size}" fill="black">{pipe.label}</text>'
-            )
-
-    full_svg = f'''
-    <svg width="{canvas_width}" height="{canvas_height}" viewBox="0 0 {canvas_width} {canvas_height}" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-            <marker id="arrowhead" markerWidth="10" markerHeight="7"
-                    refX="0" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill="black" />
-            </marker>
-            {"".join([el for el in svg_elements if '<symbol id=' in el])}
-        </defs>
-        {"".join([el for el in svg_elements if '<symbol id=' not in el and '<marker id=' not in el])}
-        <rect x="{canvas_width - title_block_width}" y="{canvas_height - title_block_height}" 
-              width="{title_block_width}" height="{title_block_height}" 
-              fill="none" stroke="black" stroke-width="1"/>
-        <text x="{canvas_width - title_block_width + 10}" y="{canvas_height - title_block_height + 20}" 
-              font-size="14" fill="black">Client: {client_name}</text>
-        <text x="{canvas_width - title_block_width + 10}" y="{canvas_height - title_block_height + 40}" 
-              font-size="14" fill="black">Date: {datetime.date.today().strftime('%Y-%m-%d')}</text>
-        <text x="{canvas_width - title_block_width + 10}" y="{canvas_height - title_block_height + 60}" 
-              font-size="14" fill="black">P&ID Version: 1.0</text>
-
-        <rect x="{canvas_width - legend_width}" y="10" 
-              width="{legend_width - 20}" height="150" 
-              fill="none" stroke="black" stroke-width="1"/>
-        <text x="{canvas_width - legend_width + 10}" y="30" font-size="{LEGEND_FONT_SIZE}" fill="black">Legend:</text>
-        <text x="{canvas_width - legend_width + 10}" y="50" font-size="{LEGEND_FONT_SIZE}" fill="black">--- Process Line</text>
-        <text x="{canvas_width - legend_width + 10}" y="70" font-size="{LEGEND_FONT_SIZE}" fill="black">-- -- Instrument Line</text>
-        <text x="{canvas_width - legend_width + 10}" y="90" font-size="{LEGEND_FONT_SIZE}" fill="black">-- • -- Electrical Line</text>
-    </svg>
-    '''
-    return full_svg
-
-# --- Generate and Display SVG ---
-all_components = []
-for index, row in enhanced_equipment_layout_df.iterrows():
-    subtype = row['Component']
-    symbol_meta = svg_symbol_metadata.get(subtype, {})
-    all_components.append(PnidComponent(row, symbol_meta))
-
-all_pipes = []
-for index, row in pipe_connections_layout_df.iterrows():
-    all_pipes.append(PnidPipe(row, polyline_col))
-
-pnid_svg_content = generate_pnid_svg(
-    components=all_components,
-    pipes=all_pipes,
-    svg_symbols_library=svg_symbols_library,
-    svg_symbol_metadata=svg_symbol_metadata,
-    grid_spacing=GRID_SPACING,
-    symbol_scale=SYMBOL_SCALE,
-    pipe_width=PIPE_WIDTH,
-    tag_font_size=TAG_FONT_SIZE,
-    pipe_label_font_size=PIPE_LABEL_FONT_SIZE,
-    arrow_length=ARROW_LENGTH,
-    legend_width=LEGEND_WIDTH,
-    title_block_height=TITLE_BLOCK_HEIGHT,
-    title_block_width=TITLE_BLOCK_WIDTH,
-    client_name=TITLE_BLOCK_CLIENT
-)
-
-st.markdown(pnid_svg_content, unsafe_allow_html=True)
-
-st.download_button(
-    label="Download P&ID as SVG",
-    data=pnid_svg_content,
-    file_name="pnid_layout.svg",
-    mime="image/svg+xml"
-)
+# Render SVG
+svg_out = generate_svg(components, pipes)
+st.markdown(svg_out, unsafe_allow_html=True)
+st.download_button("Download SVG", svg_out, "pnid_output.svg", "image/svg+xml")
