@@ -89,43 +89,54 @@ def load_layout_data():
         mapping = json.load(f)
     return eq_df, pipe_df, mapping
 
+def clean_svg(svg: str):
+    # Remove XML declaration and DOCTYPE from start or anywhere in string
+    svg = re.sub(r'<\?xml[^>]*\?>', '', svg, flags=re.MULTILINE).strip()
+    svg = re.sub(r'<!DOCTYPE[^>]*>', '', svg, flags=re.MULTILINE).strip()
+    return svg
+
+# --- Load SVG symbols robustly ---
+def load_symbol_svg(subtype):
+    fname = os.path.join(SVG_SYMBOLS_DIR, f"{subtype}.svg")
+    svg_data = None
+    # 1. Try symbols folder
+    if os.path.exists(fname):
+        with open(fname) as f:
+            svg_data = f.read()
+            if "<svg" in svg_data: svg_data = clean_svg(svg_data)
+    # 2. Try DB
+    if not svg_data:
+        svg_data = load_svg_from_db(subtype)
+        if svg_data and "<svg" in svg_data: svg_data = clean_svg(svg_data)
+    # 3. Try OpenAI fallback
+    if not svg_data:
+        svg_data = generate_svg_via_openai(subtype)
+        if svg_data and "<svg" in svg_data:
+            svg_data = clean_svg(svg_data)
+            with open(fname, "w") as f:
+                f.write(svg_data)
+            save_svg_to_db(subtype, svg_data)
+    return svg_data
+
 eq_df, pipe_df, mapping = load_layout_data()
+# Build subtype/component palette from loaded data
+all_subtypes = sorted(set(normalize(row.get('block', '')) for _, row in eq_df.iterrows() if row.get('block', '')))
 svg_defs, svg_meta = {}, {}
 
-# --- Load SVG symbols, extract viewBox and ports ---
-for entry in mapping:
-    subtype = normalize(entry["Component"])
-    symbol_path = os.path.join(SVG_SYMBOLS_DIR, f"{subtype}.svg")
-    svg = None
-
-    if os.path.exists(symbol_path):
-        with open(symbol_path) as f:
-            svg = f.read()
-    else:
-        svg = load_svg_from_db(subtype)
-        if not svg:
-            svg = generate_svg_via_openai(subtype)
-            if svg:
-                with open(symbol_path, "w") as f:
-                    f.write(svg)
-                save_svg_to_db(subtype, svg)
-
+for subtype in all_subtypes:
+    svg = load_symbol_svg(subtype)
     if svg:
-        # --- Robust viewBox handling (regex) ---
+        # Extract viewBox robustly
         match = re.search(r'viewBox="([\d.\s\-]+)"', svg)
-        svg_viewbox = match.group(1) if match else "0 0 100 100"
-        if subtype not in svg_meta:
-            svg_meta[subtype] = {}
-        svg_meta[subtype]['viewBox'] = svg_viewbox
-
-        # --- Wrap SVG in <symbol> for <use> ---
-        symbol = re.sub(r"<svg[^>]*>", f'<symbol id="{subtype}" viewBox="{svg_viewbox}">', svg)
+        viewbox = match.group(1) if match else "0 0 100 100"
+        # Wrap as <symbol>
+        symbol = re.sub(r"<svg[^>]*>", f'<symbol id="{subtype}" viewBox="{viewbox}">', svg)
         symbol = symbol.replace("</svg>", "</symbol>")
         svg_defs[subtype] = symbol
-
-        # Ensure ports dict is present
-        if "ports" not in svg_meta[subtype]:
-            svg_meta[subtype]["ports"] = {}
+        svg_meta[subtype] = {'viewBox': viewbox}
+    else:
+        svg_defs[subtype] = None
+        svg_meta[subtype] = {'viewBox': "0 0 100 100"}
 
 # --- Populate svg_meta['ports'] using mapping (with float conversion) ---
 for entry in mapping:
@@ -196,8 +207,8 @@ def render_svg(components, pipes):
     # --- <defs> for marker and all symbols ---
     svg.append("<defs>")
     svg.append('<marker id="arrowhead" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="black"/></marker>')
-    for s in svg_defs.values():
-        svg.append(s)
+    for val in svg_defs.values():
+        if val: svg.append(val)
     svg.append("</defs>")
 
     # Draw grid
@@ -222,16 +233,19 @@ def render_svg(components, pipes):
     for i, ((tag, subtype), name) in enumerate(legend_entries.items()):
         sym_pos_y = legend_y_pos + i*28 - 10
         # Bonus: scale legend icon using viewBox for consistent size
-        try:
-            viewBox = svg_meta[subtype]["viewBox"].split(" ")
-            vb_w = float(viewBox[2])
-            vb_h = float(viewBox[3])
-            scale_factor = min(25 / vb_w, 25 / vb_h)
-            width = vb_w * scale_factor
-            height = vb_h * scale_factor
-        except Exception:
-            width = height = 20
-        svg.append(f'<use href="#{subtype}" x="{legend_x}" y="{sym_pos_y}" width="{width}" height="{height}" />')
+        if svg_defs[subtype]:
+            try:
+                viewBox = svg_meta[subtype]["viewBox"].split(" ")
+                vb_w = float(viewBox[2])
+                vb_h = float(viewBox[3])
+                scale_factor = min(25 / vb_w, 25 / vb_h)
+                width = vb_w * scale_factor
+                height = vb_h * scale_factor
+            except Exception:
+                width = height = 20
+            svg.append(f'<use href="#{subtype}" x="{legend_x}" y="{sym_pos_y}" width="{width}" height="{height}" />')
+        else:
+            svg.append(f'<rect x="{legend_x}" y="{sym_pos_y}" width="20" height="20" fill="#eee" stroke="red"/>')
         svg.append(f'<text x="{legend_x+32}" y="{sym_pos_y+16}" font-size="{LEGEND_FONT_SIZE}">{tag} — {name}</text>')
 
     # Draw title block
@@ -241,8 +255,7 @@ def render_svg(components, pipes):
 
     # Draw components
     for c in components.values():
-        if c.subtype in svg_defs:
-            # Use <use> to reference <symbol>
+        if c.subtype in svg_defs and svg_defs[c.subtype]:
             svg.append(f'<use href="#{c.subtype}" x="{c.x}" y="{c.y}" width="{c.width}" height="{c.height}" />')
             svg.append(f'<text x="{c.x + c.width/2}" y="{c.y + c.height + 14}" font-size="{TAG_FONT_SIZE}" text-anchor="middle">{c.tag}</text>')
         else:
@@ -262,7 +275,25 @@ def render_svg(components, pipes):
 
 # --- UI: V39+ Style: Add Components/Piping ---
 st.sidebar.markdown("---")
-st.sidebar.markdown("### Add/Edit Components/Piping")
+st.sidebar.markdown("### Component Palette")
+with st.sidebar.expander("Browse/Add Components", expanded=True):
+    for subtype in all_subtypes:
+        # Mini SVG icon
+        if svg_defs[subtype]:
+            viewBox = svg_meta[subtype]["viewBox"].split(" ")
+            vb_w = float(viewBox[2])
+            vb_h = float(viewBox[3])
+            scale_factor = min(30 / vb_w, 30 / vb_h)
+            width = vb_w * scale_factor
+            height = vb_h * scale_factor
+            icon = f'<svg width="{width}" height="{height}"><use href="#{subtype}" /></svg>'
+        else:
+            icon = "❓"
+        st.markdown(
+            f"<div style='display:flex; align-items:center; gap:10px'><span>{icon}</span><b>{subtype.replace('_',' ').title()}</b></div>",
+            unsafe_allow_html=True
+        )
+
 with st.sidebar.expander("➕ Add Component", expanded=False):
     new_comp_id = st.text_input("Component ID")
     new_comp_type = st.text_input("Component Type")
@@ -287,14 +318,15 @@ st.markdown(svg_output, unsafe_allow_html=True)
 def export_png(svg_data):
     from cairosvg import svg2png
     output = BytesIO()
-    svg2png(bytestring=svg_data.encode(), write_to=output)
+    # Remove any XML/DOCTYPE from svg_data before passing to cairosvg
+    svg_data_clean = clean_svg(svg_data)
+    svg2png(bytestring=svg_data_clean.encode(), write_to=output)
     return output.getvalue()
 
 def export_dxf(components, pipes):
     doc = ezdxf.new()
     msp = doc.modelspace()
     for c in components.values():
-        # DXF add_text expects location as param
         msp.add_text(c.tag, dxfattribs={'height': 2.5}).set_location((c.x, c.y))
     for p in pipes:
         if len(p.points) >= 2:
