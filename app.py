@@ -31,30 +31,25 @@ TITLE_BLOCK_HEIGHT = 120
 TITLE_BLOCK_WIDTH = 420
 TITLE_BLOCK_CLIENT = "Rajesh Ahuja"
 
-# --- NEW: Paths for Layout Data and SVG Symbols ---
 SVG_SYMBOLS_DIR = "symbols"
-LAYOUT_DATA_DIR = "layout_data" # This is your new folder name!
+LAYOUT_DATA_DIR = "layout_data"
 
 if 'svg_defs_added' not in st.session_state:
     st.session_state.svg_defs_added = set()
 
-# --- UTILITY: Robust column finder ---
-def find_column(df_or_series, target, alternatives=None):
-    # Robustly find a column by ignoring case and whitespace
-    normalized = lambda s: s.replace(" ", "").replace("_", "").replace("-", "").lower()
-    target_norm = normalized(target)
-    for col in df_or_series:
-        if normalized(col) == target_norm:
-            return col
-    if alternatives:
-        for alt in alternatives:
-            alt_norm = normalized(alt)
-            for col in df_or_series:
-                if normalized(col) == alt_norm:
-                    return col
+###############################
+# Robust column finder snippet
+###############################
+def find_column(cols, target):
+    norm = lambda s: s.replace(" ", "").replace("_", "").replace("-", "").lower()
+    t = norm(target)
+    for c in cols:
+        if norm(c) == t:
+            return c
     return None
+###############################
 
-# --- NEW: P&ID Component Class ---
+# --- P&ID Component Class ---
 class PnidComponent:
     def __init__(self, data_row, symbol_meta):
         self.id = data_row['id']
@@ -81,7 +76,7 @@ class PnidComponent:
             st.warning(f"Port '{port_name}' not defined for component '{self.id}' ({self.name}). Check your component_mapping.json.")
             return (self.x + self.width / 2, self.y + self.height / 2)
 
-# --- NEW: P&ID Pipe Class ---
+# --- P&ID Pipe Class ---
 class PnidPipe:
     def __init__(self, data_row, polyline_col):
         self.id = data_row['Pipe No.']
@@ -90,7 +85,6 @@ class PnidPipe:
         self.to_comp_name = data_row['To Component']
         self.to_port_name = data_row['To Port']
         raw_points = data_row[polyline_col]
-        # Extract numbers: "(260, 200) → (330, 200) → (330, 280)"
         coords_list = re.findall(r'\((\d+),\s*(\d+)\)', raw_points)
         self.svg_polyline_points = " ".join([f"{x},{y}" for x, y in coords_list])
         self.line_weight = PIPE_WIDTH
@@ -98,7 +92,6 @@ class PnidPipe:
         self.flow_arrow_required = True
         self.label = data_row.get('Label', f"Pipe {self.id}")
 
-# --- NEW: Data Loading Function (Loads your PRE-CALCULATED Layout Data) ---
 @st.cache_data
 def load_layout_data():
     try:
@@ -140,21 +133,22 @@ def load_layout_data():
                     'default_height_px': viewBox[3],
                     'ports': ports
                 }
-
     return (enhanced_equipment_layout_df, pipe_connections_layout_df,
             component_mapping_data, piping_df,
             svg_symbols_library, svg_symbol_metadata)
 
-# --- Call the new data loading function ---
+# --- Load Data ---
 (enhanced_equipment_layout_df, pipe_connections_layout_df,
  component_mapping_data, piping_df,
  svg_symbols_library, svg_symbol_metadata) = load_layout_data()
 
 # --- Polyline column robust check ---
+# DEBUG PRINT: Show all columns loaded from the CSV for troubleshooting
+st.write("DEBUG: Columns in pipe_connections_layout_df:", list(pipe_connections_layout_df.columns))
+
 polyline_col = find_column(
     pipe_connections_layout_df.columns,
     "Polyline Points (x, y)",
-    alternatives=["polylinepoints(x,y)", "polylinepoints"]
 )
 if polyline_col is None:
     st.error(
@@ -163,7 +157,7 @@ if polyline_col is None:
     )
     st.stop()
 
-# --- NEW: Function to Generate SVG ---
+# --- SVG Generation Function ---
 def generate_pnid_svg(
     components, pipes, svg_symbols_library, svg_symbol_metadata,
     grid_spacing, symbol_scale, pipe_width, tag_font_size, pipe_label_font_size,
