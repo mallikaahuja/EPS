@@ -5,13 +5,14 @@ import datetime
 import json
 import re
 import openai
+import requests
 import psycopg2
 import ezdxf
 from io import BytesIO
 
+# === CONFIG ===
 st.set_page_config(layout="wide")
 st.sidebar.markdown("## EPS Interactive P&ID Generator")
-
 GRID_SPACING = st.sidebar.slider("Grid Spacing", 60, 200, 120, 5)
 SYMBOL_SCALE = st.sidebar.slider("Symbol Scale", 0.5, 2.5, 1.0, 0.1)
 PIPE_WIDTH = st.sidebar.slider("Pipe Width", 1, 5, 2)
@@ -28,13 +29,15 @@ SVG_SYMBOLS_DIR = "symbols"
 LAYOUT_DATA_DIR = "layout_data"
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
+STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# === UTILS ===
 def normalize(s):
     if not isinstance(s, str): return ""
     return s.lower().strip().replace(" ", "_").replace("-", "_")
 
-def clean_svg(svg: str):
+def clean_svg(svg):
     svg = re.sub(r'<\?xml[^>]*\?>', '', svg, flags=re.MULTILINE).strip()
     svg = re.sub(r'<!DOCTYPE[^>]*>', '', svg, flags=re.MULTILINE).strip()
     return svg
@@ -48,28 +51,25 @@ def load_svg_from_db(subtype):
         cur.close()
         conn.close()
         return row[0] if row else None
-    except Exception as e:
-        st.error(f"[DB LOAD ERROR] {e}")
+    except Exception:
         return None
 
 def save_svg_to_db(subtype, svg_data):
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO generated_symbols (subtype, svg_data) 
-            VALUES (%s, %s) 
-            ON CONFLICT (subtype) DO UPDATE SET svg_data = EXCLUDED.svg_data
-        """, (subtype, svg_data))
+        cur.execute(
+            "INSERT INTO generated_symbols (subtype, svg_data) VALUES (%s, %s) ON CONFLICT (subtype) DO UPDATE SET svg_data = EXCLUDED.svg_data",
+            (subtype, svg_data)
+        )
         conn.commit()
         cur.close()
         conn.close()
-    except Exception as e:
-        st.error(f"[DB SAVE ERROR] {e}")
+    except Exception:
+        pass
 
 def generate_svg_via_openai(subtype):
-    if not subtype: return None
-    prompt = f"Generate an SVG symbol in ISA P&ID style for a {subtype.replace('_', ' ')}. Transparent background. Use black lines only."
+    prompt = f"Generate a simple SVG symbol in ISA P&ID style for a {subtype.replace('_', ' ')}. Transparent background. Use black lines only."
     try:
         response = openai.ChatCompletion.create(
             model="gpt-4",
@@ -80,10 +80,29 @@ def generate_svg_via_openai(subtype):
         )
         svg = response['choices'][0]['message']['content']
         return svg if "<svg" in svg else None
-    except Exception as e:
-        st.error(f"[OpenAI SVG Gen Error for '{subtype}']: {e}")
+    except Exception:
         return None
 
+def generate_svg_via_stability(subtype):
+    # Uses Stability API to generate an SVG (returns SVG as string or None)
+    try:
+        url = "https://api.stability.ai/v2beta/stable-image/generate/sd3"
+        headers = {
+            "Authorization": f"Bearer {STABILITY_API_KEY}",
+            "Accept": "application/json"
+        }
+        json_data = {
+            "prompt": f"ISA P&ID style SVG technical drawing of a {subtype.replace('_',' ')}. Only SVG. Transparent background. Black lines.",
+            "output_format": "svg"
+        }
+        response = requests.post(url, headers=headers, json=json_data, timeout=30)
+        if response.status_code == 200 and "svg" in response.json():
+            return response.json()["svg"]
+    except Exception:
+        pass
+    return None
+
+# === DATA LOAD ===
 def load_layout_data():
     try:
         eq_df = pd.read_csv(os.path.join(LAYOUT_DATA_DIR, "enhanced_equipment_layout.csv"))
@@ -102,18 +121,49 @@ def load_dropdown_options():
             return sorted(df[col].dropna().unique())
         except Exception:
             return []
-    equipment_types = safe_load("equipment_list.csv", "block")
-    pipeline_types = safe_load("pipeline_list.csv", "block")
-    inline_types = safe_load("inline_component_list.csv", "block")
+    equipment_types = safe_load("equipment_list.csv", "subtype")
+    pipeline_types = safe_load("pipeline_list.csv", "id")
+    inline_types = safe_load("inline_component_list.csv", "subtype")
     return equipment_types, pipeline_types, inline_types
 
 eq_df, pipe_df, mapping = load_layout_data()
 if eq_df is None or pipe_df is None or mapping is None:
     st.stop()
-
 equipment_types, pipeline_types, inline_types = load_dropdown_options()
 
-# Build all unique subtypes in the project (from equipment, pipes, and mapping)
+# === SVG SYMBOL LOADING WITH FALLBACK ===
+def get_svg_symbol(subtype):
+    if not subtype:
+        return None
+    svg_file = os.path.join(SVG_SYMBOLS_DIR, f"{subtype}.svg")
+    # 1. Try local file
+    if os.path.exists(svg_file):
+        with open(svg_file) as f:
+            svg = clean_svg(f.read())
+            if "<svg" in svg:
+                return svg
+    # 2. Try DB
+    svg = load_svg_from_db(subtype)
+    if svg and "<svg" in svg:
+        return clean_svg(svg)
+    # 3. Try OpenAI
+    svg = generate_svg_via_openai(subtype)
+    if svg and "<svg" in svg:
+        with open(svg_file, "w") as f:
+            f.write(svg)
+        save_svg_to_db(subtype, svg)
+        return clean_svg(svg)
+    # 4. Try Stability AI
+    svg = generate_svg_via_stability(subtype)
+    if svg and "<svg" in svg:
+        with open(svg_file, "w") as f:
+            f.write(svg)
+        save_svg_to_db(subtype, svg)
+        return clean_svg(svg)
+    # 5. Fallback: simple rectangle
+    return f'<svg viewBox="0 0 100 100"><rect x="10" y="10" width="80" height="80" fill="none" stroke="red" stroke-width="3"/></svg>'
+
+# Build all unique subtypes from equipment + mapping
 all_subtypes = set()
 for _, row in eq_df.iterrows():
     if row.get('block', ''):
@@ -123,43 +173,16 @@ for entry in mapping:
         all_subtypes.add(normalize(entry.get("Component", "")))
 all_subtypes = sorted(all_subtypes)
 
+# Load SVGs for all subtypes
 svg_defs, svg_meta = {}, {}
-
-def load_symbol_svg(subtype):
-    if not subtype:
-        return None
-    fname = os.path.join(SVG_SYMBOLS_DIR, f"{subtype}.svg")
-    svg_data = None
-    if os.path.exists(fname):
-        with open(fname) as f:
-            svg_data = f.read()
-            if "<svg" in svg_data: svg_data = clean_svg(svg_data)
-    if not svg_data:
-        svg_data = load_svg_from_db(subtype)
-        if svg_data and "<svg" in svg_data: svg_data = clean_svg(svg_data)
-    if not svg_data:
-        svg_data = generate_svg_via_openai(subtype)
-        if svg_data and "<svg" in svg_data:
-            svg_data = clean_svg(svg_data)
-            with open(fname, "w") as f:
-                f.write(svg_data)
-            save_svg_to_db(subtype, svg_data)
-    return svg_data
-
 for subtype in all_subtypes:
-    if not subtype:
-        continue
-    svg = load_symbol_svg(subtype)
-    if svg:
-        match = re.search(r'viewBox="([\d.\s\-]+)"', svg)
-        viewbox = match.group(1) if match else "0 0 100 100"
-        symbol = re.sub(r"<svg[^>]*>", f'<symbol id="{subtype}" viewBox="{viewbox}">', svg)
-        symbol = symbol.replace("</svg>", "</symbol>")
-        svg_defs[subtype] = symbol
-        svg_meta[subtype] = {'viewBox': viewbox}
-    else:
-        svg_defs[subtype] = None
-        svg_meta[subtype] = {'viewBox': "0 0 100 100"}
+    svg = get_svg_symbol(subtype)
+    match = re.search(r'viewBox="([\d.\s\-]+)"', svg)
+    viewbox = match.group(1) if match else "0 0 100 100"
+    symbol = re.sub(r"<svg[^>]*>", f'<symbol id="{subtype}" viewBox="{viewbox}">', svg)
+    symbol = symbol.replace("</svg>", "</symbol>")
+    svg_defs[subtype] = symbol
+    svg_meta[subtype] = {'viewBox': viewbox}
 
 for entry in mapping:
     subtype = normalize(entry.get("Component", ""))
@@ -291,18 +314,19 @@ def render_svg(components, pipes):
     svg.append('</svg>')
     return "".join(svg)
 
+# === UI DROPDOWNS ===
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Add Components")
 with st.sidebar.expander("➕ Equipment"):
-    selected_eq = st.selectbox("Select Equipment Type", equipment_types)
+    selected_eq = st.selectbox("Equipment Type", equipment_types)
     st.write(f"Selected: {selected_eq}")
 
 with st.sidebar.expander("➕ In-line Component"):
-    selected_inline = st.selectbox("Select Inline Component", inline_types)
+    selected_inline = st.selectbox("Inline Component Type", inline_types)
     st.write(f"Selected: {selected_inline}")
 
 with st.sidebar.expander("➕ Pipeline"):
-    selected_pipe = st.selectbox("Select Pipeline Type", pipeline_types)
+    selected_pipe = st.selectbox("Pipeline Type", pipeline_types)
     st.write(f"Selected: {selected_pipe}")
 
 components = {row['id']: PnidComponent(row) for _, row in eq_df.iterrows()}
@@ -337,7 +361,7 @@ def export_dxf(components, pipes):
     doc = ezdxf.new()
     msp = doc.modelspace()
     for c in components.values():
-        txt = msp.add_text(c.tag, dxfattribs={'height': 2.5})  # Fix: use .dxf.insert
+        txt = msp.add_text(c.tag, dxfattribs={'height': 2.5})
         txt.dxf.insert = (c.x, c.y)
     for p in pipes:
         if len(p.points) >= 2:
