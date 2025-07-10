@@ -2,7 +2,7 @@ streamlit
 pandas
 streamlit-js-eval
 ezdxf
-openai
+openai==0.28.1
 requests
 psycopg2-binary
 Pillow
