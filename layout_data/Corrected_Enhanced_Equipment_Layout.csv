@@ -1,0 +1,19 @@
+Component,id,tag,x,y,Width,Height,Description
+centrifugal_pump,P-001,P-001,300,400,100.0,100.0,Main process pump
+filter_cartridge,SF-001,SF-001,300,280,60.0,100.0,Suction filter above pump
+absorption_column,C-001,C-001,600,200,100.0,200.0,Main column
+shell_and_tube_exchanger,E-001,E-001,450,350,150.0,100.0,Heat exchanger
+control_panel,CP-001,CP-001,800,150,100.0,80.0,Panel near column
+atmospheric_tank,TK-001,TK-001,200,100,120.0,100.0,Feed tank
+horizontal_vessel,V-001,V-001,750,400,150.0,80.0,Product vessel
+ball_valve,HV-001,HV-001,350,270,50.0,50.0,Isolation valve
+pressure_transmitter,PT-001,PT-001,420,440,50.0,50.0,Pressure indication
+level_transmitter,LT-001,LT-001,680,380,50.0,50.0,Level indication
+check_valve,CV-001,CV-001,250,190,50.0,50.0,Non-return valve
+flow_meter,FI-001,FI-001,530,320,50.0,50.0,Flow measurement
+pressure_transmitter,PT-001,PT-001,150,100,,,
+temperature_transmitter,TT-001,TT-001,200,100,,,
+level_transmitter,LT-001,LT-001,250,100,,,
+control_valve,CV-001,CV-001,300,100,,,
+solenoid_valve,SV-001,SV-001,350,100,,,
+discharge_silencer,DS-001,DS-001,400,100,,,
