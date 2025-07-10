@@ -11,7 +11,7 @@ import ezdxf
 from cairosvg import svg2png
 
 # --- CONFIGURATION ---
-st.set_page_config(layout="wide")
+st.set_page_page_config(layout="wide")
 st.sidebar.title("EPS Interactive P&ID Generator")
 
 # Sliders for visual controls
@@ -224,22 +224,12 @@ if 'eq_df' not in st.session_state:
 # Load symbols and metadata using cache_resource (runs once per app session or input change)
 svg_defs, svg_meta, all_subtypes = load_symbol_and_meta_data(st.session_state.eq_df, st.session_state.mapping)
 
-# Get current dataframes from session state for rendering/modification
-eq_df_current = st.session_state.eq_df
-pipe_df_current = st.session_state.pipe_df
-
-# --- Initialize PnidComponent and PnidPipe objects from current dataframes ---
-# FIX: Moved this block UP to ensure 'components' is defined before sidebar forms use it.
-# Create PnidComponent objects first, then map them by their cleaned ID for easy lookup
-components = {c.id: c for c in [PnidComponent(row) for _, row in eq_df_current.iterrows()]}
-pipes = [PnidPipe(row, components) for _, row in pipe_df_current.iterrows()]
-
-# --- P&ID CLASSES ---
+# --- P&ID CLASSES (Moved this section here) ---
 class PnidComponent:
     """Represents a P&ID component."""
     def __init__(self, row):
         # Ensure the ID used for lookup is clean
-        self.id = clean_component_id(row['id']) # Use clean_component_id here
+        self.id = clean_component_id(row['id'])
         self.tag = row.get('tag', self.id)
         self.subtype = normalize(row.get('block', ''))
         self.x = row['x']
@@ -256,8 +246,6 @@ class PnidComponent:
         if port:
             return (self.x + port["dx"] * SYMBOL_SCALE, self.y + port["dy"] * SYMBOL_SCALE)
         # Fallback to center if port not found or default is requested
-        # Removed this warning, as it can be very verbose. The pipe warnings are more critical.
-        # st.warning(f"Port '{port_name}' not defined for component '{self.tag}' (subtype: {self.subtype}). Using center coordinates.")
         return (self.x + self.width / 2, self.y + self.height / 2)
 
 class PnidPipe:
@@ -301,6 +289,17 @@ class PnidPipe:
                 self.points = [from_comp.get_port_coords(row.get("From Port", "default")), (from_comp.x + from_comp.width / 2 + 50, from_comp.y + from_comp.height / 2)] # Draw a stub 50 units right
             elif to_comp:
                 self.points = [(to_comp.x + to_comp.width / 2 - 50, to_comp.y + to_comp.height / 2), to_comp.get_port_coords(row.get("To Port", "default"))] # Draw a stub 50 units left
+
+
+# Get current dataframes from session state for rendering/modification
+eq_df_current = st.session_state.eq_df
+pipe_df_current = st.session_state.pipe_df
+
+# --- Initialize PnidComponent and PnidPipe objects from current dataframes ---
+# FIX: Moved this block UP to ensure 'components' is defined before sidebar forms use it.
+# Create PnidComponent objects first, then map them by their cleaned ID for easy lookup
+components = {c.id: c for c in [PnidComponent(row) for _, row in eq_df_current.iterrows()]}
+pipes = [PnidPipe(row, components) for _, row in pipe_df_current.iterrows()]
 
 
 # --- SVG RENDERING FUNCTIONS (Modularized) ---
