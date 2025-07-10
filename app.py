@@ -35,6 +35,7 @@ LAYOUT_DATA_DIR = "layout_data"
 SYMBOLS_DIR = "symbols"
 
 # API keys and DB URL from environment variables
+# Ensure these are set in your environment or .streamlit/secrets.toml
 openai.api_key = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
@@ -47,11 +48,9 @@ def normalize(s):
     return s.lower().strip().replace(" ", "_").replace("-", "_")
 
 def clean_component_id(s):
-    """Normalizes a string for use as a component ID for lookup."""
+    """Normalizes a string for use as a component ID for lookup. Strips whitespace."""
     if not isinstance(s, str):
         return ""
-    # Just strip whitespace for IDs, maintain case if it's significant, or lowercase if not.
-    # For now, let's just strip. If IDs are meant to be case-insensitive, add .lower()
     return s.strip()
 
 def clean_svg_string(svg: str):
@@ -120,7 +119,7 @@ def load_symbol_and_meta_data(initial_eq_df, initial_mapping):
     """
     st.info("Loading initial P&ID data and symbols (this may take a moment)...")
 
-    # Get all unique subtypes from the initial equipment data
+    # Get all unique subtypes from the initial equipment data (using 'block' column for subtype)
     all_subtypes_from_data = sorted({normalize(row.get("block", "")) for _, row in initial_eq_df.iterrows() if normalize(row.get("block", ""))})
 
     svg_defs_dict = {}
@@ -178,7 +177,8 @@ def load_symbol_and_meta_data(initial_eq_df, initial_mapping):
                  svg_meta_dict[subtype] = {"viewBox": "0 0 100 100", "ports": {}}
             svg_meta_dict[subtype]["ports"][port_name] = {"dx": dx, "dy": dy}
     st.success("P&ID data and symbols loaded!")
-    return svg_defs_dict, svg_meta_dict, all_subtypes_from_data
+    # FIX: Ensure 'all_subtypes_from_data' is returned here, not 'all_subtypes'
+    return svg_defs_dict, svg_meta_dict, all_subtypes_from_data 
 
 # --- SESSION STATE INITIALIZATION ---
 if 'eq_df' not in st.session_state:
@@ -187,7 +187,7 @@ if 'eq_df' not in st.session_state:
         """Loads initial layout data from CSV/JSON. Cached separately for first load."""
         eq_df_path = os.path.join(LAYOUT_DATA_DIR, "enhanced_equipment_layout.csv")
         pipe_df_path = os.path.join(LAYOUT_DATA_DIR, "pipe_connections_layout.csv")
-        mapping_path = os.path.join(LAYOUT_DATA_DIR, "component_mapping.json") # Ensure this is the correct JSON file name
+        mapping_path = os.path.join(LAYOUT_DATA_DIR, "component_mapping.json")
 
         if not os.path.exists(eq_df_path):
             st.error(f"Error: {eq_df_path} not found. Please ensure it exists.")
@@ -199,8 +199,7 @@ if 'eq_df' not in st.session_state:
         eq_df = pd.read_csv(eq_df_path)
         pipe_df = pd.read_csv(pipe_df_path)
         
-        # --- IMPORTANT FIXES FOR COMPONENT ID MATCHING ---
-        # Apply stripping to all relevant columns immediately after loading
+        # --- IMPORTANT FIXES FOR COMPONENT ID MATCHING: Apply stripping to all relevant columns immediately after loading ---
         if 'id' in eq_df.columns:
             eq_df['id'] = eq_df['id'].apply(clean_component_id)
         if 'From Component' in pipe_df.columns:
@@ -229,6 +228,12 @@ svg_defs, svg_meta, all_subtypes = load_symbol_and_meta_data(st.session_state.eq
 eq_df_current = st.session_state.eq_df
 pipe_df_current = st.session_state.pipe_df
 
+# --- Initialize PnidComponent and PnidPipe objects from current dataframes ---
+# FIX: Moved this block UP to ensure 'components' is defined before sidebar forms use it.
+# Create PnidComponent objects first, then map them by their cleaned ID for easy lookup
+components = {c.id: c for c in [PnidComponent(row) for _, row in eq_df_current.iterrows()]}
+pipes = [PnidPipe(row, components) for _, row in pipe_df_current.iterrows()]
+
 # --- P&ID CLASSES ---
 class PnidComponent:
     """Represents a P&ID component."""
@@ -251,7 +256,8 @@ class PnidComponent:
         if port:
             return (self.x + port["dx"] * SYMBOL_SCALE, self.y + port["dy"] * SYMBOL_SCALE)
         # Fallback to center if port not found or default is requested
-        st.warning(f"Port '{port_name}' not defined for component '{self.tag}' (subtype: {self.subtype}). Using center coordinates.")
+        # Removed this warning, as it can be very verbose. The pipe warnings are more critical.
+        # st.warning(f"Port '{port_name}' not defined for component '{self.tag}' (subtype: {self.subtype}). Using center coordinates.")
         return (self.x + self.width / 2, self.y + self.height / 2)
 
 class PnidPipe:
@@ -261,10 +267,9 @@ class PnidPipe:
         self.label = row.get('Label', f"Pipe {self.id}")
         self.points = []
         
-        # --- IMPORTANT FIXES FOR COMPONENT ID MATCHING ---
-        # Ensure component IDs from pipe_df are also clean when used for lookup
-        from_comp_id = clean_component_id(row['From Component']) # Use clean_component_id here
-        to_comp_id = clean_component_id(row['To Component'])     # Use clean_component_id here
+        # --- IMPORTANT FIXES FOR COMPONENT ID MATCHING: Ensure component IDs from pipe_df are also clean when used for lookup ---
+        from_comp_id = clean_component_id(row['From Component'])
+        to_comp_id = clean_component_id(row['To Component'])
         # --- END IMPORTANT FIXES ---
 
         from_comp = component_map.get(from_comp_id)
@@ -297,11 +302,6 @@ class PnidPipe:
             elif to_comp:
                 self.points = [(to_comp.x + to_comp.width / 2 - 50, to_comp.y + to_comp.height / 2), to_comp.get_port_coords(row.get("To Port", "default"))] # Draw a stub 50 units left
 
-
-# --- Initialize PnidComponent and PnidPipe objects from current dataframes ---
-# This block MUST come BEFORE any UI elements that try to use 'components' or 'pipes'
-components = {row['id']: PnidComponent(row) for _, row in eq_df_current.iterrows()}
-pipes = [PnidPipe(row, components) for _, row in pipe_df_current.iterrows()]
 
 # --- SVG RENDERING FUNCTIONS (Modularized) ---
 
@@ -502,7 +502,7 @@ with st.sidebar.form("add_component_form"):
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ➕ Add New Pipe")
 # Get current component IDs for dropdowns (using the cleaned IDs from components dict)
-current_comp_ids_for_dropdown = sorted(list(components.keys())) # Use keys from the `components` dict
+current_comp_ids_for_dropdown = sorted(list(components.keys()))
 if not current_comp_ids_for_dropdown: # Add a placeholder if no components exist yet
     current_comp_ids_for_dropdown = ["No components available"]
 
@@ -524,7 +524,7 @@ with st.sidebar.form("add_pipe_form"):
 
     add_pipe_submitted = st.form_submit_button("Add Pipe to Diagram")
 
-    if add_pipe_submitted: # This was previously `if add_comp_submitted:`
+    if add_pipe_submitted:
         if not new_pipe_id:
             st.error("Pipe ID cannot be empty.")
         elif new_pipe_id in st.session_state.pipe_df['Pipe No.'].values:
@@ -537,9 +537,9 @@ with st.sidebar.form("add_pipe_form"):
             new_pipe_row = {
                 'Pipe No.': new_pipe_id,
                 'Label': new_pipe_label if new_pipe_label else f"Pipe {new_pipe_id}",
-                'From Component': from_comp_select, # These should already be clean from the dropdown
+                'From Component': from_comp_select, # These should already be clean from the dropdown selection
                 'From Port': new_pipe_from_port,
-                'To Component': to_comp_select,     # These should already be clean from the dropdown
+                'To Component': to_comp_select,     # These should already be clean from the dropdown selection
                 'To Port': new_pipe_to_port,
                 'Polyline Points (x, y)': '' # Initially, let it be auto-calculated (straight line)
             }
@@ -573,14 +573,21 @@ def export_png(svg_data):
     svg2png(bytestring=svg_data.encode(), write_to=output)
     return output.getvalue()
 
-# DXF Export (Revised)
+# DXF Export (Revised for add_rect and robust saving)
 def export_dxf(components_map, pipes_list):
-    doc = ezdxf.new('R2010') # Specify DXF version
+    doc = ezdxf.new('R2010') # Specify DXF version for compatibility
     msp = doc.modelspace()
     
     # Add components as basic rectangles/text for DXF (no complex SVG symbols in DXF)
     for c in components_map.values():
-        msp.add_rect((c.x, c.y), c.width, c.height, dxfattribs={'color': 1}) # Red outline
+        # FIX: Replace msp.add_rect with msp.add_lwpolyline for a rectangle
+        p1 = (c.x, c.y)
+        p2 = (c.x + c.width, c.y)
+        p3 = (c.x + c.width, c.y + c.height)
+        p4 = (c.x, c.y + c.height)
+        rect_points = [p1, p2, p3, p4, p1] # 5 points to close the rectangle
+        msp.add_lwpolyline(rect_points, dxfattribs={'color': 1}) # Red outline for component
+        
         msp.add_text(c.tag, dxfattribs={'height': 2.5, 'insert': (c.x, c.y + c.height + 5)}) # Adjust text position slightly
         
     for p in pipes_list:
@@ -631,14 +638,15 @@ if st.button("💾 Save Current Diagram Data to Files"):
         st.error(f"Error saving data: {e}")
 
 # Clear diagram button
-if st.button("🗑️ Clear Diagram (Reset to Empty)", key="clear_diagram_btn"): # Added key to prevent issues if two buttons have same label
-    confirm_clear = st.warning("Are you sure you want to clear the diagram? This cannot be undone.", icon="⚠️")
-    if confirm_clear:
-        if st.button("Yes, Clear Diagram", key="confirm_clear_btn"):
-            st.session_state.eq_df = pd.DataFrame(columns=['id', 'tag', 'block', 'x', 'y', 'Width', 'Height'])
-            st.session_state.pipe_df = pd.DataFrame(columns=['Pipe No.', 'Label', 'From Component', 'From Port', 'To Component', 'To Port', 'Polyline Points (x, y)'])
-            st.success("Diagram cleared!")
-            st.rerun()
+if st.button("🗑️ Clear Diagram (Reset to Empty)", key="clear_diagram_btn"):
+    # This pattern provides a two-step confirmation. The first click triggers the warning.
+    # The second click (on the "Yes, Clear Diagram" button) actually clears.
+    st.warning("Are you sure you want to clear the diagram? This cannot be undone.", icon="⚠️")
+    if st.button("Yes, Clear Diagram", key="confirm_clear_btn"): # This button appears only after the warning
+        st.session_state.eq_df = pd.DataFrame(columns=['id', 'tag', 'block', 'x', 'y', 'Width', 'Height'])
+        st.session_state.pipe_df = pd.DataFrame(columns=['Pipe No.', 'Label', 'From Component', 'From Port', 'To Component', 'To Port', 'Polyline Points (x, y)'])
+        st.success("Diagram cleared!")
+        st.rerun()
 
 # Upload new dataframes
 st.markdown("#### Upload New Diagram Data")
@@ -676,4 +684,3 @@ with st.expander("🔍 Debug Info"):
     st.write("Component IDs in `components` dictionary (first 5):", list(components.keys())[:5])
     st.write("SVG Meta (sample):", {k: {key: val for key, val in v.items() if key != 'ports'} for k,v in list(svg_meta.items())[:3]})
     st.write("First few SVG Defs (sample):", list(svg_defs.keys())[:5])
-
