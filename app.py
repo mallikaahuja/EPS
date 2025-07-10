@@ -8,7 +8,6 @@ import openai
 import psycopg2
 from io import BytesIO
 import ezdxf
-# Ensure cairosvg is installed: pip install cairosvg
 from cairosvg import svg2png
 
 # --- CONFIGURATION ---
@@ -170,7 +169,7 @@ def load_symbol_and_meta_data(initial_eq_df, initial_mapping):
                  svg_meta_dict[subtype] = {"viewBox": "0 0 100 100", "ports": {}}
             svg_meta_dict[subtype]["ports"][port_name] = {"dx": dx, "dy": dy}
     st.success("P&ID data and symbols loaded!")
-    return svg_defs_dict, svg_meta_dict, all_subtypes_from_data
+    return svg_defs_dict, svg_meta_dict, all_subtypes
 
 # --- SESSION STATE INITIALIZATION ---
 if 'eq_df' not in st.session_state:
@@ -273,6 +272,11 @@ class PnidPipe:
                 self.points = [(to_comp.x + to_comp.width / 2 - 50, to_comp.y + to_comp.height / 2), to_comp.get_port_coords(row.get("To Port", "default"))] # Draw a stub 50 units left
 
 
+# --- Initialize PnidComponent and PnidPipe objects from current dataframes ---
+# This block MUST come BEFORE any UI elements that try to use 'components' or 'pipes'
+components = {row['id']: PnidComponent(row) for _, row in eq_df_current.iterrows()}
+pipes = [PnidPipe(row, components) for _, row in pipe_df_current.iterrows()]
+
 # --- SVG RENDERING FUNCTIONS (Modularized) ---
 
 def _render_svg_defs_section():
@@ -294,7 +298,7 @@ def _render_grid_lines(max_x, max_y, grid_spacing):
         grid_lines.append(f'<line x1="0" y1="{i}" x2="{max_x}" y2="{i}" stroke="#eee" stroke-width="0.5"/>')
     return "".join(grid_lines)
 
-def _render_legend_section(components, max_x, max_y, legend_x, legend_y):
+def _render_legend_section(components_map, max_x, max_y, legend_x, legend_y):
     """Renders the legend box and entries."""
     legend_svg = []
     # Adjust legend box height based on diagram height, but with a max
@@ -303,7 +307,7 @@ def _render_legend_section(components, max_x, max_y, legend_x, legend_y):
     legend_svg.append(f'<text x="{legend_x+80}" y="{legend_y-10}" font-size="{LEGEND_FONT_SIZE+4}" font-weight="bold">Legend</text>')
 
     legend_entries = {}
-    for c in components.values():
+    for c in components_map.values(): # Use components_map here
         if c.subtype: # Ensure subtype is not empty
             key = (c.tag, c.subtype)
             if key not in legend_entries:
@@ -343,10 +347,10 @@ def _render_title_block(max_y):
     title_block_svg.append(f'<text x="30" y="{max_y-TITLE_BLOCK_HEIGHT+55}" font-size="12">Generated: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</text>')
     return "".join(title_block_svg)
 
-def _render_components(components):
+def _render_components(components_map): # Use components_map as argument
     """Renders all P&ID components."""
     components_svg = []
-    for c in components.values():
+    for c in components_map.values():
         if c.subtype in svg_defs and svg_defs[c.subtype]:
             components_svg.append(f'<use href="#{c.subtype}" x="{c.x}" y="{c.y}" width="{c.width}" height="{c.height}" />')
             components_svg.append(f'<text x="{c.x + c.width/2}" y="{c.y + c.height + 14}" font-size="{TAG_FONT_SIZE}" text-anchor="middle">{c.tag}</text>')
@@ -357,17 +361,14 @@ def _render_components(components):
             components_svg.append(f'<text x="{c.x + c.width/2}" y="{c.y + c.height + 14}" font-size="{TAG_FONT_SIZE}" text-anchor="middle">{c.tag}</text>')
     return "".join(components_svg)
 
-def _render_pipes(pipes):
+def _render_pipes(pipes_list): # Use pipes_list as argument
     """Renders all P&ID pipes."""
     pipes_svg = []
-    for p in pipes:
+    for p in pipes_list:
         if len(p.points) >= 2:
             pts = " ".join(f"{x},{y}" for x, y in p.points)
             pipes_svg.append(f'<polyline points="{pts}" stroke="black" stroke-width="{PIPE_WIDTH}" fill="none" marker-end="url(#arrowhead)"/>')
             # Calculate midpoint for label
-            # For polylines, a simple average might not be visually central for labels
-            # A more advanced approach would find the center of the longest segment or use path length
-            # For now, averaging all points
             mx = sum(x for x, _ in p.points) / len(p.points)
             my = sum(y for _, y in p.points) / len(p.points)
             pipes_svg.append(f'<text x="{mx}" y="{my - 5}" font-size="{PIPE_LABEL_FONT_SIZE}" text-anchor="middle">{p.label}</text>')
@@ -482,12 +483,15 @@ with st.sidebar.form("add_pipe_form"):
     new_pipe_id = st.text_input("Pipe ID (unique)", key="new_pipe_id_input")
     new_pipe_label = st.text_input("Pipe Label (optional)", key="new_pipe_label_input")
     from_comp_select = st.selectbox("From Component", options=current_comp_ids, key="from_comp_select")
+    
     # Dynamically populate 'From Port' options based on selected 'From Component'
+    # This now works because 'components' is defined earlier
     from_comp_obj = components.get(from_comp_select)
     from_port_options = sorted(list(from_comp_obj.ports.keys())) if from_comp_obj else ["default"]
     new_pipe_from_port = st.selectbox("From Port", options=from_port_options, key="new_pipe_from_port")
 
     to_comp_select = st.selectbox("To Component", options=current_comp_ids, key="to_comp_select")
+    
     # Dynamically populate 'To Port' options
     to_comp_obj = components.get(to_comp_select)
     to_port_options = sorted(list(to_comp_obj.ports.keys())) if to_comp_obj else ["default"]
@@ -519,11 +523,7 @@ with st.sidebar.form("add_pipe_form"):
             st.success(f"Added pipe '{new_pipe_id}'.")
             st.rerun() # Rerun to update diagram
 
-# Re-initialize PnidComponent and PnidPipe objects with current data
-components = {row['id']: PnidComponent(row) for _, row in eq_df_current.iterrows()}
-pipes = [PnidPipe(row, components) for _, row in pipe_df_current.iterrows()]
-
-# --- MAIN CONTENT AREA ---
+# --- Main Content Area - Renders the P&ID ---
 st.markdown("## Preview: Auto-Generated P&ID")
 
 # Render and display SVG
@@ -541,6 +541,26 @@ st.text_area("ISA Instrumentation Control Logic", value=logic_block, height=200,
 st.markdown("---")
 st.markdown("### ⬇️ Download Options")
 col1, col2, col3 = st.columns(3)
+
+# PNG Export
+def export_png(svg_data):
+    output = BytesIO()
+    svg2png(bytestring=svg_data.encode(), write_to=output)
+    return output.getvalue()
+
+# DXF Export
+def export_dxf(components_map, pipes_list): # Use arguments for clarity
+    doc = ezdxf.new()
+    msp = doc.modelspace()
+    for c in components_map.values():
+        # Ensure text location is correctly set
+        msp.add_text(c.tag, dxfattribs={'height': 2.5, 'insert': (c.x, c.y + c.height + 5)}) # Adjust text position slightly
+    for p in pipes_list:
+        if len(p.points) >= 2:
+            msp.add_lwpolyline(p.points)
+    output = BytesIO()
+    doc.write(output)
+    return output.getvalue()
 
 with col1:
     st.download_button("📥 Download SVG", svg_output, "pnid.svg", "image/svg+xml", key="download_svg")
@@ -566,9 +586,6 @@ if st.button("💾 Save Current Diagram Data to Files"):
         os.makedirs(LAYOUT_DATA_DIR, exist_ok=True)
         st.session_state.eq_df.to_csv(os.path.join(LAYOUT_DATA_DIR, "current_equipment_layout.csv"), index=False)
         st.session_state.pipe_df.to_csv(os.path.join(LAYOUT_DATA_DIR, "current_pipe_connections_layout.csv"), index=False)
-        # Optionally save current mapping as well if it's dynamic
-        # with open(os.path.join(LAYOUT_DATA_DIR, "current_component_mapping.json"), 'w') as f:
-        #     json.dump(st.session_state.mapping, f, indent=4)
         st.success(f"Diagram data saved to '{LAYOUT_DATA_DIR}' folder.")
     except Exception as e:
         st.error(f"Error saving data: {e}")
@@ -576,8 +593,9 @@ if st.button("💾 Save Current Diagram Data to Files"):
 # Clear diagram button
 if st.button("🗑️ Clear Diagram (Reset to Empty)"):
     if st.warning("Are you sure you want to clear the diagram? This cannot be undone.", icon="⚠️"):
-        st.session_state.eq_df = pd.DataFrame(columns=st.session_state.eq_df.columns)
-        st.session_state.pipe_df = pd.DataFrame(columns=st.session_state.pipe_df.columns)
+        # Reset to empty DataFrames with original columns
+        st.session_state.eq_df = pd.DataFrame(columns=['id', 'tag', 'block', 'x', 'y', 'Width', 'Height'])
+        st.session_state.pipe_df = pd.DataFrame(columns=['Pipe No.', 'Label', 'From Component', 'From Port', 'To Component', 'To Port', 'Polyline Points (x, y)'])
         st.success("Diagram cleared!")
         st.rerun()
 
@@ -585,9 +603,8 @@ if st.button("🗑️ Clear Diagram (Reset to Empty)"):
 st.markdown("#### Upload New Diagram Data")
 uploaded_eq_file = st.file_uploader("Upload Equipment Layout CSV", type=["csv"], key="upload_eq_file")
 uploaded_pipe_file = st.file_uploader("Upload Pipe Connections CSV", type=["csv"], key="upload_pipe_file")
-# uploaded_mapping_file = st.file_uploader("Upload Component Mapping JSON", type=["json"], key="upload_mapping_file")
 
-if uploaded_eq_file or uploaded_pipe_file: # or uploaded_mapping_file:
+if uploaded_eq_file or uploaded_pipe_file:
     if st.button("Load Uploaded Data"):
         try:
             if uploaded_eq_file:
@@ -596,9 +613,6 @@ if uploaded_eq_file or uploaded_pipe_file: # or uploaded_mapping_file:
             if uploaded_pipe_file:
                 st.session_state.pipe_df = pd.read_csv(uploaded_pipe_file)
                 st.success("Pipe data loaded from uploaded file.")
-            # if uploaded_mapping_file:
-            #     st.session_state.mapping = json.load(uploaded_mapping_file)
-            #     st.success("Component mapping loaded from uploaded file.")
             st.rerun() # Rerun to apply new data
         except Exception as e:
             st.error(f"Error loading uploaded files: {e}")
