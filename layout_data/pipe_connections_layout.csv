@@ -1,12 +1,11 @@
 Pipe No.,From Component,From Port,To Component,To Port,"Polyline Points (x, y)",Label,pipe_type
-1,TK-001,bottom,SF-001,inlet_top,"(260, 200) → (330, 200) → (330, 280)",Pipe 1 - Tank to Filter,process_line
-2,SF-001,outlet_bottom,P-001,suction,"(330, 380) → (310, 380) → (310, 450)",Pipe 2 - Filter to Pump,process_line
-3,P-001,discharge,E-001,tube_in,"(390, 450) → (460, 450) → (460, 370)",Pipe 3 - Pump to Exchanger,process_line
-4,E-001,tube_out,C-001,inlet,"(590, 430) → (650, 430) → (650, 200)",Pipe 4 - Exchanger to Column,process_line
-5,C-001,outlet,V-001,left,"(650, 400) → (750, 400) → (750, 440)",Pipe 5 - Column to Vessel,process_line
-100,PT-001,out,CV-001,in,,PT to CV,signal
-101,TT-001,out,PID,in,,TT to PID,signal
-102,LT-001,out,PID,in,,LT to PID,signal
-103,PID,out,CV-001,ctrl,,PID to CV,signal
-104,PID,out,CV-002,ctrl,,PID to CV2,signal
-105,SV-001,inlet,DS-001,outlet,,SV to Silencer,utility
+1,suction_filter,outlet_bottom,kdp_330_pump,suction,"(290, 440) → (400, 440) → (400, 400)",P-001 - Filter to Pump,PROCESS_VACUUM_50NB
+2,kdp_330_pump,discharge,condenser,process_in,"(520, 400) → (540, 400) → (540, 230) → (560, 230)",P-002 - Pump to Condenser,PROCESS_VACUUM_50NB
+3,condenser,process_out,catch_pot,inlet,"(690, 270) → (720, 270) → (720, 160) → (480, 160) → (480, 180)",P-003 - Condenser to Catch Pot,PROCESS_VACUUM_40NB
+4,catch_pot,outlet,scrubber,gas_inlet,"(480, 260) → (480, 300) → (750, 300) → (750, 250) → (800, 250)",P-004 - Catch Pot to Scrubber,PROCESS_VACUUM_40NB
+5,scrubber,gas_outlet,flame_arrestor,inlet,"(800, 400) → (820, 400) → (820, 300)",P-005 - Scrubber to Flame Arrestor,PROCESS_VACUUM_40NB
+6,flame_arrestor,outlet,exhaust_silencer,inlet,"(890, 300) → (900, 300) → (900, 330)",P-006 - Flame Arrestor to Silencer,PROCESS_VACUUM_40NB
+7,y_strainer,outlet,gate_valve,left,"(210, 390) → (200, 390) → (200, 400)",CW-001 - Strainer to Gate Valve,COOLING_WATER_25NB
+8,gate_valve,right,condenser,cooling_in,"(250, 400) → (625, 400) → (625, 200)",CW-002 - Gate Valve to Condenser,COOLING_WATER_25NB
+9,pressure_regulator,outlet,rotameter,inlet,"(160, 230) → (180, 230) → (180, 360) → (145, 360)",N2-001 - Regulator to Rotameter,NITROGEN_PURGE
+10,catch_pot,drain,drain_point,inlet,"(450, 250) → (400, 250) → (400, 500)",DR-001 - Catch Pot Drain,DRAIN_LINE_25NB
