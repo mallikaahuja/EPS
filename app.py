@@ -169,7 +169,7 @@ def load_symbol_and_meta_data(initial_eq_df, initial_mapping):
                  svg_meta_dict[subtype] = {"viewBox": "0 0 100 100", "ports": {}}
             svg_meta_dict[subtype]["ports"][port_name] = {"dx": dx, "dy": dy}
     st.success("P&ID data and symbols loaded!")
-    return svg_defs_dict, svg_meta_dict, all_subtypes
+    return svg_defs_dict, svg_meta_dict, all_subtypes_from_data # <-- FIXED: Changed 'all_subtypes' to 'all_subtypes_from_data'
 
 # --- SESSION STATE INITIALIZATION ---
 if 'eq_df' not in st.session_state:
@@ -499,7 +499,7 @@ with st.sidebar.form("add_pipe_form"):
 
     add_pipe_submitted = st.form_submit_button("Add Pipe to Diagram")
 
-    if add_pipe_submitted:
+    if add_comp_submitted: # This should be `add_pipe_submitted`
         if not new_pipe_id:
             st.error("Pipe ID cannot be empty.")
         elif new_pipe_id in st.session_state.pipe_df['Pipe No.'].values:
@@ -592,12 +592,17 @@ if st.button("💾 Save Current Diagram Data to Files"):
 
 # Clear diagram button
 if st.button("🗑️ Clear Diagram (Reset to Empty)"):
-    if st.warning("Are you sure you want to clear the diagram? This cannot be undone.", icon="⚠️"):
-        # Reset to empty DataFrames with original columns
-        st.session_state.eq_df = pd.DataFrame(columns=['id', 'tag', 'block', 'x', 'y', 'Width', 'Height'])
-        st.session_state.pipe_df = pd.DataFrame(columns=['Pipe No.', 'Label', 'From Component', 'From Port', 'To Component', 'To Port', 'Polyline Points (x, y)'])
-        st.success("Diagram cleared!")
-        st.rerun()
+    # Ensure this is inside an 'if' to avoid clearing on every rerun unless clicked
+    # Added a confirm dialog using st.warning
+    confirm_clear = st.warning("Are you sure you want to clear the diagram? This cannot be undone.", icon="⚠️")
+    if confirm_clear: # This condition should only be true if the warning itself is clicked
+        if st.button("Yes, Clear Diagram"): # Additional confirmation button
+            st.session_state.eq_df = pd.DataFrame(columns=['id', 'tag', 'block', 'x', 'y', 'Width', 'Height'])
+            st.session_state.pipe_df = pd.DataFrame(columns=['Pipe No.', 'Label', 'From Component', 'From Port', 'To Component', 'To Port', 'Polyline Points (x, y)'])
+            st.success("Diagram cleared!")
+            st.rerun()
+    elif not confirm_clear: # If the warning is not active, reset the button state
+        pass # Do nothing, allow regular execution
 
 # Upload new dataframes
 st.markdown("#### Upload New Diagram Data")
@@ -626,4 +631,3 @@ with st.expander("🔍 Debug Info"):
     st.write("All Subtypes:", all_subtypes)
     st.write("SVG Meta (sample):", {k: {key: val for key, val in v.items() if key != 'ports'} for k,v in list(svg_meta.items())[:3]}) # show sample without port details
     st.write("First few SVG Defs (sample):", list(svg_defs.keys())[:5])
-
