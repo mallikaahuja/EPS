@@ -53,7 +53,8 @@ class PnidPipe:
 
         self.from_port = data['From Port']
         self.to_port = data['To Port']
-        self.polyline_str = data['Polyline Points (x, y)']
+        # IMPORTANT: Ensure polyline_str is always a string before parsing
+        self.polyline_str = str(data['Polyline Points (x, y)'])
         self.label = data['Label']
         self.pipe_type = data['pipe_type']
         
@@ -61,6 +62,10 @@ class PnidPipe:
         
     def _parse_polyline(self, polyline_str):
         points = []
+        # Check if polyline_str is empty or NaN after conversion
+        if not polyline_str or polyline_str.lower() == 'nan':
+            return [] # Return empty list if no valid polyline string
+
         # Handle different separators if necessary, assume '-->' for now
         coords_pairs = polyline_str.split('-->')
         for pair in coords_pairs:
@@ -122,7 +127,8 @@ def load_symbol_and_meta_data(eq_df):
         except Exception as e:
             st.error(f"DB Load Error: {e}. HINT: Perhaps you meant to reference the column 'generated_symbols.svg_data'.")
         finally:
-            conn.close()
+            if conn: # Ensure conn exists before closing
+                conn.close()
     else:
         # Fallback if no DB connection
         st.warning("No database connection. Symbols will not be loaded or cached. Attempting to generate with OpenAI directly (if API key set).")
@@ -136,6 +142,7 @@ def load_symbol_and_meta_data(eq_df):
                 st.warning(f"Could not load or generate a valid SVG for subtype: '{subtype}'. Using a placeholder.")
                 svg_defs[subtype] = f'<svg width="100" height="100" viewBox="0 0 100 100"><rect x="0" y="0" width="100" height="100" fill="none" stroke="red" stroke-width="2"/><text x="50" y="50" font-size="12" fill="red" text-anchor="middle" alignment-baseline="middle">?</text></svg>'
                 svg_meta[subtype] = {'ports': {}}
+
 
     return svg_defs, svg_meta, all_subtypes
 
@@ -238,12 +245,6 @@ def render_svg_diagram(components_map, pipes_list, svg_defs, svg_meta, symbol_sc
 
     svg_elements = []
 
-    # Draw grid (for visualization, not part of final DXF)
-    # for x in range(0, int(width), grid_spacing):
-    #     svg_elements.append(f'<line x1="{x}" y1="0" x2="{x}" y2="{height}" stroke="#e0e0e0" stroke-width="0.5"/>')
-    # for y in range(0, int(height), grid_spacing):
-    #     svg_elements.append(f'<line x1="0" y1="{y}" x2="{width}" y2="{y}" stroke="#e0e0e0" stroke-width="0.5"/>')
-
     # Draw pipes
     for p in pipes_list:
         if len(p.points) >= 2:
@@ -257,9 +258,17 @@ def render_svg_diagram(components_map, pipes_list, svg_defs, svg_meta, symbol_sc
                 x2, y2 = p.points[-1]
                 
                 # Calculate angle for the arrow
-                angle_rad = - ( (y2 - y1) / ( (x2 - x1)**2 + (y2 - y1)**2 )**0.5) if ( (x2 - x1)**2 + (y2 - y1)**2 )**0.5 != 0 else 0
-                angle_deg = angle_rad * 180 / 3.14159
-                
+                # Avoid division by zero
+                dx = x2 - x1
+                dy = y2 - y1
+                angle_rad = 0
+                if dx != 0 or dy != 0:
+                    angle_rad = - ( (dy) / ( (dx)**2 + (dy)**2 )**0.5) if ( (dx)**2 + (dy)**2 )**0.5 != 0 else 0 # Corrected calculation for angle
+                    angle_deg = angle_rad * 180 / 3.14159
+                else:
+                    angle_deg = 0 # No movement, no angle
+
+
                 # Arrowhead (simple triangle)
                 arrow_size = pipe_width * 3
                 svg_elements.append(f'''
@@ -405,8 +414,9 @@ def load_initial_data(folder="layout_data"):
 
     if os.path.exists(eq_file_path):
         st.session_state.eq_df = pd.read_csv(eq_file_path)
+    # Explicitly define dtype for 'Polyline Points (x, y)' to be string
     if os.path.exists(pipe_file_path):
-        st.session_state.pipe_df = pd.read_csv(pipe_file_path)
+        st.session_state.pipe_df = pd.read_csv(pipe_file_path, dtype={'Polyline Points (x, y)': str})
 
     # Re-initialize components and pipes after loading new dataframes
     initialize_pnid_objects()
@@ -591,7 +601,8 @@ if uploaded_eq_file is not None:
 
 uploaded_pipe_file = st.file_uploader("Upload Pipe Connections CSV", type="csv")
 if uploaded_pipe_file is not None:
-    st.session_state.pipe_df = pd.read_csv(uploaded_pipe_file)
+    # Explicitly define dtype for 'Polyline Points (x, y)' to be string
+    st.session_state.pipe_df = pd.read_csv(uploaded_pipe_file, dtype={'Polyline Points (x, y)': str})
     initialize_pnid_objects() # Re-initialize pipes with updated pipe_df and existing components
     st.success("Pipe connections CSV uploaded and loaded!")
     st.rerun()
@@ -615,6 +626,7 @@ if st.button("Save Current Diagram Data to Files"):
         os.makedirs(save_dir, exist_ok=True)
 
         st.session_state.eq_df.to_csv(os.path.join(save_dir, "enhanced_equipment_layout.csv"), index=False)
+        # Ensure 'Polyline Points (x, y)' is written as string (though it should be after dtype fix)
         st.session_state.pipe_df.to_csv(os.path.join(save_dir, "pipe_connections_layout.csv"), index=False)
         st.success(f"Current diagram data saved to '{save_dir}' folder.")
     except Exception as e:
