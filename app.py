@@ -11,7 +11,6 @@ import ezdxf
 from cairosvg import svg2png
 
 # --- CONFIGURATION ---
-# FIX 1: Corrected typo from set_page_page_config to set_page_config
 st.set_page_config(layout="wide")
 st.sidebar.title("EPS Interactive P&ID Generator")
 
@@ -120,8 +119,8 @@ def load_symbol_and_meta_data(initial_eq_df, initial_mapping):
     """
     st.info("Loading initial P&ID data and symbols (this may take a moment)...")
 
-    # Get all unique subtypes from the initial equipment data (using 'block' column for subtype)
-    all_subtypes_from_data = sorted({normalize(row.get("block", "")) for _, row in initial_eq_df.iterrows() if normalize(row.get("block", ""))})
+    # FIX: Use 'Component' column instead of 'block' for subtype from initial_eq_df
+    all_subtypes_from_data = sorted({normalize(row.get("Component", "")) for _, row in initial_eq_df.iterrows() if normalize(row.get("Component", ""))})
 
     svg_defs_dict = {}
     svg_meta_dict = {}
@@ -178,7 +177,7 @@ def load_symbol_and_meta_data(initial_eq_df, initial_mapping):
                  svg_meta_dict[subtype] = {"viewBox": "0 0 100 100", "ports": {}}
             svg_meta_dict[subtype]["ports"][port_name] = {"dx": dx, "dy": dy}
     st.success("P&ID data and symbols loaded!")
-    # FIX 2: Ensure 'all_subtypes_from_data' is returned here
+    # FIX: Ensure 'all_subtypes_from_data' is returned here
     return svg_defs_dict, svg_meta_dict, all_subtypes_from_data 
 
 # --- SESSION STATE INITIALIZATION ---
@@ -203,6 +202,14 @@ if 'eq_df' not in st.session_state:
         # --- IMPORTANT FIXES FOR COMPONENT ID MATCHING: Apply stripping to all relevant columns immediately after loading ---
         if 'id' in eq_df.columns:
             eq_df['id'] = eq_df['id'].apply(clean_component_id)
+        # FIX: Ensure 'Component' column (used for subtype) is also present and handled,
+        # or consistently rename 'Component' to 'block' in your CSV.
+        # For now, let's assume 'Component' is the column that maps to 'block' in the code.
+        # If your CSV uses 'block', revert this.
+        if 'Component' in eq_df.columns: # Check if 'Component' exists
+            # We don't clean 'Component' itself, but its value is normalized for subtype.
+            pass # No direct cleaning of this column's values, just for lookup later.
+        
         if 'From Component' in pipe_df.columns:
             pipe_df['From Component'] = pipe_df['From Component'].apply(clean_component_id)
         if 'To Component' in pipe_df.columns:
@@ -223,7 +230,6 @@ if 'eq_df' not in st.session_state:
     st.session_state.eq_df, st.session_state.pipe_df, st.session_state.mapping = initial_load_layout_data()
 
 # Load symbols and metadata using cache_resource (runs once per app session or input change)
-# This line is correct, assuming load_symbol_and_meta_data returns all_subtypes_from_data
 svg_defs, svg_meta, all_subtypes = load_symbol_and_meta_data(st.session_state.eq_df, st.session_state.mapping)
 
 # --- P&ID CLASSES ---
@@ -233,7 +239,8 @@ class PnidComponent:
         # Ensure the ID used for lookup is clean
         self.id = clean_component_id(row['id'])
         self.tag = row.get('tag', self.id)
-        self.subtype = normalize(row.get('block', ''))
+        # FIX: Use 'Component' column instead of 'block' for subtype
+        self.subtype = normalize(row.get('Component', '')) 
         self.x = row['x']
         self.y = row['y']
         # Use default width/height if not provided, scale by SYMBOL_SCALE
@@ -292,12 +299,13 @@ class PnidPipe:
             elif to_comp:
                 self.points = [(to_comp.x + to_comp.width / 2 - 50, to_comp.y + to_comp.height / 2), to_comp.get_port_coords(row.get("To Port", "default"))] # Draw a stub 50 units left
 
+
 # Get current dataframes from session state for rendering/modification
 eq_df_current = st.session_state.eq_df
 pipe_df_current = st.session_state.pipe_df
 
 # --- Initialize PnidComponent and PnidPipe objects from current dataframes ---
-# FIX 3: This block is correctly placed AFTER class definitions and BEFORE sidebar forms
+# This block is correctly placed AFTER class definitions and BEFORE sidebar forms
 # Create PnidComponent objects first, then map them by their cleaned ID for easy lookup
 components = {c.id: c for c in [PnidComponent(row) for _, row in eq_df_current.iterrows()]}
 pipes = [PnidPipe(row, components) for _, row in pipe_df_current.iterrows()]
@@ -335,6 +343,7 @@ def _render_legend_section(components_map, max_x, max_y, legend_x, legend_y):
     legend_entries = {}
     for c in components_map.values(): # Use components_map here
         if c.subtype: # Ensure subtype is not empty
+            # Use c.tag for the legend label and c.subtype for lookup (already normalized)
             key = (c.tag, c.subtype)
             if key not in legend_entries:
                 legend_entries[key] = c.subtype.replace("_", " ").title()
@@ -469,6 +478,7 @@ def generate_isa_control_logic_box(components_map):
 st.sidebar.markdown("---")
 st.sidebar.markdown("### ➕ Add New Component")
 with st.sidebar.form("add_component_form"):
+    # The 'options' for selectbox now comes from the corrected `all_subtypes` list
     new_comp_subtype = st.selectbox("Component Type", options=all_subtypes, key="new_comp_type_select")
     new_comp_id_raw = st.text_input("Component ID (unique)", key="new_comp_id_input")
     new_comp_id = clean_component_id(new_comp_id_raw) # Clean the new ID here
@@ -487,7 +497,9 @@ with st.sidebar.form("add_component_form"):
             new_row = {
                 'id': new_comp_id, # Use the cleaned ID
                 'tag': new_comp_tag if new_comp_tag else new_comp_id,
-                'block': new_comp_subtype,
+                # FIX: Ensure this 'block' column matches what's expected by PnidComponent init.
+                # If your CSV uses 'Component' as the column for subtype, this should be 'Component'.
+                'Component': new_comp_subtype, 
                 'x': new_comp_x,
                 'y': new_comp_y,
                 'Width': 60,  # Default values
@@ -580,7 +592,6 @@ def export_dxf(components_map, pipes_list):
     
     # Add components as basic rectangles/text for DXF (no complex SVG symbols in DXF)
     for c in components_map.values():
-        # FIX 4: Replaced add_rect with add_lwpolyline for a rectangle
         p1 = (c.x, c.y)
         p2 = (c.x + c.width, c.y)
         p3 = (c.x + c.width, c.y + c.height)
@@ -601,8 +612,7 @@ def export_dxf(components_map, pipes_list):
     output = BytesIO()
     try:
         doc.saveas(output) # Use saveas for robust stream handling
-        # FIX 5: Rewind the buffer to the beginning after writing
-        output.seek(0)
+        output.seek(0) # Rewind the buffer to the beginning after writing
         return output.read() # Read as bytes
     except Exception as e:
         st.error(f"Error during DXF export: {e}")
@@ -644,7 +654,7 @@ if st.button("🗑️ Clear Diagram (Reset to Empty)", key="clear_diagram_btn"):
     # The second click (on the "Yes, Clear Diagram" button) actually clears.
     st.warning("Are you sure you want to clear the diagram? This cannot be undone.", icon="⚠️")
     if st.button("Yes, Clear Diagram", key="confirm_clear_btn"): # This button appears only after the warning
-        st.session_state.eq_df = pd.DataFrame(columns=['id', 'tag', 'block', 'x', 'y', 'Width', 'Height'])
+        st.session_state.eq_df = pd.DataFrame(columns=['id', 'tag', 'Component', 'x', 'y', 'Width', 'Height']) # Updated 'block' to 'Component'
         st.session_state.pipe_df = pd.DataFrame(columns=['Pipe No.', 'Label', 'From Component', 'From Port', 'To Component', 'To Port', 'Polyline Points (x, y)'])
         st.success("Diagram cleared!")
         st.rerun()
@@ -661,6 +671,10 @@ if uploaded_eq_file or uploaded_pipe_file:
                 df = pd.read_csv(uploaded_eq_file)
                 if 'id' in df.columns:
                     df['id'] = df['id'].apply(clean_component_id) # Clean on upload
+                # Ensure the column used for subtype ('Component') is present
+                if 'Component' not in df.columns:
+                    st.error("Uploaded Equipment Layout CSV must contain a 'Component' column for subtypes.")
+                    st.stop()
                 st.session_state.eq_df = df
                 st.success("Equipment data loaded from uploaded file.")
             if uploaded_pipe_file:
