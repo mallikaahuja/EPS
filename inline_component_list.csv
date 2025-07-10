@@ -1,6 +1,14 @@
 id,tag_prefix,name,type,subtype,isa_code,default_properties,default_width_px,default_height_px,port_definitions,placement_rule,cost_usd,manufacturer,efficiency_pct
-ball_valve,HV,ball valve,valve,ball_valve,,"{""actuation"":""Manual""}",50,50,"{""left"": [0, 25], ""right"": [50, 25]}",inline,150,ValveCo,90
-pressure_transmitter,PT,pressure transmitter,instrument,pressure_transmitter,,"{""range"":""0-10 bar""}",50,50,"{""process_connection"": [5, 25]}",tapped_above,400,GaugeCo,95
-level_transmitter,LT,level transmitter,instrument,level_transmitter,,"{""range"":""0-10 m""}",50,50,"{""process_connection"": [5, 25]}",tapped_above,600,TransmitterCo,90
-check_valve,CV,check valve,valve,check_valve,,"{}",50,50,"{""left"": [0, 25], ""right"": [50, 25]}",inline,120,ValveCo,92
-flow_meter,FI,flow meter,instrument,flow_meter,,"{""range"":""0-1000 L/h""}",50,50,"{""process_connection"": [5, 25]}",inline,850,FlowCo,93
+gate_valve,GV,Gate Valve,valve,gate_valve,,"{""actuation"": ""Manual"", ""material"": ""SS316""}",50,50,"{""left"": [0, 25], ""right"": [50, 25]}",inline,250,ValveCo,95
+solenoid_valve,SV,Solenoid Valve,valve,solenoid_valve,,"{""actuation"": ""Electric"", ""voltage"": ""24VDC""}",50,50,"{""left"": [0, 25], ""right"": [50, 25]}",inline,450,ValveCo,92
+knob_valve,KV,Knob Valve,valve,needle_valve,,"{""actuation"": ""Manual"", ""type"": ""Fine Control""}",40,40,"{""left"": [0, 20], ""right"": [40, 20]}",inline,180,ValveCo,93
+pressure_regulator,PR,Pressure Regulator,instrument,pressure_regulator,PR,"{""range"": ""0-10 bar"", ""type"": ""Self Acting""}",60,60,"{""inlet"": [0, 30], ""outlet"": [60, 30]}",inline,800,RegulatorCo,90
+rotameter,RM,Rotameter,instrument,flow_meter,FI,"{""range"": ""0-50 LPM"", ""fluid"": ""N2""}",50,80,"{""inlet"": [25, 80], ""outlet"": [25, 0]}",inline,650,FlowCo,94
+temperature_transmitter,TT,Temperature Transmitter,instrument,temperature_transmitter,TT,"{""range"": ""0-200C"", ""output"": ""4-20mA""}",50,50,"{""process_connection"": [5, 25]}",tapped_above,750,TransmitterCo,95
+pressure_transmitter,PT,Pressure Transmitter,instrument,pressure_transmitter,PT,"{""range"": ""0-10 bar"", ""output"": ""4-20mA""}",50,50,"{""process_connection"": [5, 25]}",tapped_above,600,TransmitterCo,95
+level_switch,LS,Level Switch,instrument,level_switch,LS,"{""type"": ""Float"", ""contact"": ""SPDT""}",50,50,"{""process_connection"": [5, 25]}",tapped_side,350,InstrumentCo,92
+flow_switch,FS,Flow Switch,instrument,flow_switch,FS,"{""setpoint"": ""5 LPM"", ""contact"": ""SPDT""}",50,50,"{""process_connection"": [25, 0]}",tapped_above,420,InstrumentCo,90
+temperature_control_valve,TCV,Temperature Control Valve,valve,control_valve,TCV,"{""actuation"": ""Pneumatic"", ""fail_position"": ""FC""}",60,60,"{""left"": [0, 30], ""right"": [60, 30]}",inline,1200,ControlValveCo,88
+temperature_gauge,TG,Temperature Gauge,instrument,temperature_gauge,TG,"{""range"": ""0-200C"", ""type"": ""Dial""}",40,40,"{""process_connection"": [5, 20]}",tapped_above,150,GaugeCo,95
+pressure_gauge,PG,Pressure Gauge,instrument,pressure_gauge,PG,"{""range"": ""0-10 bar"", ""type"": ""Dial""}",40,40,"{""process_connection"": [5, 20]}",tapped_above,120,GaugeCo,95
+flame_arrestor,FA,Flame Arrestor,safety,flame_arrestor,,"{""type"": ""Deflagration"", ""material"": ""SS316""}",70,50,"{""inlet"": [0, 25], ""outlet"": [70, 25]}",inline,2200,SafetyCo,98
