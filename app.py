@@ -11,7 +11,8 @@ import ezdxf
 from cairosvg import svg2png
 
 # --- CONFIGURATION ---
-st.set_page_page_config(layout="wide")
+# FIX 1: Corrected typo from set_page_page_config to set_page_config
+st.set_page_config(layout="wide")
 st.sidebar.title("EPS Interactive P&ID Generator")
 
 # Sliders for visual controls
@@ -177,7 +178,7 @@ def load_symbol_and_meta_data(initial_eq_df, initial_mapping):
                  svg_meta_dict[subtype] = {"viewBox": "0 0 100 100", "ports": {}}
             svg_meta_dict[subtype]["ports"][port_name] = {"dx": dx, "dy": dy}
     st.success("P&ID data and symbols loaded!")
-    # FIX: Ensure 'all_subtypes_from_data' is returned here, not 'all_subtypes'
+    # FIX 2: Ensure 'all_subtypes_from_data' is returned here
     return svg_defs_dict, svg_meta_dict, all_subtypes_from_data 
 
 # --- SESSION STATE INITIALIZATION ---
@@ -222,9 +223,10 @@ if 'eq_df' not in st.session_state:
     st.session_state.eq_df, st.session_state.pipe_df, st.session_state.mapping = initial_load_layout_data()
 
 # Load symbols and metadata using cache_resource (runs once per app session or input change)
+# This line is correct, assuming load_symbol_and_meta_data returns all_subtypes_from_data
 svg_defs, svg_meta, all_subtypes = load_symbol_and_meta_data(st.session_state.eq_df, st.session_state.mapping)
 
-# --- P&ID CLASSES (Moved this section here) ---
+# --- P&ID CLASSES ---
 class PnidComponent:
     """Represents a P&ID component."""
     def __init__(self, row):
@@ -290,13 +292,12 @@ class PnidPipe:
             elif to_comp:
                 self.points = [(to_comp.x + to_comp.width / 2 - 50, to_comp.y + to_comp.height / 2), to_comp.get_port_coords(row.get("To Port", "default"))] # Draw a stub 50 units left
 
-
 # Get current dataframes from session state for rendering/modification
 eq_df_current = st.session_state.eq_df
 pipe_df_current = st.session_state.pipe_df
 
 # --- Initialize PnidComponent and PnidPipe objects from current dataframes ---
-# FIX: Moved this block UP to ensure 'components' is defined before sidebar forms use it.
+# FIX 3: This block is correctly placed AFTER class definitions and BEFORE sidebar forms
 # Create PnidComponent objects first, then map them by their cleaned ID for easy lookup
 components = {c.id: c for c in [PnidComponent(row) for _, row in eq_df_current.iterrows()]}
 pipes = [PnidPipe(row, components) for _, row in pipe_df_current.iterrows()]
@@ -579,7 +580,7 @@ def export_dxf(components_map, pipes_list):
     
     # Add components as basic rectangles/text for DXF (no complex SVG symbols in DXF)
     for c in components_map.values():
-        # FIX: Replace msp.add_rect with msp.add_lwpolyline for a rectangle
+        # FIX 4: Replaced add_rect with add_lwpolyline for a rectangle
         p1 = (c.x, c.y)
         p2 = (c.x + c.width, c.y)
         p3 = (c.x + c.width, c.y + c.height)
@@ -600,7 +601,8 @@ def export_dxf(components_map, pipes_list):
     output = BytesIO()
     try:
         doc.saveas(output) # Use saveas for robust stream handling
-        output.seek(0) # Rewind to the beginning
+        # FIX 5: Rewind the buffer to the beginning after writing
+        output.seek(0)
         return output.read() # Read as bytes
     except Exception as e:
         st.error(f"Error during DXF export: {e}")
