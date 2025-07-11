@@ -7,3 +7,4 @@ control_panel,CP,Control Panel FLP,control panel,control_panel,CP,"{""panel_type
 catch_pot,CP,Catch Pot,vessel,catch_pot,,"{""volume"": ""50 L"", ""material"": ""SS316""}",60,80,"{""inlet"": [30, 0], ""outlet"": [30, 80], ""drain"": [0, 70]}",40,"{""level_indicator"": ""true"", ""drain_valve"": ""true""}",2500,EPSPL,90
 scrubber,SCR,Scrubber,vessel,scrubber,,"{""volume"": ""200 L"", ""material"": ""PP/FRP""}",100,150,"{""gas_inlet"": [50, 0], ""gas_outlet"": [50, 150], ""liquid_inlet"": [20, 30], ""drain"": [80, 140]}",80,"{""level_switch"": ""true"", ""drain_valve"": ""true""}",8500,EPSPL,85
 exhaust_silencer,SIL,Exhaust Silencer,fitting,silencer,,"{""type"": ""Exhaust"", ""material"": ""SS304""}",80,60,"{""inlet"": [0, 30], ""outlet"": [80, 30]}",40,{},1200,Standard,92
+drain_point,DP,Drain Point,vessel,drain_header,,"{""type"": ""Collection Point"", ""material"": ""CS""}",60,40,"{""inlet"": [30, 0]}",30,{},500,Standard,100

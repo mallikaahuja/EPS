@@ -16,3 +16,4 @@ level_switch,LS-001,LS-001,480,120,50,50,Level switch on catch pot
 flow_switch,FS-001,FS-001,620,170,50,50,Flow switch on cooling water
 temperature_control_valve,TCV-001,TCV-001,650,250,60,60,Temperature control valve
 flame_arrestor,FA-001,FA-001,820,275,70,50,Flame arrestor on exhaust line
+drain_point,DP-001,DP-001,400,520,60,40,Drain collection point
