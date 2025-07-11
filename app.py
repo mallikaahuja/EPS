@@ -4,7 +4,7 @@ import os
 import json
 import datetime
 import re
-import openai
+import openai # Keep this import
 import psycopg2
 from psycopg2 import sql # Import sql from psycopg2 for safe queries
 from io import BytesIO
@@ -37,7 +37,8 @@ SYMBOLS_DIR = "symbols"
 
 # API keys and DB URL from environment variables
 # Ensure these are set in your environment or .streamlit/secrets.toml
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# --- IMPORTANT FIX: Initialize OpenAI client for new API ---
+openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 # --- HELPERS ---
@@ -75,12 +76,14 @@ def load_symbol_data_from_db(subtype):
     if conn:
         try:
             cur = conn.cursor()
+            # Ensure column names match database exactly (lowercase often)
             cur.execute(sql.SQL("SELECT svg_data, metadata FROM generated_symbols WHERE subtype = %s"), (subtype,))
             row = cur.fetchone()
             cur.close()
+            # If row exists, return svg_data and parsed metadata (handle potential NULL metadata)
             return row[0] if row else None, json.loads(row[1]) if row and row[1] else {}
         except Exception as e:
-            st.warning(f"DB Load Error for '{subtype}': {e}")
+            st.warning(f"DB Load Error for '{subtype}': {e}. This might mean the column doesn't exist or data is malformed.")
             return None, {}
         finally:
             conn.close()
@@ -96,7 +99,7 @@ def save_symbol_data_to_db(subtype, svg, metadata):
                 INSERT INTO generated_symbols (subtype, svg_data, metadata)
                 VALUES (%s, %s, %s)
                 ON CONFLICT (subtype) DO UPDATE SET svg_data = EXCLUDED.svg_data, metadata = EXCLUDED.metadata
-            """), (subtype, svg, json.dumps(metadata)))
+            """), (subtype, svg, json.dumps(metadata))) # json.dumps for JSONB type
             conn.commit()
             cur.close()
         except Exception as e:
@@ -109,14 +112,15 @@ def generate_svg_openai(subtype):
     prompt = f"Generate an SVG symbol in ISA P&ID style for a {subtype.replace('_', ' ')}. Transparent background. Use black lines only. Include standard port locations (e.g., 'inlet', 'outlet') as a JSON object within an SVG <metadata> tag, specifying 'dx' and 'dy' offsets from the symbol's viewBox origin (0,0). Provide ONLY the SVG code, no extra text or markdown."
     try:
         with st.spinner(f"Generating '{subtype.replace('_', ' ').title()}' symbol with AI..."):
-            res = openai.ChatCompletion.create(
+            # --- IMPORTANT FIX: Use new OpenAI API syntax ---
+            res = openai_client.chat.completions.create(
                 model="gpt-3.5-turbo", # Using gpt-3.5-turbo as per previous successful attempts
                 messages=[
                     {"role": "system", "content": "You are a process engineer who outputs SVG drawings using ISA symbols. Always include a <metadata> tag with port information (dx, dy) in JSON format. Do not include any XML declaration, DOCTYPE, or external text outside the main <svg> tag."},
                     {"role": "user", "content": prompt}
                 ]
             )
-        raw_content = res["choices"][0]["message"]["content"].strip()
+        raw_content = res.choices[0].message.content.strip() # Accessing content for new API
         
         # Regex to find the SVG block (this is more robust for AI outputs)
         svg_match = re.search(r'<svg.*?</svg>', raw_content, re.DOTALL | re.IGNORECASE)
@@ -146,8 +150,8 @@ def generate_svg_openai(subtype):
             st.warning(f"OpenAI did not return a valid SVG block for '{subtype}'. Raw response snippet: {raw_content[:200]}...")
             return None, {}
 
-    except openai.error.OpenAIError as e:
-        st.error(f"OpenAI API Error for '{subtype}': {e}. Please check your OpenAI API key and ensure 'openai==0.28.1' is in your requirements.txt.")
+    except openai.APIError as e: # Catch new API error type
+        st.error(f"OpenAI API Error for '{subtype}': {e}. Please check your OpenAI API key and ensure it has access.")
         return None, {}
     except Exception as e:
         st.error(f"An unexpected error occurred during OpenAI SVG generation for '{subtype}': {e}")
@@ -161,7 +165,11 @@ def load_symbol_and_meta_data(initial_eq_df, initial_mapping):
     """
     st.info("Loading initial P&ID data and symbols (this may take a moment)...")
 
-    all_subtypes_from_data = sorted({normalize(row.get("Component", "")) for _, row in initial_eq_df.iterrows() if normalize(row.get("Component", ""))})
+    # Ensure all_subtypes is generated only from actual component names
+    all_subtypes_from_data = sorted(
+        {normalize(row.get("Component")) for _, row in initial_eq_df.iterrows() 
+         if row.get("Component") is not None and isinstance(row.get("Component"), str)}
+    )
 
     svg_defs_dict = {}
     svg_meta_dict = {}
@@ -240,7 +248,7 @@ def load_symbol_and_meta_data(initial_eq_df, initial_mapping):
             svg_meta_dict[subtype]["ports"][port_name] = {"dx": dx, "dy": dy}
     
     st.success("P&ID data and symbols loaded!")
-    return svg_defs_dict, svg_meta_dict, all_subtypes_from_data 
+    return svg_defs_dict, svg_meta_dict, all_subtypes 
 
 # --- SESSION STATE INITIALIZATION ---
 if 'eq_df' not in st.session_state:
@@ -287,6 +295,7 @@ if 'eq_df' not in st.session_state:
     st.session_state.eq_df, st.session_state.pipe_df, st.session_state.mapping = initial_load_layout_data()
 
 # Load symbols and metadata using cache_resource (runs once per app session or input change)
+# This will be re-run if eq_df changes due to manual additions/uploads
 svg_defs, svg_meta, all_subtypes = load_symbol_and_meta_data(st.session_state.eq_df, st.session_state.mapping)
 
 
@@ -301,8 +310,13 @@ class PnidComponent:
         self.y = row['y']
         
         # Get dimensions from metadata or use defaults
-        meta = svg_meta.get(self.subtype, {})
-        viewbox_str = meta.get('viewBox', '0 0 100 100')
+        # --- IMPORTANT FIX: Handle potential missing metadata or viewbox gracefully ---
+        meta = svg_meta.get(self.subtype)
+        if meta and 'viewBox' in meta and isinstance(meta['viewBox'], str):
+            viewbox_str = meta['viewBox']
+        else:
+            viewbox_str = '0 0 100 100' # Default fallback
+        
         try:
             _, _, vb_width, vb_height = map(float, viewbox_str.split())
         except ValueError: # Fallback if viewBox is malformed
@@ -312,7 +326,7 @@ class PnidComponent:
         self.height = row.get('Height', vb_height) * SYMBOL_SCALE
         
         # Get port info from global svg_meta
-        self.ports = meta.get('ports', {})
+        self.ports = meta.get('ports', {}) if meta else {} # Ensure ports is a dict even if meta is None
 
     def get_port_coords(self, port_name):
         """Calculates absolute coordinates for a given port relative to the component's SVG origin."""
@@ -321,8 +335,13 @@ class PnidComponent:
             # dx, dy in metadata are relative to the symbol's internal viewBox (0,0)
             # We need to scale them and add to the component's (x,y)
             # Assuming viewBox (0,0,width,height)
-            meta = svg_meta.get(self.subtype, {})
-            viewbox_str = meta.get('viewBox', '0 0 100 100')
+            # --- IMPORTANT FIX: Handle potential missing metadata or viewbox gracefully ---
+            meta = svg_meta.get(self.subtype)
+            if meta and 'viewBox' in meta and isinstance(meta['viewBox'], str):
+                viewbox_str = meta['viewBox']
+            else:
+                viewbox_str = '0 0 100 100' # Default fallback
+
             try:
                 _, _, vb_w, vb_h = map(float, viewbox_str.split())
             except ValueError:
@@ -351,46 +370,54 @@ class PnidPipe:
         to_comp = component_map.get(to_comp_id)
 
         if not from_comp:
-            st.warning(f"Pipe '{self.id}': 'From Component' ID '{from_comp_id}' not found. Pipe may be incomplete.")
+            st.warning(f"Pipe '{self.id}': 'From Component' ID '{from_comp_id}' not found. Pipe may be incomplete or component data is missing.")
         if not to_comp:
-            st.warning(f"Pipe '{self.id}': 'To Component' ID '{to_comp_id}' not found. Pipe may be incomplete.")
+            st.warning(f"Pipe '{self.id}': 'To Component' ID '{to_comp_id}' not found. Pipe may be incomplete or component data is missing.")
 
-        # --- IMPORTANT FIX: Convert to string immediately and handle potential 'nan' strings ---
+        # --- IMPORTANT FIX: Robust polyline parsing ---
         polyline_str_raw = str(row.get('Polyline Points (x, y)', '')).strip()
         
+        # Check for empty string or 'nan' after conversion to string
         if polyline_str_raw and polyline_str_raw.lower() != 'nan':
-            # Handle both '-->' and '→' as separators, and strip parentheses
-            clean_polyline_str = polyline_str_raw.replace('->', '-->').replace('→', '-->')
+            # Remove any leading/trailing square brackets if present (e.g., from Python list output)
+            clean_polyline_str = polyline_str_raw.strip('[]')
             
-            # This regex correctly extracts (x, y) pairs regardless of separators
-            pts = re.findall(r"\(([\d.\-]+),\s*([\d.\-]+)\)", clean_polyline_str)
+            # Handle multiple point formats, using regex to find (x,y) tuples
+            # This regex looks for digits, periods, and hyphens within parentheses, separated by commas
+            # It also handles different separators between points (space, comma, -->, ->)
+            pts = re.findall(r"\(([-+]?\d*\.?\d+)\s*,\s*([-+]?\d*\.?\d+)\)", clean_polyline_str)
             
-            self.points = [(float(x), float(y)) for x, y in pts]
-            
-            # Snap endpoints to port positions if components exist
-            if self.points:
-                if from_comp: self.points[0] = from_comp.get_port_coords(row.get("From Port", "default"))
-                if to_comp: self.points[-1] = to_comp.get_port_coords(row.get("To Port", "default"))
-        else:
-            # Default to direct line between components if no polyline points
+            if pts:
+                self.points = [(float(x), float(y)) for x, y in pts]
+            else:
+                st.warning(f"Pipe '{self.id}': Could not parse polyline points from '{polyline_str_raw}'. Drawing straight line if components exist.")
+        
+        # If no points parsed or explicitly empty, default to direct line
+        if not self.points:
             if from_comp and to_comp:
                 self.points = [
                     from_comp.get_port_coords(row.get("From Port", "default")),
                     to_comp.get_port_coords(row.get("To Port", "default"))
                 ]
             elif from_comp: # Draw a stub if only 'from' component exists
-                self.points = [from_comp.get_port_coords(row.get("From Port", "default")), 
-                               (from_comp.x + from_comp.width / 2 + 50, from_comp.y + from_comp.height / 2)] 
+                from_x, from_y = from_comp.get_port_coords(row.get("From Port", "default"))
+                self.points = [from_x, (from_x + 50, from_y)] # Extend 50 units to the right
             elif to_comp: # Draw a stub if only 'to' component exists
-                self.points = [(to_comp.x + to_comp.width / 2 - 50, to_comp.y + to_comp.height / 2), 
-                               to_comp.get_port_coords(row.get("To Port", "default"))]
+                to_x, to_y = to_comp.get_port_coords(row.get("To Port", "default"))
+                self.points = [(to_x - 50, to_y), to_x, to_y] # Extend 50 units to the left
 
 
 # Get current dataframes from session state for rendering/modification
 # Ensure components and pipes are re-initialized AFTER session_state.eq_df and pipe_df are loaded/updated
 # This block is correctly placed AFTER class definitions and BEFORE sidebar forms
-components = {c.id: c for c in [PnidComponent(row) for _, row in st.session_state.eq_df.iterrows()]}
-pipes = [PnidPipe(row, components) for _, row in st.session_state.pipe_df.iterrows()]
+# --- IMPORTANT FIX: Re-initialize components and pipes when dataframes change ---
+# This ensures that additions/uploads update the diagram immediately
+if 'eq_df' in st.session_state and 'pipe_df' in st.session_state:
+    components = {c.id: c for c in [PnidComponent(row) for _, row in st.session_state.eq_df.iterrows()]}
+    pipes = [PnidPipe(row, components) for _, row in st.session_state.pipe_df.iterrows()]
+else:
+    components = {}
+    pipes = []
 
 
 # --- SVG RENDERING FUNCTIONS (Modularized) ---
@@ -446,12 +473,13 @@ def _render_legend_section(components_map, max_x, max_y, legend_x, legend_y):
         
         width, height = 20, 20
         # Scale legend icons to fit 25x25 box
-        if subtype in svg_meta and svg_meta[subtype] and 'viewBox' in svg_meta[subtype]:
+        # --- IMPORTANT FIX: Check if svg_meta[subtype] exists before accessing its keys ---
+        if subtype in svg_meta and svg_meta[subtype] and 'viewBox' in svg_meta[subtype] and isinstance(svg_meta[subtype]['viewBox'], str):
             try:
                 viewBox = svg_meta[subtype]["viewBox"].split(" ")
                 vb_w = float(viewBox[2])
                 vb_h = float(viewBox[3])
-                scale_factor = min(25 / vb_w, 25 / vb_h) # Max 25px in any dimension
+                scale_factor = min(25 / vb_w, 25 / vb_h) if vb_w > 0 and vb_h > 0 else 1 # Avoid division by zero
                 width = vb_w * scale_factor
                 height = vb_h * scale_factor
             except (ValueError, IndexError):
@@ -467,12 +495,12 @@ def _render_legend_section(components_map, max_x, max_y, legend_x, legend_y):
         legend_svg.append(f'<text x="{legend_x+32}" y="{sym_pos_y+16}" font-size="{LEGEND_FONT_SIZE}">{tag} — {name}</text>')
     return "".join(legend_svg)
 
-def _render_title_block(max_y):
+def _render_title_block(max_x, max_y): # Pass max_x directly
     """Renders the title block with client name and generation date."""
     title_block_svg = []
     # Position relative to bottom right
-    x_pos = max_x_calc - TITLE_BLOCK_WIDTH + PADDING # Adjusted to float with max_x_calc
-    y_pos = max_y_calc - TITLE_BLOCK_HEIGHT + PADDING + (TITLE_BLOCK_HEIGHT / 2) # Adjusted to float with max_y_calc
+    x_pos = max_x - TITLE_BLOCK_WIDTH + PADDING # Adjusted to float with max_x
+    y_pos = max_y - TITLE_BLOCK_HEIGHT + PADDING + (TITLE_BLOCK_HEIGHT / 2) # Adjusted to float with max_y
 
     title_block_svg.append(f'<rect x="{x_pos}" y="{y_pos}" width="{TITLE_BLOCK_WIDTH}" height="{TITLE_BLOCK_HEIGHT-10}" fill="#fcfcfc" stroke="black" stroke-width="1"/>')
     title_block_svg.append(f'<text x="{x_pos + 20}" y="{y_pos + 30}" font-size="14" font-weight="bold">{TITLE_BLOCK_CLIENT}</text>')
@@ -510,9 +538,11 @@ def _render_pipes(pipes_list):
             pipes_svg.append(f'<polyline points="{pts}" stroke="black" stroke-width="{PIPE_WIDTH}" fill="none" marker-end="url(#{marker_id})"/>')
             
             # Calculate midpoint for label
-            mx = sum(x for x, _ in p.points) / len(p.points)
-            my = sum(y for _, y in p.points) / len(p.points)
-            pipes_svg.append(f'<text x="{mx}" y="{my - 5}" font-size="{PIPE_LABEL_FONT_SIZE}" text-anchor="middle">{p.label}</text>')
+            # Ensure points are valid before calculating midpoint
+            if p.points:
+                mx = sum(x for x, _ in p.points) / len(p.points)
+                my = sum(y for _, y in p.points) / len(p.points)
+                pipes_svg.append(f'<text x="{mx}" y="{my - 5}" font-size="{PIPE_LABEL_FONT_SIZE}" text-anchor="middle">{p.label}</text>')
     return "".join(pipes_svg)
 
 # Global variables for calculated diagram dimensions
@@ -530,16 +560,19 @@ def render_svg_diagram(components_map, pipes_list):
     pipe_max_x = max((x for p in pipes_list for x, _ in p.points), default=0)
     pipe_max_y = max((y for p in pipes_list for _, y in p.points), default=0)
 
-    max_x_calc = max(max_x_comp, pipe_max_x) + PADDING + LEGEND_WIDTH
-    max_y_calc = max(max_y_comp, pipe_max_y) + PADDING + TITLE_BLOCK_HEIGHT
+    # Calculate overall dimensions including padding, legend, and title block
+    # Ensure LEGEND_WIDTH is considered in final width
+    max_x_calc = max(max_x_comp, pipe_max_x) + PADDING * 2 + LEGEND_WIDTH # Add padding on both sides
+    max_y_calc = max(max_y_comp, pipe_max_y) + PADDING * 2 + TITLE_BLOCK_HEIGHT # Add padding top/bottom
 
     svg_parts = []
     svg_parts.append(f'<svg width="{max_x_calc}" height="{max_y_calc}" viewBox="0 0 {max_x_calc} {max_y_calc}" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">')
 
     svg_parts.append(_render_svg_defs_section())
     svg_parts.append(_render_grid_lines(max_x_calc, max_y_calc, GRID_SPACING))
-    svg_parts.append(_render_legend_section(components_map, max_x_calc, max_y_calc, max_x_calc - LEGEND_WIDTH + 30, 50))
-    svg_parts.append(_render_title_block(max_y_calc)) # Pass calculated max_y
+    # Legend position needs to be relative to the full SVG width
+    svg_parts.append(_render_legend_section(components_map, max_x_calc, max_y_calc, max_x_calc - LEGEND_WIDTH + 30, PADDING)) # Place legend at top right with padding
+    svg_parts.append(_render_title_block(max_x_calc, max_y_calc - TITLE_BLOCK_HEIGHT)) # Pass max_x and adjust max_y for title block bottom
     svg_parts.append(_render_components(components_map))
     svg_parts.append(_render_pipes(pipes_list))
 
@@ -605,8 +638,8 @@ with st.sidebar.form("add_component_form"):
             st.error("Component ID cannot be empty or just whitespace.")
         elif new_comp_id in st.session_state.eq_df['id'].values:
             st.error(f"Component ID '{new_comp_id}' already exists. Please choose a unique ID.")
-        elif new_comp_subtype == "No types loaded":
-             st.error("Cannot add component: No component types are loaded. Check data files or OpenAI key.")
+        elif new_comp_subtype == "No types loaded" and all_subtypes: # Ensure all_subtypes is not empty before flagging
+             st.error("Cannot add component: No component types are loaded or selected. Check data files or OpenAI key.")
         else:
             new_row = {
                 'id': new_comp_id, # Use the cleaned ID
@@ -692,10 +725,11 @@ col1, col2, col3 = st.columns(3)
 def export_png(svg_data):
     output = BytesIO()
     try:
+        # Convert SVG string (bytes-like object) to PNG
         svg2png(bytestring=svg_data.encode('utf-8'), write_to=output)
         return output.getvalue()
     except Exception as e:
-        st.error(f"Error converting SVG to PNG: {e}. Ensure your SVG is valid and `cairosvg` is installed correctly.")
+        st.error(f"Error converting SVG to PNG: {e}. Ensure your SVG is valid and `cairosvg` is installed correctly. This might be due to malformed SVG output from AI.")
         return None
 
 # DXF Export (Revised for add_rect and robust saving)
@@ -705,28 +739,37 @@ def export_dxf(components_map, pipes_list):
     
     # Add components as basic rectangles/text for DXF (no complex SVG symbols in DXF)
     for c in components_map.values():
+        # --- IMPORTANT FIX: Use add_lwpolyline for rectangle outlines ---
         p1 = (c.x, c.y)
         p2 = (c.x + c.width, c.y)
         p3 = (c.x + c.width, c.y + c.height)
         p4 = (c.x, c.y + c.height)
         rect_points = [p1, p2, p3, p4, p1] # 5 points to close the rectangle
-        msp.add_lwpolyline(rect_points, dxfattribs={'color': 1}) # Red outline for component
+        msp.add_lwpolyline(rect_points, dxfattribs={'color': 1}) # Red outline for component (ACI color 1 is red)
         
-        msp.add_text(c.tag, dxfattribs={'height': 2.5, 'insert': (c.x, c.y + c.height + 5)}) # Adjust text position slightly
+        # Add text for tag
+        # Adjust text height for DXF to be reasonable, 2.5 units is common
+        msp.add_text(c.tag, dxfattribs={'height': TAG_FONT_SIZE * 0.1, 'insert': (c.x + c.width/2, c.y + c.height + 5), 'align': 'CENTER'}) 
         
     for p in pipes_list:
         if len(p.points) >= 2:
-            msp.add_lwpolyline(p.points, dxfattribs={'color': 7}) # White/Black pipe
+            # --- IMPORTANT FIX: Ensure points are tuples/lists of (x,y) ---
+            # add_lwpolyline expects a list of 2D points (tuples or lists)
+            msp.add_lwpolyline(p.points, dxfattribs={'color': 7}) # White/Black pipe (ACI color 7 is white/black depending on background)
+            
             # Add pipe labels as text
-            mx = sum(x for x, _ in p.points) / len(p.points)
-            my = sum(y for _, y in p.points) / len(p.points)
-            msp.add_text(p.label, dxfattribs={'height': 1.5, 'insert': (mx, my - 2)})
+            if p.points: # Ensure there are points before calculating midpoint
+                mx = sum(x for x, _ in p.points) / len(p.points)
+                my = sum(y for _, y in p.points) / len(p.points)
+                # Adjust text height for DXF, 1.5 units is common
+                msp.add_text(p.label, dxfattribs={'height': PIPE_LABEL_FONT_SIZE * 0.1, 'insert': (mx, my - 2), 'align': 'CENTER'})
 
     output = BytesIO()
     try:
         doc.saveas(output) # Use saveas for robust stream handling
         output.seek(0) # Rewind the buffer to the beginning after writing
-        return output.read() # Read as bytes
+        # --- IMPORTANT FIX: Return the bytes content from the BytesIO object ---
+        return output.read() 
     except Exception as e:
         st.error(f"Error during DXF export: {e}")
         return None
@@ -768,13 +811,26 @@ if st.button("💾 Save Current Diagram Data to Files"):
         st.error(f"Error saving data: {e}")
 
 # Clear diagram button
+# --- IMPORTANT FIX: Simplified clear button logic ---
 if st.button("🗑️ Clear Diagram (Reset to Empty)", key="clear_diagram_btn"):
+    # Use session state to manage confirmation without nested buttons
+    st.session_state.confirm_clear = True
+
+if st.session_state.get('confirm_clear', False):
     st.warning("Are you sure you want to clear the diagram? This cannot be undone.", icon="⚠️")
-    if st.button("Yes, Clear Diagram", key="confirm_clear_btn"):
-        st.session_state.eq_df = pd.DataFrame(columns=['id', 'tag', 'Component', 'x', 'y', 'Width', 'Height'])
-        st.session_state.pipe_df = pd.DataFrame(columns=['Pipe No.', 'Label', 'From Component', 'From Port', 'To Component', 'To Port', 'Polyline Points (x, y)', 'pipe_type'])
-        st.success("Diagram cleared!")
-        st.rerun()
+    col_clear_yes, col_clear_no = st.columns(2)
+    with col_clear_yes:
+        if st.button("Yes, Clear Diagram Permanently", key="confirm_clear_yes"):
+            st.session_state.eq_df = pd.DataFrame(columns=['id', 'tag', 'Component', 'x', 'y', 'Width', 'Height'])
+            st.session_state.pipe_df = pd.DataFrame(columns=['Pipe No.', 'Label', 'From Component', 'From Port', 'To Component', 'To Port', 'Polyline Points (x, y)', 'pipe_type'])
+            st.session_state.confirm_clear = False # Reset confirmation
+            st.success("Diagram cleared!")
+            st.rerun()
+    with col_clear_no:
+        if st.button("No, Keep Diagram", key="confirm_clear_no"):
+            st.session_state.confirm_clear = False # Reset confirmation
+            st.info("Diagram not cleared.")
+            st.rerun() # Rerun to remove confirmation prompt
 
 # Upload new dataframes
 st.markdown("#### Upload New Diagram Data")
@@ -817,5 +873,4 @@ with st.expander("🔍 Debug Info"):
     st.write("SVG Meta (sample for first 3 subtypes):", {k: {key: val for key, val in v.items() if key != 'ports'} for k,v in list(svg_meta.items())[:3]})
     st.write("First few SVG Defs (keys):", list(svg_defs.keys())[:5])
     st.write("`DATABASE_URL` is set:", bool(DATABASE_URL))
-    st.write("`OPENAI_API_KEY` is set:", bool(openai.api_key))
-
+    st.write("`OPENAI_API_KEY` is set:", bool(openai_client.api_key)) # Use openai_client here
