@@ -80,8 +80,24 @@ def load_symbol_data_from_db(subtype):
             cur.execute(sql.SQL("SELECT svg_data, metadata FROM generated_symbols WHERE subtype = %s"), (subtype,))
             row = cur.fetchone()
             cur.close()
-            # If row exists, return svg_data and parsed metadata (handle potential NULL metadata)
-            return row[0] if row else None, json.loads(row[1]) if row and row[1] else {}
+            # --- SAFER JSON HANDLING FIX ---
+            if row:
+                svg_data = row[0]
+                metadata_raw = row[1]
+                # Only load JSON if it's a string or bytes
+                if isinstance(metadata_raw, (str, bytes, bytearray)):
+                    try:
+                        metadata = json.loads(metadata_raw)
+                    except Exception as e:
+                        st.warning(f"Could not parse metadata JSON for {subtype}: {e}")
+                        metadata = {}
+                elif isinstance(metadata_raw, dict):  # Already a dict (e.g., from psycopg2 and JSONB)
+                    metadata = metadata_raw
+                else:
+                    metadata = {}
+                return svg_data, metadata
+            else:
+                return None, {}
         except Exception as e:
             st.warning(f"DB Load Error for '{subtype}': {e}. This might mean the column doesn't exist or data is malformed.")
             return None, {}
@@ -248,7 +264,7 @@ def load_symbol_and_meta_data(initial_eq_df, initial_mapping):
             svg_meta_dict[subtype]["ports"][port_name] = {"dx": dx, "dy": dy}
     
     st.success("P&ID data and symbols loaded!")
-    return svg_defs_dict, svg_meta_dict, all_subtypes 
+    return svg_defs_dict, svg_meta_dict, all_subtypes_from_data 
 
 # --- SESSION STATE INITIALIZATION ---
 if 'eq_df' not in st.session_state:
@@ -298,6 +314,8 @@ if 'eq_df' not in st.session_state:
 # This will be re-run if eq_df changes due to manual additions/uploads
 svg_defs, svg_meta, all_subtypes = load_symbol_and_meta_data(st.session_state.eq_df, st.session_state.mapping)
 
+# ... rest of your file unchanged ...
+# (The remainder of your app.py after symbol/meta loading does not need fixing for this issue.)
 
 # --- P&ID CLASSES ---
 class PnidComponent:
@@ -310,7 +328,6 @@ class PnidComponent:
         self.y = row['y']
         
         # Get dimensions from metadata or use defaults
-        # --- IMPORTANT FIX: Handle potential missing metadata or viewbox gracefully ---
         meta = svg_meta.get(self.subtype)
         if meta and 'viewBox' in meta and isinstance(meta['viewBox'], str):
             viewbox_str = meta['viewBox']
@@ -319,28 +336,24 @@ class PnidComponent:
         
         try:
             _, _, vb_width, vb_height = map(float, viewbox_str.split())
-        except ValueError: # Fallback if viewBox is malformed
+        except ValueError:
             vb_width, vb_height = 100, 100
 
         self.width = row.get('Width', vb_width) * SYMBOL_SCALE
         self.height = row.get('Height', vb_height) * SYMBOL_SCALE
         
         # Get port info from global svg_meta
-        self.ports = meta.get('ports', {}) if meta else {} # Ensure ports is a dict even if meta is None
+        self.ports = meta.get('ports', {}) if meta else {}
 
     def get_port_coords(self, port_name):
         """Calculates absolute coordinates for a given port relative to the component's SVG origin."""
         port = self.ports.get(port_name)
         if port:
-            # dx, dy in metadata are relative to the symbol's internal viewBox (0,0)
-            # We need to scale them and add to the component's (x,y)
-            # Assuming viewBox (0,0,width,height)
-            # --- IMPORTANT FIX: Handle potential missing metadata or viewbox gracefully ---
             meta = svg_meta.get(self.subtype)
             if meta and 'viewBox' in meta and isinstance(meta['viewBox'], str):
                 viewbox_str = meta['viewBox']
             else:
-                viewbox_str = '0 0 100 100' # Default fallback
+                viewbox_str = '0 0 100 100'
 
             try:
                 _, _, vb_w, vb_h = map(float, viewbox_str.split())
@@ -351,9 +364,7 @@ class PnidComponent:
             scale_y = self.height / vb_h if vb_h > 0 else 1
 
             return (self.x + port["dx"] * scale_x, self.y + port["dy"] * scale_y)
-        # Fallback to center if port not found or default is requested
         return (self.x + self.width / 2, self.y + self.height / 2)
-
 
 class PnidPipe:
     """Represents a P&ID pipe connection."""
@@ -361,7 +372,7 @@ class PnidPipe:
         self.id = row['Pipe No.']
         self.label = row.get('Label', f"Pipe {self.id}")
         self.points = []
-        self.pipe_type = row.get('pipe_type', 'process_line') # Default to process_line if not specified
+        self.pipe_type = row.get('pipe_type', 'process_line')
         
         from_comp_id = clean_component_id(row['From Component'])
         to_comp_id = clean_component_id(row['To Component'])
@@ -374,39 +385,26 @@ class PnidPipe:
         if not to_comp:
             st.warning(f"Pipe '{self.id}': 'To Component' ID '{to_comp_id}' not found. Pipe may be incomplete or component data is missing.")
 
-        # --- IMPORTANT FIX: Robust polyline parsing ---
         polyline_str_raw = str(row.get('Polyline Points (x, y)', '')).strip()
-        
-        # Check for empty string or 'nan' after conversion to string
         if polyline_str_raw and polyline_str_raw.lower() != 'nan':
-            # Remove any leading/trailing square brackets if present (e.g., from Python list output)
             clean_polyline_str = polyline_str_raw.strip('[]')
-            
-            # Handle multiple point formats, using regex to find (x,y) tuples
-            # This regex looks for digits, periods, and hyphens within parentheses, separated by commas
-            # It also handles different separators between points (space, comma, -->, ->)
             pts = re.findall(r"\(([-+]?\d*\.?\d+)\s*,\s*([-+]?\d*\.?\d+)\)", clean_polyline_str)
-            
             if pts:
                 self.points = [(float(x), float(y)) for x, y in pts]
             else:
                 st.warning(f"Pipe '{self.id}': Could not parse polyline points from '{polyline_str_raw}'. Drawing straight line if components exist.")
-        
-        # If no points parsed or explicitly empty, default to direct line
         if not self.points:
             if from_comp and to_comp:
                 self.points = [
                     from_comp.get_port_coords(row.get("From Port", "default")),
                     to_comp.get_port_coords(row.get("To Port", "default"))
                 ]
-            elif from_comp: # Draw a stub if only 'from' component exists
+            elif from_comp:
                 from_x, from_y = from_comp.get_port_coords(row.get("From Port", "default"))
-                self.points = [from_x, (from_x + 50, from_y)] # Extend 50 units to the right
-            elif to_comp: # Draw a stub if only 'to' component exists
+                self.points = [from_x, (from_x + 50, from_y)]
+            elif to_comp:
                 to_x, to_y = to_comp.get_port_coords(row.get("To Port", "default"))
-                self.points = [(to_x - 50, to_y), to_x, to_y] # Extend 50 units to the left
-
-
+                self.points = [(to_x - 50, to_y), to_x, to_y]
 # Get current dataframes from session state for rendering/modification
 # Ensure components and pipes are re-initialized AFTER session_state.eq_df and pipe_df are loaded/updated
 # This block is correctly placed AFTER class definitions and BEFORE sidebar forms
@@ -492,7 +490,7 @@ def _render_legend_section(components_map, max_x, max_y, legend_x, legend_y):
             # Fallback for missing symbol in legend
             legend_svg.append(f'<rect x="{legend_x}" y="{sym_pos_y}" width="{width}" height="{height}" fill="#eee" stroke="red"/>')
         
-        legend_svg.append(f'<text x="{legend_x+32}" y="{sym_pos_y+16}" font-size="{LEGEND_FONT_SIZE}">{tag} — {name}</text>')
+        legend_svg.append(f'<text x="{legend_x+32}" y="{sym_pos_y+16}" font-size="{LEGEND_FONT_SIZE}">{tag} â {name}</text>')
     return "".join(legend_svg)
 
 def _render_title_block(max_x, max_y): # Pass max_x directly
@@ -585,7 +583,7 @@ def generate_isa_control_logic_box(components_map):
     """Generates a text block describing ISA instrumentation control logic based on component tags."""
     logic_lines = []
     logic_lines.append("INSTRUMENTATION CONTROL LOGIC")
-    logic_lines.append("──────────────────────────────")
+    logic_lines.append("ââââââââââââââââââââââââââââââ")
     loop_counter = 1
     
     # Mapping for ISA first letters to physical variables
@@ -603,13 +601,13 @@ def generate_isa_control_logic_box(components_map):
         # Simple rule-based logic for demonstration
         if 'T' in tag and (tag.startswith('P') or tag.startswith('T') or tag.startswith('F') or tag.startswith('L')): # e.g., PT-101, TT-201, FT-301
             variable = isa_variable_map.get(tag[0], 'Unknown')
-            logic_lines.append(f"{tag} ({variable} Transmitter) → PLC Input → Control Logic Decision")
+            logic_lines.append(f"{tag} ({variable} Transmitter) â PLC Input â Control Logic Decision")
         elif 'V' in tag and (tag.startswith('F') or tag.startswith('L') or tag.startswith('P')): # e.g., FV-401, LV-501
             variable = isa_variable_map.get(tag[0], 'Unknown')
-            logic_lines.append(f"{tag} ({variable} Control Valve) ← PLC Output ← Control Logic Decision")
+            logic_lines.append(f"{tag} ({variable} Control Valve) â PLC Output â Control Logic Decision")
         elif 'I' in tag and (tag.startswith('P') or tag.startswith('T') or tag.startswith('F') or tag.startswith('L')): # e.g., PI-101, LI-201
             variable = isa_variable_map.get(tag[0], 'Unknown')
-            logic_lines.append(f"{tag} ({variable} Indicator) → Operator Display")
+            logic_lines.append(f"{tag} ({variable} Indicator) â Operator Display")
         else:
              logic_lines.append(f"{tag} (General Instrument)")
 
@@ -622,7 +620,7 @@ def generate_isa_control_logic_box(components_map):
 
 # Manual Component Addition Sidebar
 st.sidebar.markdown("---")
-st.sidebar.markdown("### ➕ Add New Component")
+st.sidebar.markdown("### â Add New Component")
 with st.sidebar.form("add_component_form"):
     new_comp_subtype = st.selectbox("Component Type", options=all_subtypes if all_subtypes else ["No types loaded"], key="new_comp_type_select")
     new_comp_id_raw = st.text_input("Component ID (unique)", key="new_comp_id_input")
@@ -656,7 +654,7 @@ with st.sidebar.form("add_component_form"):
 
 # Manual Pipe Addition Sidebar
 st.sidebar.markdown("---")
-st.sidebar.markdown("### ➕ Add New Pipe")
+st.sidebar.markdown("### â Add New Pipe")
 current_comp_ids_for_dropdown = sorted(list(components.keys()))
 if not current_comp_ids_for_dropdown:
     current_comp_ids_for_dropdown = ["No components available"]
@@ -711,14 +709,14 @@ st.components.v1.html(svg_output, height=800, scrolling=True)
 
 # ISA Control Logic Section
 st.markdown("---")
-st.markdown("### 🔧 Instrumentation Control Logic")
+st.markdown("### ð§ Instrumentation Control Logic")
 logic_block = generate_isa_control_logic_box(components)
 st.text_area("ISA Instrumentation Control Logic", value=logic_block, height=200, key="isa_logic_output")
 
 
 # --- EXPORT OPTIONS ---
 st.markdown("---")
-st.markdown("### ⬇️ Download Options")
+st.markdown("### â¬ï¸ Download Options")
 col1, col2, col3 = st.columns(3)
 
 # PNG Export
@@ -775,23 +773,23 @@ def export_dxf(components_map, pipes_list):
         return None
 
 with col1:
-    st.download_button("📥 Download SVG", svg_output, "pnid.svg", "image/svg+xml", key="download_svg")
+    st.download_button("ð¥ Download SVG", svg_output, "pnid.svg", "image/svg+xml", key="download_svg")
 with col2:
     png_data = export_png(svg_output)
     if png_data:
-        st.download_button("📥 Download PNG", png_data, "pnid.png", "image/png", key="download_png")
+        st.download_button("ð¥ Download PNG", png_data, "pnid.png", "image/png", key="download_png")
     else:
         st.warning("PNG export failed. Check console for errors.")
 with col3:
     dxf_data = export_dxf(components, pipes)
     if dxf_data:
-        st.download_button("📥 Download DXF", dxf_data, "pnid.dxf", "application/dxf", key="download_dxf")
+        st.download_button("ð¥ Download DXF", dxf_data, "pnid.dxf", "application/dxf", key="download_dxf")
     else:
         st.warning("DXF export failed or data not available.")
 
 # --- DATA MANAGEMENT ---
 st.markdown("---")
-st.markdown("### 🗃️ Data Management")
+st.markdown("### ðï¸ Data Management")
 
 # Display current dataframes
 with st.expander("View Current Components Data"):
@@ -801,7 +799,7 @@ with st.expander("View Current Pipes Data"):
     st.dataframe(st.session_state.pipe_df, use_container_width=True)
 
 # Save current state to files
-if st.button("💾 Save Current Diagram Data to Files"):
+if st.button("ð¾ Save Current Diagram Data to Files"):
     try:
         os.makedirs(LAYOUT_DATA_DIR, exist_ok=True)
         st.session_state.eq_df.to_csv(os.path.join(LAYOUT_DATA_DIR, "enhanced_equipment_layout.csv"), index=False)
@@ -812,12 +810,12 @@ if st.button("💾 Save Current Diagram Data to Files"):
 
 # Clear diagram button
 # --- IMPORTANT FIX: Simplified clear button logic ---
-if st.button("🗑️ Clear Diagram (Reset to Empty)", key="clear_diagram_btn"):
+if st.button("ðï¸ Clear Diagram (Reset to Empty)", key="clear_diagram_btn"):
     # Use session state to manage confirmation without nested buttons
     st.session_state.confirm_clear = True
 
 if st.session_state.get('confirm_clear', False):
-    st.warning("Are you sure you want to clear the diagram? This cannot be undone.", icon="⚠️")
+    st.warning("Are you sure you want to clear the diagram? This cannot be undone.", icon="â ï¸")
     col_clear_yes, col_clear_no = st.columns(2)
     with col_clear_yes:
         if st.button("Yes, Clear Diagram Permanently", key="confirm_clear_yes"):
@@ -863,7 +861,7 @@ if uploaded_eq_file or uploaded_pipe_file:
             st.error(f"Error loading uploaded files: {e}")
 
 # --- OPTIONAL DEBUG INFO ---
-with st.expander("🔍 Debug Info"):
+with st.expander("ð Debug Info"):
     st.write("Current `eq_df` head (after cleaning):")
     st.dataframe(st.session_state.eq_df.head())
     st.write("Current `pipe_df` head (after cleaning):")
