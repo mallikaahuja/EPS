@@ -490,7 +490,7 @@ def _render_legend_section(components_map, max_x, max_y, legend_x, legend_y):
             # Fallback for missing symbol in legend
             legend_svg.append(f'<rect x="{legend_x}" y="{sym_pos_y}" width="{width}" height="{height}" fill="#eee" stroke="red"/>')
         
-        legend_svg.append(f'<text x="{legend_x+32}" y="{sym_pos_y+16}" font-size="{LEGEND_FONT_SIZE}">{tag} â {name}</text>')
+        legend_svg.append(f'<text x="{legend_x+32}" y="{sym_pos_y+16}" font-size="{LEGEND_FONT_SIZE}">{tag} - {name}</text>')
     return "".join(legend_svg)
 
 def _render_title_block(max_x, max_y): # Pass max_x directly
@@ -583,7 +583,7 @@ def generate_isa_control_logic_box(components_map):
     """Generates a text block describing ISA instrumentation control logic based on component tags."""
     logic_lines = []
     logic_lines.append("INSTRUMENTATION CONTROL LOGIC")
-    logic_lines.append("ââââââââââââââââââââââââââââââ")
+    logic_lines.append("=" * 30)
     loop_counter = 1
     
     # Mapping for ISA first letters to physical variables
@@ -601,13 +601,13 @@ def generate_isa_control_logic_box(components_map):
         # Simple rule-based logic for demonstration
         if 'T' in tag and (tag.startswith('P') or tag.startswith('T') or tag.startswith('F') or tag.startswith('L')): # e.g., PT-101, TT-201, FT-301
             variable = isa_variable_map.get(tag[0], 'Unknown')
-            logic_lines.append(f"{tag} ({variable} Transmitter) â PLC Input â Control Logic Decision")
+            logic_lines.append(f"{tag} ({variable} Transmitter) -> PLC Input -> Control Logic Decision")
         elif 'V' in tag and (tag.startswith('F') or tag.startswith('L') or tag.startswith('P')): # e.g., FV-401, LV-501
             variable = isa_variable_map.get(tag[0], 'Unknown')
-            logic_lines.append(f"{tag} ({variable} Control Valve) â PLC Output â Control Logic Decision")
+            logic_lines.append(f"{tag} ({variable} Control Valve) -> PLC Output -> Control Logic Decision")
         elif 'I' in tag and (tag.startswith('P') or tag.startswith('T') or tag.startswith('F') or tag.startswith('L')): # e.g., PI-101, LI-201
             variable = isa_variable_map.get(tag[0], 'Unknown')
-            logic_lines.append(f"{tag} ({variable} Indicator) â Operator Display")
+            logic_lines.append(f"{tag} ({variable} Indicator) -> Operator Display")
         else:
              logic_lines.append(f"{tag} (General Instrument)")
 
@@ -762,15 +762,26 @@ def export_dxf(components_map, pipes_list):
                 # Adjust text height for DXF, 1.5 units is common
                 msp.add_text(p.label, dxfattribs={'height': PIPE_LABEL_FONT_SIZE * 0.1, 'insert': (mx, my - 2), 'align': 'CENTER'})
 
-    output = BytesIO()
+    from io import StringIO
+    import tempfile
+    
     try:
-        doc.saveas(output) # Use saveas for robust stream handling
-        output.seek(0) # Rewind the buffer to the beginning after writing
-        # --- IMPORTANT FIX: Return the bytes content from the BytesIO object ---
-        return output.read() 
+        # Use a temporary file for reliable DXF export
+        with tempfile.NamedTemporaryFile(suffix='.dxf', delete=False) as temp_file:
+            doc.saveas(temp_file.name)
+            temp_file.seek(0)
+            with open(temp_file.name, 'rb') as f:
+                return f.read()
     except Exception as e:
         st.error(f"Error during DXF export: {e}")
         return None
+    finally:
+        # Clean up temp file
+        try:
+            import os
+            os.unlink(temp_file.name)
+        except:
+            pass
 
 with col1:
     st.download_button("ð¥ Download SVG", svg_output, "pnid.svg", "image/svg+xml", key="download_svg")
