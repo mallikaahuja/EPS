@@ -747,7 +747,7 @@ def export_dxf(components_map, pipes_list):
         
         # Add text for tag
         # Adjust text height for DXF to be reasonable, 2.5 units is common
-        msp.add_text(c.tag, dxfattribs={'height': TAG_FONT_SIZE * 0.1, 'insert': (c.x + c.width/2, c.y + c.height + 5), 'align': 'CENTER'}) 
+        msp.add_text(c.tag, dxfattribs={'height': TAG_FONT_SIZE * 0.1, 'insert': (c.x + c.width/2, c.y + c.height + 5)}) 
         
     for p in pipes_list:
         if len(p.points) >= 2:
@@ -760,7 +760,7 @@ def export_dxf(components_map, pipes_list):
                 mx = sum(x for x, _ in p.points) / len(p.points)
                 my = sum(y for _, y in p.points) / len(p.points)
                 # Adjust text height for DXF, 1.5 units is common
-                msp.add_text(p.label, dxfattribs={'height': PIPE_LABEL_FONT_SIZE * 0.1, 'insert': (mx, my - 2), 'align': 'CENTER'})
+                msp.add_text(p.label, dxfattribs={'height': PIPE_LABEL_FONT_SIZE * 0.1, 'insert': (mx, my - 2)})
 
     from io import StringIO
     import tempfile
