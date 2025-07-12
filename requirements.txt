@@ -9,3 +9,9 @@ Pillow
 cairosvg
 lxml
 python-dotenv
+matplotlib  # For advanced plotting if needed
+numpy  # For mathematical calculations
+shapely  # For geometry operations
+networkx  # For pipe routing algorithms
+Pillow  # For image processing
+reportlab  # For PDF generation
