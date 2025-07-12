@@ -32,7 +32,7 @@ TITLE_BLOCK_WIDTH = 400
 TITLE_BLOCK_CLIENT = "EPS Pvt. Ltd."
 
 # Directory paths
-LAYOUT_DATA_DIR = "layout_data"
+LAYOUT_DATA_DIR = "data"
 SYMBOLS_DIR = "symbols"
 
 # API keys and DB URL from environment variables
