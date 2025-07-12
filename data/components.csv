@@ -1,0 +1,17 @@
+id,tag,type,x,y,rotation
+P-001,P-001,pump_centrifugal,200,400,0
+P-002,P-002,pump_centrifugal,200,600,0
+V-001,V-001,valve_gate,350,400,0
+V-002,V-002,valve_globe,500,400,0
+V-003,V-003,control_valve,650,400,0
+TK-001,TK-001,vessel_vertical,800,350,0
+HX-001,HX-001,heat_exchanger,500,200,0
+F-001,F-001,filter,650,200,0
+FT-001,FT-001,instrument,150,380,0
+FT-002,FT-002,instrument,450,380,0
+PT-001,PT-001,instrument,750,380,0
+LT-001,LT-001,instrument,850,450,0
+FIC-001,FIC-001,instrument,650,320,0
+PIC-001,PIC-001,instrument,350,320,0
+TT-001,TT-001,instrument,550,150,0
+C-001,C-001,compressor,350,600,0
