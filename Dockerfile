@@ -7,9 +7,9 @@ WORKDIR /app
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     graphviz-dev \
-    libcairo2-dev \   # <-- ADD THIS LINE for Cairo development headers
-    pkg-config \      # <-- ADD THIS LINE for package configuration utility
-    python3-dev \     # <-- CONSIDER ADDING THIS IF USING pycairo (Python bindings for Cairo)
+    libcairo2-dev \
+    pkg-config \
+    python3-dev \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
