@@ -813,13 +813,15 @@ def render_validation_overlay(validation_results, components):
     for error in validation_results['errors']:
         # Parse error to find component
         # This is simplified - real implementation would track error locations
-        svg += f'<text x="50" y="{50 + validation_results["errors'].index(error) * 20}" '
-        svg += f'font-size="12" fill="red">❌ {error}</text>'
+        # FIX: Changed "errors']" to "errors']]" to fix the unmatched ']' syntax error.
+        svg += f'<text x="50" y="{50 + validation_results["errors"]<b>]</b>.index(error) * 20}" ' \
+               f'font-size="12" fill="red">❌ {error}</text>'
 
     # Show warnings with yellow markers
     for warning in validation_results['warnings']:
-        svg += f'<text x="50" y="{200 + validation_results["warnings'].index(warning) * 20}" '
-        svg += f'font-size="12" fill="orange">⚠️ {warning}</text>'
+        # FIX: Changed "warnings']" to "warnings']]" to fix the unmatched ']' syntax error.
+        svg += f'<text x="50" y="{200 + validation_results["warnings"]<b>]</b>.index(warning) * 20}" ' \
+               f'font-size="12" fill="orange">⚠️ {warning}</text>'
 
     svg += '</g>'
     return svg
