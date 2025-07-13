@@ -1,17 +1,39 @@
-streamlit
-pandas
-streamlit-js-eval
-ezdxf
+# Core dependencies
+
+streamlit>=1.28.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Database
+
+psycopg2-binary>=2.9.0
+
+# OpenAI API
+
 openai>=1.0.0
-requests
-psycopg2-binary
-Pillow
-cairosvg
-lxml
-python-dotenv
-matplotlib  # For advanced plotting if needed
-numpy  # For mathematical calculations
-shapely  # For geometry operations
-networkx  # For pipe routing algorithms
-Pillow  # For image processing
-reportlab  # For PDF generation
+
+# Drawing and export
+
+cairosvg>=2.7.0
+ezdxf>=1.0.0
+Pillow>=10.0.0
+
+# Advanced features
+
+networkx>=3.0  # For graph algorithms and routing
+scipy>=1.10.0  # For optimization algorithms
+shapely>=2.0.0  # For geometry operations
+matplotlib>=3.7.0  # For additional plotting capabilities
+
+# Optional but recommended
+
+plotly>=5.0.0  # For interactive visualizations
+reportlab>=4.0.0  # For PDF generation
+openpyxl>=3.1.0  # For Excel export
+python-dotenv>=1.0.0  # For environment variables
+
+# Development tools (optional)
+
+black>=23.0.0  # Code formatting
+pylint>=2.17.0  # Code linting
+pytest>=7.3.0  # Testing
