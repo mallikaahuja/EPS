@@ -295,7 +295,8 @@ class PipeRouter:
         closed_set = set()
         
         start_node = GridNode(start_grid[0], start_grid[1], 0, 
-                             self._heuristic(start_grid, end_grid), current)
+                     self._heuristic(start_grid, end_grid), None) # Change 'current' to 'None'
+
         heapq.heappush(open_set, start_node)
         
         while open_set:
