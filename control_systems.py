@@ -810,18 +810,14 @@ def render_validation_overlay(validation_results, components):
     svg = '<g class="validation-overlay">'
 
     # Show errors with red markers
-    for error in validation_results['errors']:
-        # Parse error to find component
-        # This is simplified - real implementation would track error locations
-        # FIX: Changed "errors']" to "errors']]" to fix the unmatched ']' syntax error.
-        svg += f'<text x="50" y="{50 + validation_results["errors"]<b>]</b>.index(error) * 20}" ' \
-               f'font-size="12" fill="red">❌ {error}</text>'
+    for i, error in enumerate(validation_results['errors']): # Use enumerate for robust y-positioning
+        y_pos = 50 + i * 20
+        svg += f'<text x="50" y="{y_pos}" font-size="12" fill="red">❌ {error}</text>'
 
     # Show warnings with yellow markers
-    for warning in validation_results['warnings']:
-        # FIX: Changed "warnings']" to "warnings']]" to fix the unmatched ']' syntax error.
-        svg += f'<text x="50" y="{200 + validation_results["warnings"]<b>]</b>.index(warning) * 20}" ' \
-               f'font-size="12" fill="orange">⚠️ {warning}</text>'
+    for i, warning in enumerate(validation_results['warnings']): # Use enumerate
+        y_pos = 200 + i * 20
+        svg += f'<text x="50" y="{y_pos}" font-size="12" fill="orange">⚠️ {warning}</text>'
 
     svg += '</g>'
     return svg
