@@ -295,7 +295,7 @@ class PipeRouter:
         closed_set = set()
         
         start_node = GridNode(start_grid[0], start_grid[1], 0, 
-                             self._heuristic(start_grid, end_grid))
+                             self._heuristic(start_grid, end_grid), current)
         heapq.heappush(open_set, start_node)
         
         while open_set:
@@ -575,6 +575,12 @@ class PnIDValidator:
                                     'FV', 'PV', 'TV', 'LV', 'FCV', 'PCV', 'TCV', 'LCV',
                                     'FAL', 'PAL', 'TAL', 'LAL', 'FAH', 'PAH', 'TAH', 'LAH']
                     
+                    # Add the new prefixes from your warning list
+                    new_prefixes = [
+                        'SF', 'YS', 'CP', 'CPT', 'SCR', 'SIL', 'GV', 'PR', 'RM', 'LS', 'FS', 'FA', 'DP'
+                    ]
+                    valid_prefixes.extend(new_prefixes) # Use extend to add all new items to the list
+
                     if prefix not in valid_prefixes:
                         self.warnings.append(f"Non-standard instrument prefix: {prefix} in {tag}")
 
@@ -620,7 +626,6 @@ class PnIDValidator:
                     
                     # Validate size transitions
                     if pipe.from_comp and pipe.to_comp:
-                        # Check for sudden size changes without reducer
                         # This would need more logic to track connected pipes
                         pass
 
