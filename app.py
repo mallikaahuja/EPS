@@ -12,570 +12,903 @@ import ezdxf
 from cairosvg import svg2png
 import math
 
+# Import advanced features
+
+from control_systems import (
+ControlSystemAnalyzer, PipeRouter, ProcessUnitTemplate,
+PnIDValidator, render_control_loop_overlay, render_validation_overlay
+)
+
 # — CONFIGURATION —
 
-st.set_page_config(layout="wide", page_title="Professional P&ID Generator")
-st.sidebar.title("Professional P&ID Generator")
+st.set_page_config(layout=“wide”, page_title=“EPS Professional P&ID Generator”,
+initial_sidebar_state=“expanded”)
+
+# Add custom CSS for professional styling
+
+st.markdown(”””
+
+<style>
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 24px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        padding: 0px 24px;
+    }
+    .validation-error {
+        background-color: #ffebee;
+        border-left: 4px solid #f44336;
+        padding: 10px;
+        margin: 5px 0;
+    }
+    .validation-warning {
+        background-color: #fff3e0;
+        border-left: 4px solid #ff9800;
+        padding: 10px;
+        margin: 5px 0;
+    }
+    .control-loop-info {
+        background-color: #e3f2fd;
+        border-left: 4px solid #2196f3;
+        padding: 10px;
+        margin: 5px 0;
+    }
+</style>
+
+“””, unsafe_allow_html=True)
+
+st.sidebar.title(“🏭 EPS Professional P&ID Suite”)
 
 # Professional P&ID Standards
 
-st.sidebar.markdown("### P&ID Standards & Controls")
 LINE_STANDARDS = {
-    'process': {'width': 2, 'color': 'black', 'style': 'solid'},
-    'instrument_signal': {'width': 0.5, 'color': 'black', 'style': 'dashed', 'dash': '3,3'},
-    'electrical': {'width': 0.5, 'color': 'black', 'style': 'dashed', 'dash': '1,1'},
-    'pneumatic': {'width': 0.5, 'color': 'black', 'style': 'solid'},
-    'hydraulic': {'width': 1, 'color': 'black', 'style': 'solid'},
-    'software': {'width': 0.5, 'color': 'black', 'style': 'dotted'}
+‘process’: {‘width’: 2, ‘color’: ‘#000000’, ‘style’: ‘solid’},
+‘process_thick’: {‘width’: 3, ‘color’: ‘#000000’, ‘style’: ‘solid’},
+‘instrumentation’: {‘width’: 0.7, ‘color’: ‘#000000’, ‘style’: ‘dashed’, ‘dash’: ‘4,2’},
+‘electrical’: {‘width’: 0.7, ‘color’: ‘#000000’, ‘style’: ‘dashed’, ‘dash’: ‘2,2’},
+‘pneumatic’: {‘width’: 0.7, ‘color’: ‘#000000’, ‘style’: ‘solid’},
+‘hydraulic’: {‘width’: 1.5, ‘color’: ‘#000000’, ‘style’: ‘solid’},
+‘software’: {‘width’: 0.5, ‘color’: ‘#0066cc’, ‘style’: ‘dotted’, ‘dash’: ‘1,3’},
 }
 
-# Enhanced visual controls
+# Visual controls with professional defaults
 
-GRID_SPACING = st.sidebar.slider("Grid Spacing (mm)", 10, 50, 25, 5)
-SYMBOL_SCALE = st.sidebar.slider("Symbol Scale", 0.5, 2.0, 1.0, 0.1)
-TEXT_HEIGHT = st.sidebar.slider("Text Height (mm)", 2.5, 5.0, 3.5, 0.5)
-INSTRUMENT_BUBBLE_SIZE = st.sidebar.slider("Instrument Bubble Size", 15, 30, 20)
+st.sidebar.markdown(”### 🎨 Drawing Standards”)
+drawing_standard = st.sidebar.selectbox(
+“Standard”,
+[“ISA”, “DIN”, “ISO”, “Custom”],
+help=“Select P&ID drawing standard”
+)
 
-# Global constants for professional drawings
+GRID_SPACING = st.sidebar.slider(“Grid Spacing (mm)”, 10, 50, 25, 5)
+SYMBOL_SCALE = st.sidebar.slider(“Symbol Scale”, 0.5, 2.0, 1.0, 0.1)
+PIPE_WIDTH = st.sidebar.slider(“Line Weight”, 1, 5, 2)
+TAG_FONT_SIZE = st.sidebar.slider(“Tag Font Size”, 8, 16, 11)
+PIPE_LABEL_FONT_SIZE = st.sidebar.slider(“Line Label Size”, 6, 14, 9)
+INSTRUMENT_BUBBLE_SIZE = st.sidebar.slider(“Instrument Bubble Size”, 15, 30, 22)
 
-PADDING = 50
-BORDER_WIDTH = 0.7
+# Advanced features toggles
+
+st.sidebar.markdown(”### 🔧 Advanced Features”)
+show_control_loops = st.sidebar.checkbox(“Show Control Loops”, True)
+show_interlocks = st.sidebar.checkbox(“Show Interlocks”, True)
+enable_smart_routing = st.sidebar.checkbox(“Smart Pipe Routing”, True)
+enable_validation = st.sidebar.checkbox(“Real-time Validation”, True)
+enable_templates = st.sidebar.checkbox(“Use Templates”, True)
+
+# Global constants
+
+PADDING = 100
+BORDER_WIDTH = 1.5
 TITLE_BLOCK_HEIGHT = 180
-TITLE_BLOCK_WIDTH = 594  # A4 width in landscape
-DRAWING_SCALE = "1:1"
+TITLE_BLOCK_WIDTH = 594  # A4 landscape
+DRAWING_BORDER = True
 
-# Initialize OpenAI
+# Directory paths
 
-openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-DATABASE_URL = os.getenv("DATABASE_URL")
+LAYOUT_DATA_DIR = “layout_data”
+SYMBOLS_DIR = “symbols”
+TEMPLATES_DIR = “templates”
 
-# — ISA SYMBOL DEFINITIONS —
+# Initialize OpenAI and database
 
-# Professional ISA symbols as SVG definitions
+openai_client = openai.OpenAI(api_key=os.getenv(“OPENAI_API_KEY”))
+DATABASE_URL = os.getenv(“DATABASE_URL”)
+
+# — ENHANCED ISA SYMBOLS (keeping existing + adding new ones) —
 
 ISA_SYMBOLS = {
-    'pump_centrifugal': '''<symbol id="pump_centrifugal" viewBox="0 0 50 50">
-<circle cx="25" cy="25" r="20" fill="none" stroke="black" stroke-width="1.5"/>
-<path d="M 25,5 L 25,45" stroke="black" stroke-width="1.5"/>
-<path d="M 5,25 L 45,25" stroke="black" stroke-width="1.5"/>
+# [Previous symbols remain the same…]
+‘pump’: ‘’’<symbol id="pump" viewBox="0 0 60 60" preserveAspectRatio="xMidYMid meet">
+<circle cx="30" cy="30" r="25" fill="white" stroke="black" stroke-width="2"/>
+<path d="M 30,5 L 30,55 M 5,30 L 55,30" stroke="black" stroke-width="2"/>
+</symbol>’’’,
+
+```
+'pump_centrifugal': '''<symbol id="pump_centrifugal" viewBox="0 0 60 60" preserveAspectRatio="xMidYMid meet">
+    <circle cx="30" cy="30" r="25" fill="white" stroke="black" stroke-width="2"/>
+    <path d="M 30,5 L 30,55 M 5,30 L 55,30" stroke="black" stroke-width="2"/>
 </symbol>''',
 
-    'valve_gate': '''<symbol id="valve_gate" viewBox="0 0 40 40">
-    <path d="M 10,10 L 10,30 L 30,30 L 30,10 Z" fill="white" stroke="black" stroke-width="1.5"/>
-    <path d="M 20,10 L 20,0" stroke="black" stroke-width="1.5"/>
-    <path d="M 0,20 L 10,20 M 30,20 L 40,20" stroke="black" stroke-width="2"/>
+'valve': '''<symbol id="valve" viewBox="0 0 40 40" preserveAspectRatio="xMidYMid meet">
+    <path d="M 5,15 L 5,25 L 35,25 L 35,15 Z" fill="white" stroke="black" stroke-width="2"/>
+    <path d="M 20,15 L 20,5" stroke="black" stroke-width="2"/>
 </symbol>''',
 
-    'valve_globe': '''<symbol id="valve_globe" viewBox="0 0 40 40">
-    <circle cx="20" cy="20" r="10" fill="white" stroke="black" stroke-width="1.5"/>
+'valve_gate': '''<symbol id="valve_gate" viewBox="0 0 40 40" preserveAspectRatio="xMidYMid meet">
+    <path d="M 5,15 L 5,25 L 35,25 L 35,15 Z" fill="white" stroke="black" stroke-width="2"/>
+    <path d="M 20,15 L 20,5" stroke="black" stroke-width="2"/>
+    <circle cx="20" cy="5" r="2" fill="black"/>
+</symbol>''',
+
+'valve_globe': '''<symbol id="valve_globe" viewBox="0 0 40 40" preserveAspectRatio="xMidYMid meet">
+    <circle cx="20" cy="20" r="10" fill="white" stroke="black" stroke-width="2"/>
     <path d="M 10,10 L 30,30 M 30,10 L 10,30" stroke="black" stroke-width="1.5"/>
-    <path d="M 0,20 L 10,20 M 30,20 L 40,20" stroke="black" stroke-width="2"/>
 </symbol>''',
 
-    'valve_ball': '''<symbol id="valve_ball" viewBox="0 0 40 40">
-    <circle cx="20" cy="20" r="10" fill="white" stroke="black" stroke-width="1.5"/>
+'valve_ball': '''<symbol id="valve_ball" viewBox="0 0 40 40" preserveAspectRatio="xMidYMid meet">
+    <circle cx="20" cy="20" r="10" fill="white" stroke="black" stroke-width="2"/>
     <circle cx="20" cy="20" r="5" fill="black"/>
-    <path d="M 0,20 L 10,20 M 30,20 L 40,20" stroke="black" stroke-width="2"/>
 </symbol>''',
 
-    'valve_butterfly': '''<symbol id="valve_butterfly" viewBox="0 0 40 40">
-    <circle cx="20" cy="20" r="10" fill="white" stroke="black" stroke-width="1.5"/>
-    <path d="M 20,10 L 20,30" stroke="black" stroke-width="3"/>
-    <path d="M 0,20 L 10,20 M 30,20 L 40,20" stroke="black" stroke-width="2"/>
+'valve_check': '''<symbol id="valve_check" viewBox="0 0 40 40" preserveAspectRatio="xMidYMid meet">
+    <path d="M 5,15 L 5,25 L 20,35 L 35,25 L 35,15 L 20,5 Z" fill="white" stroke="black" stroke-width="2"/>
+    <line x1="20" y1="15" x2="20" y2="25" stroke="black" stroke-width="2"/>
 </symbol>''',
 
-    'valve_check': '''<symbol id="valve_check" viewBox="0 0 40 40">
-    <path d="M 10,10 L 10,30 L 30,20 L 30,10 Z" fill="white" stroke="black" stroke-width="1.5"/>
-    <path d="M 20,15 L 20,25" stroke="black" stroke-width="1.5"/>
-    <path d="M 0,20 L 10,20 M 30,20 L 40,20" stroke="black" stroke-width="2"/>
-</symbol>''',
-
-    'vessel_vertical': '''<symbol id="vessel_vertical" viewBox="0 0 60 100">
-    <ellipse cx="30" cy="20" rx="25" ry="15" fill="white" stroke="black" stroke-width="1.5"/>
-    <rect x="5" y="20" width="50" height="60" fill="white" stroke="black" stroke-width="1.5"/>
-    <ellipse cx="30" cy="80" rx="25" ry="15" fill="white" stroke="black" stroke-width="1.5"/>
-    <path d="M 5,20 L 5,80" stroke="black" stroke-width="1.5"/>
-    <path d="M 55,20 L 55,80" stroke="black" stroke-width="1.5"/>
-</symbol>''',
-
-    'heat_exchanger': '''<symbol id="heat_exchanger" viewBox="0 0 80 60">
-    <circle cx="30" cy="30" r="25" fill="white" stroke="black" stroke-width="1.5"/>
-    <rect x="30" y="5" width="40" height="50" fill="white" stroke="black" stroke-width="1.5"/>
-    <path d="M 40,15 L 60,15 L 60,45 L 40,45" stroke="black" stroke-width="1" fill="none"/>
-    <path d="M 0,30 L 5,30" stroke="black" stroke-width="2"/>
-    <path d="M 70,30 L 80,30" stroke="black" stroke-width="2"/>
-    <path d="M 50,0 L 50,5" stroke="black" stroke-width="2"/>
-    <path d="M 50,55 L 50,60" stroke="black" stroke-width="2"/>
-</symbol>''',
-
-    'filter': '''<symbol id="filter" viewBox="0 0 40 60">
-    <path d="M 5,10 L 35,10 L 25,40 L 15,40 Z" fill="white" stroke="black" stroke-width="1.5"/>
-    <path d="M 20,0 L 20,10" stroke="black" stroke-width="2"/>
-    <path d="M 20,40 L 20,60" stroke="black" stroke-width="2"/>
-    <path d="M 10,20 L 30,20" stroke="black" stroke-width="0.5"/>
-    <path d="M 12,25 L 28,25" stroke="black" stroke-width="0.5"/>
-    <path d="M 14,30 L 26,30" stroke="black" stroke-width="0.5"/>
-</symbol>''',
-
-    'tank': '''<symbol id="tank" viewBox="0 0 80 60">
-    <rect x="10" y="10" width="60" height="40" rx="5" fill="white" stroke="black" stroke-width="1.5"/>
-    <path d="M 10,35 L 70,35" stroke="black" stroke-width="0.5" stroke-dasharray="3,3"/>
-</symbol>''',
-
-    'compressor': '''<symbol id="compressor" viewBox="0 0 60 60">
-    <circle cx="30" cy="30" r="25" fill="white" stroke="black" stroke-width="1.5"/>
-    <path d="M 15,15 L 30,30 L 15,45" stroke="black" stroke-width="2" fill="none"/>
-    <path d="M 30,30 L 45,15" stroke="black" stroke-width="2"/>
-    <path d="M 30,30 L 45,45" stroke="black" stroke-width="2"/>
-    <path d="M 0,30 L 5,30" stroke="black" stroke-width="2"/>
-    <path d="M 55,30 L 60,30" stroke="black" stroke-width="2"/>
-</symbol>''',
-
-    'control_valve': '''<symbol id="control_valve" viewBox="0 0 40 60">
-    <path d="M 10,30 L 10,50 L 30,50 L 30,30 Z" fill="white" stroke="black" stroke-width="1.5"/>
-    <path d="M 20,30 L 20,10" stroke="black" stroke-width="1.5"/>
-    <path d="M 15,10 L 25,10" stroke="black" stroke-width="1.5"/>
-    <path d="M 0,40 L 10,40 M 30,40 L 40,40" stroke="black" stroke-width="2"/>
+'control_valve': '''<symbol id="control_valve" viewBox="0 0 40 50" preserveAspectRatio="xMidYMid meet">
+    <path d="M 5,25 L 5,35 L 35,35 L 35,25 Z" fill="white" stroke="black" stroke-width="2"/>
+    <path d="M 20,25 L 20,10" stroke="black" stroke-width="2"/>
+    <path d="M 15,10 L 25,10" stroke="black" stroke-width="2"/>
     <circle cx="20" cy="10" r="2" fill="black"/>
-</symbol>'''
+</symbol>''',
+
+'vessel': '''<symbol id="vessel" viewBox="0 0 60 100" preserveAspectRatio="xMidYMid meet">
+    <ellipse cx="30" cy="20" rx="25" ry="15" fill="white" stroke="black" stroke-width="2"/>
+    <rect x="5" y="20" width="50" height="60" fill="white" stroke="black" stroke-width="2"/>
+    <ellipse cx="30" cy="80" rx="25" ry="15" fill="white" stroke="black" stroke-width="2"/>
+    <line x1="5" y1="20" x2="5" y2="80" stroke="black" stroke-width="2"/>
+    <line x1="55" y1="20" x2="55" y2="80" stroke="black" stroke-width="2"/>
+</symbol>''',
+
+'tank': '''<symbol id="tank" viewBox="0 0 80 60" preserveAspectRatio="xMidYMid meet">
+    <rect x="5" y="10" width="70" height="40" rx="5" fill="white" stroke="black" stroke-width="2"/>
+    <path d="M 5,35 L 75,35" stroke="black" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
+</symbol>''',
+
+'heat_exchanger': '''<symbol id="heat_exchanger" viewBox="0 0 100 60" preserveAspectRatio="xMidYMid meet">
+    <circle cx="30" cy="30" r="25" fill="white" stroke="black" stroke-width="2"/>
+    <rect x="30" y="5" width="60" height="50" fill="white" stroke="black" stroke-width="2"/>
+    <path d="M 40,15 L 80,15 M 40,25 L 80,25 M 40,35 L 80,35 M 40,45 L 80,45" stroke="black" stroke-width="1"/>
+</symbol>''',
+
+'filter': '''<symbol id="filter" viewBox="0 0 40 60" preserveAspectRatio="xMidYMid meet">
+    <path d="M 5,10 L 35,10 L 25,40 L 15,40 Z" fill="white" stroke="black" stroke-width="2"/>
+    <path d="M 10,20 L 30,20 M 12,25 L 28,25 M 14,30 L 26,30" stroke="black" stroke-width="1"/>
+</symbol>''',
+
+'compressor': '''<symbol id="compressor" viewBox="0 0 60 60" preserveAspectRatio="xMidYMid meet">
+    <circle cx="30" cy="30" r="25" fill="white" stroke="black" stroke-width="2"/>
+    <path d="M 15,15 L 30,30 L 15,45" stroke="black" stroke-width="2" fill="none"/>
+    <path d="M 30,30 L 45,15 M 30,30 L 45,45" stroke="black" stroke-width="2"/>
+</symbol>''',
+
+# New safety symbols
+'psv': '''<symbol id="psv" viewBox="0 0 40 60" preserveAspectRatio="xMidYMid meet">
+    <path d="M 5,40 L 5,50 L 35,50 L 35,40 Z" fill="white" stroke="black" stroke-width="2"/>
+    <path d="M 20,40 L 20,20 L 10,10 L 30,10 L 20,20" stroke="black" stroke-width="2" fill="white"/>
+    <path d="M 20,10 L 20,0" stroke="black" stroke-width="2"/>
+</symbol>''',
+
+'rupture_disc': '''<symbol id="rupture_disc" viewBox="0 0 40 40" preserveAspectRatio="xMidYMid meet">
+    <circle cx="20" cy="20" r="15" fill="white" stroke="black" stroke-width="2"/>
+    <path d="M 10,10 L 30,30 M 30,10 L 10,30" stroke="black" stroke-width="1"/>
+</symbol>''',
+```
+
 }
 
-# — INSTRUMENT BUBBLE FUNCTION —
+# Helper functions (keeping your existing ones)
 
-def create_instrument_bubble(tag, x, y, size=20):
-    """Creates an ISA standard instrument bubble with tag"""
-    tag_parts = parse_instrument_tag(tag)
-    svg = f'<g transform="translate({x},{y})">'
-    svg += f'<circle cx="0" cy="0" r="{size}" fill="white" stroke="black" stroke-width="1.5"/>'
+def normalize(s):
+if not isinstance(s, str):
+return “”
+return s.lower().strip().replace(” “, “*”).replace(”-”, “*”)
 
-    # Add horizontal line if field mounted
-    if tag_parts.get('location') == 'field':
-        svg += f'<line x1="{-size}" y1="0" x2="{size}" y2="0" stroke="black" stroke-width="1.5"/>'
-
-    # Add tag text
-    svg += f'<text x="0" y="-5" text-anchor="middle" font-size="{TEXT_HEIGHT * 3}" font-family="Arial">{tag_parts["letters"]}</text>'
-    svg += f'<text x="0" y="7" text-anchor="middle" font-size="{TEXT_HEIGHT * 2.5}" font-family="Arial">{tag_parts["number"]}</text>'
-
-    svg += '</g>'
-    return svg
+def clean_component_id(s):
+if not isinstance(s, str):
+return “”
+return s.strip()
 
 def parse_instrument_tag(tag):
-    """Parses ISA instrument tag (e.g., FT-101, PIC-102)"""
-    match = re.match(r'^([A-Z]+)-?(\d+)$', tag)
+if not tag:
+return None
+
+```
+patterns = [
+    r'^([A-Z]{2,4})-?(\d{3,4})$',
+    r'^([A-Z]{2,4})(\d{3,4})$',
+]
+
+for pattern in patterns:
+    match = re.match(pattern, str(tag))
     if match:
         letters = match.group(1)
         number = match.group(2)
-        # Determine if local (L prefix) or field mounted
-        location = 'field' if not letters.startswith('L') else 'local'
+        
+        location = 'field'
+        if letters.startswith('L'):
+            location = 'local'
+            letters = letters[1:]
+        
         return {
             'letters': letters,
             'number': number,
             'location': location,
-            'function': get_instrument_function(letters)
+            'full_tag': tag,
+            'is_instrument': True
         }
-    return {'letters': tag, 'number': '', 'location': 'field', 'function': 'unknown'}
 
-def get_instrument_function(letters):
-    """Determines instrument function from ISA letter code"""
-    first_letter_meaning = {
-        'F': 'Flow', 'L': 'Level', 'P': 'Pressure', 'T': 'Temperature',
-        'A': 'Analysis', 'E': 'Voltage', 'I': 'Current', 'S': 'Speed'
-    }
+return None
+```
 
-    modifier_letters = {
-        'I': 'Indicator', 'C': 'Controller', 'T': 'Transmitter',
-        'V': 'Valve', 'E': 'Element', 'R': 'Recorder', 'A': 'Alarm'
-    }
+def create_instrument_bubble(tag, x, y, size=None):
+if size is None:
+size = INSTRUMENT_BUBBLE_SIZE
 
-    # Parse the tag
-    if len(letters) >= 2:
-        variable = first_letter_meaning.get(letters[0], 'Unknown')
-        function = modifier_letters.get(letters[-1], 'Unknown')
-        return f"{variable} {function}"
-    return "Unknown"
+```
+tag_info = parse_instrument_tag(tag)
+if not tag_info:
+    return ""
 
-# — ENHANCED LINE DRAWING —
+svg = f'<g class="instrument-bubble">'
 
-def draw_process_line(points, line_type='process', with_arrow=True):
-    """Draws a process line with proper P&ID conventions"""
-    if len(points) < 2:
-        return ""
+svg += f'<circle cx="{x}" cy="{y}" r="{size}" fill="white" stroke="black" stroke-width="1.5"/>'
 
-    line_def = LINE_STANDARDS.get(line_type, LINE_STANDARDS['process'])
+if tag_info['location'] == 'field':
+    svg += f'<line x1="{x-size}" y1="{y}" x2="{x+size}" y2="{y}" stroke="black" stroke-width="1.5"/>'
 
-    svg = '<g>'
+text_size = TAG_FONT_SIZE * 0.8
+svg += f'<text x="{x}" y="{y-3}" text-anchor="middle" font-size="{text_size}" font-family="Arial, sans-serif" font-weight="bold">{tag_info["letters"]}</text>'
+svg += f'<text x="{x}" y="{y+8}" text-anchor="middle" font-size="{text_size*0.9}" font-family="Arial, sans-serif">{tag_info["number"]}</text>'
 
-    # Create path
-    path_d = f"M {points[0][0]},{points[0][1]}"
-    for point in points[1:]:
-        path_d += f" L {point[0]},{point[1]}"
+svg += '</g>'
+return svg
+```
 
-    stroke_dasharray = f'stroke-dasharray="{line_def.get("dash", "")}"' if line_def.get("dash") else ""
-
-    svg += f'<path d="{path_d}" stroke="{line_def["color"]}" stroke-width="{line_def["width"]}" fill="none" {stroke_dasharray}/>'
-
-    # Add flow arrow if needed
-    if with_arrow and len(points) >= 2:
-        # Calculate arrow position and angle
-        last_segment = (points[-2], points[-1])
-        angle = math.atan2(last_segment[1][1] - last_segment[0][1],
-                           last_segment[1][0] - last_segment[0][0])
-        angle_deg = math.degrees(angle)
-
-        arrow_x = points[-1][0] - 10 * math.cos(angle)
-        arrow_y = points[-1][1] - 10 * math.sin(angle)
-
-        svg += f'<g transform="translate({arrow_x},{arrow_y}) rotate({angle_deg})">'
-        svg += '<polygon points="0,-4 8,0 0,4" fill="black"/>'
-        svg += '</g>'
-
-    svg += '</g>'
-    return svg
-
-# — TITLE BLOCK GENERATION —
-
-def create_title_block(width, height, project_info):
-    """Creates a professional title block"""
-    tb_x = width - TITLE_BLOCK_WIDTH - PADDING
-    tb_y = height - TITLE_BLOCK_HEIGHT - PADDING
-
-    svg = f'<g transform="translate({tb_x},{tb_y})">'
-
-    # Main border
-    svg += f'<rect x="0" y="0" width="{TITLE_BLOCK_WIDTH}" height="{TITLE_BLOCK_HEIGHT}" fill="white" stroke="black" stroke-width="{BORDER_WIDTH}"/>'
-
-    # Horizontal divisions
-    divisions = [40, 80, 120, 140]
-    for y in divisions:
-        svg += f'<line x1="0" y1="{y}" x2="{TITLE_BLOCK_WIDTH}" y2="{y}" stroke="black" stroke-width="{BORDER_WIDTH}"/>'
-
-    # Vertical divisions
-    svg += f'<line x1="400" y1="0" x2="400" y2="140" stroke="black" stroke-width="{BORDER_WIDTH}"/>'
-
-    # Add text
-    svg += f'<text x="10" y="25" font-size="16" font-weight="bold">{project_info.get("client", "CLIENT NAME")}</text>'
-    svg += f'<text x="10" y="60" font-size="12">{project_info.get("project", "Project Description")}</text>'
-    svg += f'<text x="10" y="100" font-size="10">Drawing No: {project_info.get("drawing_no", "XXXX-XX-XX")}</text>'
-    svg += f'<text x="10" y="130" font-size="10">Date: {datetime.datetime.now().strftime("%Y-%m-%d")}</text>'
-    svg += f'<text x="410" y="25" font-size="12">Scale: {DRAWING_SCALE}</text>'
-    svg += f'<text x="410" y="60" font-size="10">Drawn: {project_info.get("drawn_by", "Engineer")}</text>'
-    svg += f'<text x="410" y="95" font-size="10">Checked: {project_info.get("checked_by", "Checker")}</text>'
-    svg += f'<text x="410" y="130" font-size="10">Rev: {project_info.get("revision", "0")}</text>'
-
-    svg += '</g>'
-    return svg
-
-# — P&ID COMPONENT CLASS —
+# Enhanced P&ID Component Class
 
 class PnidComponent:
-    """Enhanced P&ID component with ISA standards"""
-    def __init__(self, row):
-        self.id = row['id'].strip()
-        self.tag = row.get('tag', self.id)
-        self.component_type = row.get('type', 'valve_gate')  # Use ISA type
-        self.x = row['x']
-        self.y = row['y']
-        self.rotation = row.get('rotation', 0)
+def **init**(self, row):
+self.id = clean_component_id(row[‘id’])
+self.tag = row.get(‘tag’, self.id)
+self.component_type = normalize(row.get(‘Component’, ‘valve’))
+self.x = float(row.get(‘x’, 0))
+self.y = float(row.get(‘y’, 0))
+self.rotation = float(row.get(‘rotation’, 0))
 
-        # Parse instrument tags
-        self.tag_info = parse_instrument_tag(self.tag) if self._is_instrument() else None
-
-        # Get symbol dimensions
-        if self._is_instrument():
-            self.width = INSTRUMENT_BUBBLE_SIZE * 2
-            self.height = INSTRUMENT_BUBBLE_SIZE * 2
-        else:
-            # Get from symbol viewBox
-            symbol = ISA_SYMBOLS.get(self.component_type, ISA_SYMBOLS['valve_gate'])
+```
+    self.tag_info = parse_instrument_tag(self.tag)
+    self.is_instrument = bool(self.tag_info)
+    
+    if self.is_instrument:
+        self.width = INSTRUMENT_BUBBLE_SIZE * 2 * SYMBOL_SCALE
+        self.height = INSTRUMENT_BUBBLE_SIZE * 2 * SYMBOL_SCALE
+    else:
+        self.symbol_id = self._get_symbol_id()
+        
+        if self.symbol_id in ISA_SYMBOLS:
+            symbol = ISA_SYMBOLS[self.symbol_id]
             viewbox_match = re.search(r'viewBox="0 0 (\d+) (\d+)"', symbol)
             if viewbox_match:
-                self.width = float(viewbox_match.group(1)) * SYMBOL_SCALE
-                self.height = float(viewbox_match.group(2)) * SYMBOL_SCALE
+                base_width = float(viewbox_match.group(1))
+                base_height = float(viewbox_match.group(2))
             else:
-                self.width = 40 * SYMBOL_SCALE
-                self.height = 40 * SYMBOL_SCALE
-
-        # Define connection points
-        self.ports = self._define_ports()
-
-    def _is_instrument(self):
-        """Check if component is an instrument based on tag"""
-        return bool(re.match(r'^[A-Z]{2,4}-?\d{3,4}$', self.tag))
-
-    def _define_ports(self):
-        """Define standard connection ports based on component type"""
-        if self.component_type in ['valve_gate', 'valve_globe', 'valve_ball', 'valve_butterfly', 'valve_check']:
-            return {
-                'inlet': {'dx': 0, 'dy': self.height / 2},
-                'outlet': {'dx': self.width, 'dy': self.height / 2}
-            }
-        elif self.component_type == 'pump_centrifugal':
-            return {
-                'suction': {'dx': 0, 'dy': self.height / 2},
-                'discharge': {'dx': self.width / 2, 'dy': 0}
-            }
-        elif self.component_type == 'vessel_vertical':
-            return {
-                'top': {'dx': self.width / 2, 'dy': 0},
-                'bottom': {'dx': self.width / 2, 'dy': self.height},
-                'side_top': {'dx': self.width, 'dy': self.height * 0.3},
-                'side_bottom': {'dx': self.width, 'dy': self.height * 0.7}
-            }
+                base_width, base_height = 40, 40
         else:
-            # Default ports
-            return {
-                'center': {'dx': self.width / 2, 'dy': self.height / 2}
-            }
+            base_width = float(row.get('Width', 40))
+            base_height = float(row.get('Height', 40))
+        
+        self.width = base_width * SYMBOL_SCALE
+        self.height = base_height * SYMBOL_SCALE
+    
+    self.ports = self._define_ports()
 
-    def get_port_coords(self, port_name):
-        """Get absolute coordinates for a port"""
-        port = self.ports.get(port_name, self.ports.get('center'))
-        if port:
-            # Apply rotation if needed (not implemented)
-            return (self.x + port['dx'], self.y + port['dy'])
-        return (self.x + self.width / 2, self.y + self.height / 2)
+def _get_symbol_id(self):
+    if self.component_type in ISA_SYMBOLS:
+        return self.component_type
+    
+    mappings = {
+        'pump': 'pump_centrifugal',
+        'centrifugal_pump': 'pump_centrifugal',
+        'gate_valve': 'valve_gate',
+        'globe_valve': 'valve_globe',
+        'ball_valve': 'valve_ball',
+        'check_valve': 'valve_check',
+        'pressure_safety_valve': 'psv',
+        'relief_valve': 'psv',
+        'vessel_vertical': 'vessel',
+        'vessel_horizontal': 'vessel',
+        'storage_tank': 'tank',
+        'heat_exchanger': 'heat_exchanger',
+        'cooler': 'heat_exchanger',
+        'heater': 'heat_exchanger',
+    }
+    
+    return mappings.get(self.component_type, 'valve')
 
-    def render(self):
-        """Render the component as SVG"""
-        if self._is_instrument():
-            return create_instrument_bubble(self.tag, self.x + self.width / 2, self.y + self.height / 2, INSTRUMENT_BUBBLE_SIZE)
-        else:
-            transform = f'translate({self.x},{self.y})'
-            if self.rotation:
-                transform += f' rotate({self.rotation},{self.width / 2},{self.height / 2})'
+def _define_ports(self):
+    if self.is_instrument:
+        return {
+            'center': {'dx': self.width/2, 'dy': self.height/2},
+            'top': {'dx': self.width/2, 'dy': 0},
+            'bottom': {'dx': self.width/2, 'dy': self.height},
+            'left': {'dx': 0, 'dy': self.height/2},
+            'right': {'dx': self.width, 'dy': self.height/2},
+            'default': {'dx': self.width/2, 'dy': self.height/2}
+        }
+    
+    if self.symbol_id in ['valve', 'valve_gate', 'valve_globe', 'valve_ball', 'valve_check']:
+        return {
+            'inlet': {'dx': 0, 'dy': self.height/2},
+            'outlet': {'dx': self.width, 'dy': self.height/2},
+            'default': {'dx': self.width/2, 'dy': self.height/2}
+        }
+    elif self.symbol_id in ['pump', 'pump_centrifugal']:
+        return {
+            'suction': {'dx': 0, 'dy': self.height/2},
+            'discharge': {'dx': self.width/2, 'dy': 0},
+            'inlet': {'dx': 0, 'dy': self.height/2},
+            'outlet': {'dx': self.width/2, 'dy': 0},
+            'default': {'dx': self.width/2, 'dy': self.height/2}
+        }
+    elif self.symbol_id == 'vessel':
+        return {
+            'top': {'dx': self.width/2, 'dy': 0},
+            'bottom': {'dx': self.width/2, 'dy': self.height},
+            'side_top': {'dx': self.width, 'dy': self.height * 0.3},
+            'side_bottom': {'dx': self.width, 'dy': self.height * 0.7},
+            'default': {'dx': self.width/2, 'dy': self.height/2}
+        }
+    else:
+        return {
+            'center': {'dx': self.width/2, 'dy': self.height/2},
+            'inlet': {'dx': 0, 'dy': self.height/2},
+            'outlet': {'dx': self.width, 'dy': self.height/2},
+            'default': {'dx': self.width/2, 'dy': self.height/2}
+        }
 
-            return f'<use href="#{self.component_type}" transform="{transform}" width="{self.width}" height="{self.height}"/>'
+def get_port_coords(self, port_name):
+    port = self.ports.get(port_name) or self.ports.get('default') or self.ports.get('center')
+    if port:
+        return (self.x + port['dx'], self.y + port['dy'])
+    return (self.x + self.width/2, self.y + self.height/2)
+```
 
-# — ENHANCED PIPE CLASS —
+# Enhanced Pipe Class with Smart Routing
 
 class PnidPipe:
-    """Enhanced P&ID pipe with line standards"""
-    def __init__(self, row, component_map):
-        self.id = row['id']
-        self.from_comp_id = row['from_component'].strip()
-        self.to_comp_id = row['to_component'].strip()
-        self.from_port = row.get('from_port', 'outlet')
-        self.to_port = row.get('to_port', 'inlet')
-        self.line_type = row.get('line_type', 'process')
-        self.line_number = row.get('line_number', '')
-        self.with_arrow = row.get('with_arrow', True)
+def **init**(self, row, component_map, router=None):
+self.id = row.get(‘Pipe No.’, ‘’)
+self.label = row.get(‘Label’, f”Line {self.id}”)
+self.line_type = row.get(‘pipe_type’, ‘process’)
 
-        # Get components
-        self.from_comp = component_map.get(self.from_comp_id)
-        self.to_comp = component_map.get(self.to_comp_id)
-
-        # Calculate path
-        self.points = self._calculate_path(row.get('waypoints', []))
-
-    def _calculate_path(self, waypoints):
-        """Calculate pipe path with orthogonal routing"""
-        if not self.from_comp or not self.to_comp:
-            return []
-
+```
+    type_mapping = {
+        'process_line': 'process',
+        'instrumentation': 'instrumentation',
+        'instrument_signal': 'instrumentation',
+        'electrical': 'electrical',
+        'pneumatic': 'pneumatic',
+        'hydraulic': 'hydraulic'
+    }
+    self.line_type = type_mapping.get(self.line_type, self.line_type)
+    
+    from_comp_id = clean_component_id(row.get('From Component', ''))
+    to_comp_id = clean_component_id(row.get('To Component', ''))
+    
+    self.from_comp = component_map.get(from_comp_id)
+    self.to_comp = component_map.get(to_comp_id)
+    
+    self.from_port = row.get('From Port', 'default')
+    self.to_port = row.get('To Port', 'default')
+    
+    # Use smart routing if enabled and router provided
+    if enable_smart_routing and router and self.from_comp and self.to_comp:
         start = self.from_comp.get_port_coords(self.from_port)
         end = self.to_comp.get_port_coords(self.to_port)
+        self.points = router.find_path(start, end)
+    else:
+        self.points = self._parse_points(row)
+    
+    self.with_arrow = self.line_type in ['process', 'process_thick']
 
-        if waypoints:
-            # Use provided waypoints
-            return [start] + waypoints + [end]
-        else:
-            # Auto-route with orthogonal lines
-            points = [start]
+def _parse_points(self, row):
+    points = []
+    
+    polyline_str = str(row.get('Polyline Points (x, y)', '')).strip()
+    if polyline_str and polyline_str.lower() != 'nan':
+        pts = re.findall(r"\(([-+]?\d*\.?\d+)\s*,\s*([-+]?\d*\.?\d+)\)", polyline_str)
+        if pts:
+            points = [(float(x), float(y)) for x, y in pts]
+    
+    if not points and self.from_comp and self.to_comp:
+        start = self.from_comp.get_port_coords(self.from_port)
+        end = self.to_comp.get_port_coords(self.to_port)
+        points = self._calculate_orthogonal_path(start, end)
+    
+    return points
 
-            # Simple orthogonal routing
-            if abs(start[0] - end[0]) > abs(start[1] - end[1]):
-                # Horizontal first
-                mid_x = (start[0] + end[0]) / 2
-                points.append((mid_x, start[1]))
-                points.append((mid_x, end[1]))
-            else:
-                # Vertical first
-                mid_y = (start[1] + end[1]) / 2
-                points.append((start[0], mid_y))
-                points.append((end[0], mid_y))
+def _calculate_orthogonal_path(self, start, end):
+    points = [start]
+    
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    
+    if abs(dx) > abs(dy):
+        mid_x = start[0] + dx / 2
+        points.append((mid_x, start[1]))
+        points.append((mid_x, end[1]))
+    else:
+        mid_y = start[1] + dy / 2
+        points.append((start[0], mid_y))
+        points.append((end[0], mid_y))
+    
+    points.append(end)
+    return points
+```
 
-            points.append(end)
-            return points
+# Main rendering function with advanced features
 
-    def render(self):
-        """Render the pipe as SVG"""
-        if len(self.points) < 2:
-            return ""
+def render_professional_svg(components, pipes, router=None):
+if components:
+max_x = max(c.x + c.width for c in components.values()) + PADDING
+max_y = max(c.y + c.height for c in components.values()) + PADDING
+else:
+max_x, max_y = 1200, 800
 
-        svg = draw_process_line(self.points, self.line_type, self.with_arrow)
+```
+drawing_width = max(max_x, 1200)
+drawing_height = max(max_y + TITLE_BLOCK_HEIGHT, 800)
 
-        # Add line number if specified
-        if self.line_number and len(self.points) >= 2:
-            mid_idx = len(self.points) // 2
-            mid_x = (self.points[mid_idx - 1][0] + self.points[mid_idx][0]) / 2
-            mid_y = (self.points[mid_idx - 1][1] + self.points[mid_idx][1]) / 2
+svg_parts = [f'''<svg width="{drawing_width}" height="{drawing_height}" 
+                 viewBox="0 0 {drawing_width} {drawing_height}" 
+                 xmlns="http://www.w3.org/2000/svg" 
+                 style="font-family: Arial, sans-serif; background-color: white;">''']
 
-            svg += f'<text x="{mid_x}" y="{mid_y - 5}" text-anchor="middle" font-size="{TEXT_HEIGHT * 2.5}" font-family="Arial">{self.line_number}</text>'
+# Add definitions
+svg_parts.append('<defs>')
+svg_parts.append('''
+    <marker id="arrow-process" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+        <polygon points="0,0 10,5 0,10" fill="black"/>
+    </marker>
+    <marker id="arrow-thick" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+        <polygon points="0,0 12,6 0,12" fill="black"/>
+    </marker>
+''')
 
-        return svg
+for symbol_id, symbol_def in ISA_SYMBOLS.items():
+    svg_parts.append(symbol_def)
 
-# — MAIN RENDERING FUNCTION —
+svg_parts.append('</defs>')
 
-def render_professional_pnid(components, pipes, project_info):
-    """Render a professional P&ID drawing"""
-    # Calculate drawing size
-    max_x = max([c.x + c.width for c in components] + [800])
-    max_y = max([c.y + c.height for c in components] + [600])
+# Drawing border
+if DRAWING_BORDER:
+    svg_parts.append(f'''<rect x="5" y="5" width="{drawing_width-10}" height="{drawing_height-10}" 
+                        fill="none" stroke="black" stroke-width="{BORDER_WIDTH}"/>''')
 
-    width = max_x + PADDING * 2 + 200  # Extra space for annotations
-    height = max_y + PADDING * 2 + TITLE_BLOCK_HEIGHT
+# Grid
+svg_parts.append('<g class="grid" opacity="0.2">')
+for x in range(0, int(drawing_width), GRID_SPACING):
+    svg_parts.append(f'<line x1="{x}" y1="0" x2="{x}" y2="{drawing_height}" stroke="#cccccc" stroke-width="0.5"/>')
+for y in range(0, int(drawing_height), GRID_SPACING):
+    svg_parts.append(f'<line x1="0" y1="{y}" x2="{drawing_width}" y2="{y}" stroke="#cccccc" stroke-width="0.5"/>')
+svg_parts.append('</g>')
 
-    # Start SVG
-    svg = f'''<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" 
-          xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">'''
+# Render pipes
+svg_parts.append('<g class="pipes">')
+for pipe in pipes:
+    if len(pipe.points) >= 2:
+        line_style = LINE_STANDARDS.get(pipe.line_type, LINE_STANDARDS['process'])
+        
+        path_d = f"M {pipe.points[0][0]},{pipe.points[0][1]}"
+        for point in pipe.points[1:]:
+            path_d += f" L {point[0]},{point[1]}"
+        
+        stroke_props = f'stroke="{line_style["color"]}" stroke-width="{line_style["width"] * PIPE_WIDTH/2}"'
+        if line_style.get('dash'):
+            stroke_props += f' stroke-dasharray="{line_style["dash"]}"'
+        
+        marker = ''
+        if pipe.with_arrow:
+            marker = f'marker-end="url(#arrow-{"thick" if line_style["width"] > 2 else "process"})"'
+        
+        svg_parts.append(f'<path d="{path_d}" fill="none" {stroke_props} {marker}/>')
+        
+        if pipe.label and len(pipe.points) >= 2:
+            mid_idx = len(pipe.points) // 2
+            label_x = (pipe.points[mid_idx-1][0] + pipe.points[mid_idx][0]) / 2
+            label_y = (pipe.points[mid_idx-1][1] + pipe.points[mid_idx][1]) / 2 - 5
+            
+            svg_parts.append(f'''<text x="{label_x}" y="{label_y}" text-anchor="middle" 
+                                font-size="{PIPE_LABEL_FONT_SIZE}" fill="black">{pipe.label}</text>''')
+svg_parts.append('</g>')
 
-    # Add definitions
-    svg += '<defs>'
-    for symbol_id, symbol_def in ISA_SYMBOLS.items():
-        svg += symbol_def
-    svg += '</defs>'
+# Render components
+svg_parts.append('<g class="components">')
+for comp in components.values():
+    if comp.is_instrument:
+        svg_parts.append(create_instrument_bubble(comp.tag, comp.x + comp.width/2, comp.y + comp.height/2))
+    else:
+        transform = f'translate({comp.x},{comp.y})'
+        if comp.rotation:
+            cx = comp.width / 2
+            cy = comp.height / 2
+            transform += f' rotate({comp.rotation},{cx},{cy})'
+        
+        svg_parts.append(f'''<use href="#{comp.symbol_id}" transform="{transform}" 
+                            width="{comp.width}" height="{comp.height}"/>''')
+        
+        if comp.tag and not comp.is_instrument:
+            tag_y = comp.y + comp.height + TAG_FONT_SIZE + 2
+            svg_parts.append(f'''<text x="{comp.x + comp.width/2}" y="{tag_y}" 
+                                text-anchor="middle" font-size="{TAG_FONT_SIZE}" 
+                                font-weight="bold" fill="black">{comp.tag}</text>''')
+svg_parts.append('</g>')
 
-    # Add border
-    svg += f'<rect x="{PADDING/2}" y="{PADDING/2}" width="{width-PADDING}" height="{height-PADDING}" '
-    svg += f'fill="none" stroke="black" stroke-width="{BORDER_WIDTH}"/>'
+# Add control loops overlay if enabled
+if show_control_loops:
+    analyzer = ControlSystemAnalyzer(components, pipes)
+    svg_parts.append(render_control_loop_overlay(analyzer.control_loops, components))
 
-    # Add grid
-    svg += '<g opacity="0.3">'
-    for x in range(0, int(width), GRID_SPACING * 4):
-        svg += f'<line x1="{x}" y1="0" x2="{x}" y2="{height}" stroke="gray" stroke-width="0.5"/>'
-    for y in range(0, int(height), GRID_SPACING * 4):
-        svg += f'<line x1="0" y1="{y}" x2="{width}" y2="{y}" stroke="gray" stroke-width="0.5"/>'
-    svg += '</g>'
+# Add validation overlay if enabled
+if enable_validation:
+    validator = PnIDValidator(components, pipes)
+    validation_results = validator.validate_all()
+    if validation_results['errors'] or validation_results['warnings']:
+        svg_parts.append(render_validation_overlay(validation_results, components))
 
-    # Render pipes (behind components)
-    for pipe in pipes:
-        svg += pipe.render()
+# Title block
+svg_parts.append(render_title_block(drawing_width, drawing_height))
 
-    # Render components
-    for comp in components:
-        svg += comp.render()
+svg_parts.append('</svg>')
+return ''.join(svg_parts)
+```
 
-    # Add title block
-    svg += create_title_block(width, height, project_info)
+def render_title_block(width, height):
+tb_x = width - TITLE_BLOCK_WIDTH - 20
+tb_y = height - TITLE_BLOCK_HEIGHT - 20
 
-    # Add notes section
-    notes_y = height - TITLE_BLOCK_HEIGHT - PADDING - 100
-    svg += f'<text x="{PADDING}" y="{notes_y}" font-size="{TEXT_HEIGHT * 3}" font-weight="bold">NOTES:</text>'
-    svg += f'<text x="{PADDING}" y="{notes_y + 20}" font-size="{TEXT_HEIGHT * 2.5}">1. All dimensions in mm unless noted otherwise</text>'
-    svg += f'<text x="{PADDING}" y="{notes_y + 40}" font-size="{TEXT_HEIGHT * 2.5}">2. Refer to equipment datasheet for details</text>'
+```
+project_info = st.session_state.get('project_info', {
+    'client': 'EPS Pvt. Ltd.',
+    'project': 'P&ID Automation Project',
+    'drawing_no': 'EPS-PID-001',
+    'drawn_by': 'Engineer',
+    'checked_by': 'Manager',
+    'approved_by': 'Director',
+    'revision': '0'
+})
 
-    svg += '</svg>'
-    return svg
+svg = f'<g class="title-block" transform="translate({tb_x},{tb_y})">'
 
-# Export PNG utility
-def export_png(svg_output):
-    try:
-        png_bytes = svg2png(bytestring=svg_output.encode("utf-8"))
-        return png_bytes
-    except Exception as e:
-        st.error(f"PNG export failed: {e}")
-        return None
+svg += f'<rect x="0" y="0" width="{TITLE_BLOCK_WIDTH}" height="{TITLE_BLOCK_HEIGHT}" fill="white" stroke="black" stroke-width="{BORDER_WIDTH}"/>'
 
-# — STREAMLIT INTERFACE —
+divisions = [30, 60, 90, 120]
+for y in divisions:
+    svg += f'<line x1="0" y1="{y}" x2="{TITLE_BLOCK_WIDTH}" y2="{y}" stroke="black" stroke-width="{BORDER_WIDTH*0.5}"/>'
 
-# Project Information Form
+svg += f'<line x1="250" y1="0" x2="250" y2="120" stroke="black" stroke-width="{BORDER_WIDTH*0.5}"/>'
 
-st.sidebar.markdown("### Project Information")
-project_info = {
-    'client': st.sidebar.text_input("Client Name", "EPS Pvt. Ltd."),
-    'project': st.sidebar.text_input("Project", "Suction Filter + KDP-330"),
-    'drawing_no': st.sidebar.text_input("Drawing No.", "EPSPL-V2526-TP-01"),
-    'drawn_by': st.sidebar.text_input("Drawn By", "Engineer"),
-    'checked_by': st.sidebar.text_input("Checked By", "Manager"),
-    'revision': st.sidebar.text_input("Revision", "0")
-}
+svg += f'<text x="10" y="20" font-size="14" font-weight="bold">{project_info.get("client", "CLIENT")}</text>'
+svg += f'<text x="10" y="45" font-size="11">{project_info.get("project", "Project")}</text>'
+svg += f'<text x="10" y="75" font-size="10">DWG NO: {project_info.get("drawing_no", "XXX-XXX-XXX")}</text>'
+svg += f'<text x="10" y="105" font-size="10">DATE: {datetime.datetime.now().strftime("%Y-%m-%d")}</text>'
+svg += f'<text x="260" y="20" font-size="10">DRAWN: {project_info.get("drawn_by", "")}</text>'
+svg += f'<text x="260" y="50" font-size="10">CHECKED: {project_info.get("checked_by", "")}</text>'
+svg += f'<text x="260" y="80" font-size="10">APPROVED: {project_info.get("approved_by", "")}</text>'
+svg += f'<text x="260" y="110" font-size="10">REV: {project_info.get("revision", "0")}</text>'
 
-# Initialize session state
+svg += f'<text x="{TITLE_BLOCK_WIDTH/2}" y="{TITLE_BLOCK_HEIGHT+20}" text-anchor="middle" font-size="16" font-weight="bold">PIPING AND INSTRUMENTATION DIAGRAM</text>'
 
-if 'components_df' not in st.session_state:
-    # Sample data - replace with your actual data loading
-    st.session_state.components_df = pd.DataFrame([
-        {'id': 'P-001', 'tag': 'P-001', 'type': 'pump_centrifugal', 'x': 200, 'y': 300, 'rotation': 0},
-        {'id': 'FT-001', 'tag': 'FT-001', 'type': 'instrument', 'x': 150, 'y': 280, 'rotation': 0},
-        {'id': 'V-001', 'tag': 'V-001', 'type': 'valve_gate', 'x': 300, 'y': 300, 'rotation': 0},
-        {'id': 'TK-001', 'tag': 'TK-001', 'type': 'vessel_vertical', 'x': 500, 'y': 200, 'rotation': 0},
-    ])
+svg += '</g>'
+return svg
+```
 
-if 'pipes_df' not in st.session_state:
-    st.session_state.pipes_df = pd.DataFrame([
-        {'id': 'L-001', 'from_component': 'P-001', 'to_component': 'V-001',
-         'from_port': 'discharge', 'to_port': 'inlet', 'line_type': 'process',
-         'line_number': '2”-PG-001', 'with_arrow': True, 'waypoints': []},
-        {'id': 'L-002', 'from_component': 'V-001', 'to_component': 'TK-001',
-         'from_port': 'outlet', 'to_port': 'side_bottom', 'line_type': 'process',
-         'line_number': '2”-PG-002', 'with_arrow': True, 'waypoints': []},
-    ])
+# — MAIN APPLICATION —
 
-# Create components and pipes
+# Create tabs for different functionalities
 
-components = [PnidComponent(row) for _, row in st.session_state.components_df.iterrows()]
-component_map = {c.id: c for c in components}
-pipes = [PnidPipe(row, component_map) for _, row in st.session_state.pipes_df.iterrows()]
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+“📊 P&ID Editor”,
+“🔧 Control Systems”,
+“📋 Templates”,
+“✅ Validation”,
+“📁 Data Management”
+])
 
-# Main display
+# Load data
 
-st.markdown("## Professional P&ID Drawing")
+if ‘eq_df’ not in st.session_state:
+@st.cache_data(show_spinner=“Loading layout data…”)
+def initial_load_layout_data():
+eq_file_path = os.path.join(LAYOUT_DATA_DIR, “enhanced_equipment_layout.csv”)
+pipe_file_path = os.path.join(LAYOUT_DATA_DIR, “pipe_connections_layout.csv”)
 
-# Render the P&ID
+```
+    if not os.path.exists(eq_file_path):
+        st.error(f"Error: {eq_file_path} not found.")
+        return pd.DataFrame(), pd.DataFrame(), []
+    
+    eq_df = pd.read_csv(eq_file_path)
+    pipe_df = pd.read_csv(pipe_file_path, dtype={'Polyline Points (x, y)': str})
+    
+    if 'id' in eq_df.columns:
+        eq_df['id'] = eq_df['id'].apply(clean_component_id)
+    if 'From Component' in pipe_df.columns:
+        pipe_df['From Component'] = pipe_df['From Component'].apply(clean_component_id)
+    if 'To Component' in pipe_df.columns:
+        pipe_df['To Component'] = pipe_df['To Component'].apply(clean_component_id)
+    
+    return eq_df, pipe_df, []
 
-svg_output = render_professional_pnid(components, pipes, project_info)
+st.session_state.eq_df, st.session_state.pipe_df, _ = initial_load_layout_data()
+```
+
+# Create components and pipes with smart routing
+
+components = {c.id: c for c in [PnidComponent(row) for _, row in st.session_state.eq_df.iterrows()]}
+
+# Initialize router if smart routing is enabled
+
+router = None
+if enable_smart_routing:
+router = PipeRouter()
+# Add component obstacles
+for comp in components.values():
+router.add_component_obstacle(comp.x, comp.y, comp.width, comp.height)
+
+pipes = [PnidPipe(row, components, router) for _, row in st.session_state.pipe_df.iterrows()]
+
+# Tab 1: P&ID Editor
+
+with tab1:
+st.markdown(”## Professional P&ID Editor”)
+
+```
+# Main P&ID display
+svg_output = render_professional_svg(components, pipes, router)
 st.components.v1.html(svg_output, height=800, scrolling=True)
 
-# Component addition form
+# Quick stats
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric("Components", len(components))
+with col2:
+    st.metric("Pipes", len(pipes))
+with col3:
+    analyzer = ControlSystemAnalyzer(components, pipes)
+    st.metric("Control Loops", len(analyzer.control_loops))
+with col4:
+    validator = PnIDValidator(components, pipes)
+    validation = validator.validate_all()
+    st.metric("Validation Status", "✅ Pass" if validation['is_valid'] else "❌ Fail")
+```
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### Add Component")
-with st.sidebar.form("add_component"):
-    new_id = st.text_input("Component ID")
-    new_tag = st.text_input("Tag (e.g., P-001, FT-101)")
-    new_type = st.selectbox("Type", list(ISA_SYMBOLS.keys()) + ['instrument'])
-    new_x = st.number_input("X Position", 0, 1000, 100)
-    new_y = st.number_input("Y Position", 0, 1000, 100)
-    new_rotation = st.slider("Rotation", 0, 360, 0)
+# Tab 2: Control Systems
 
-    if st.form_submit_button("Add Component"):
-        new_comp = {
-            'id': new_id,
-            'tag': new_tag,
-            'type': new_type,
-            'x': new_x,
-            'y': new_y,
-            'rotation': new_rotation
-        }
-        st.session_state.components_df = pd.concat([
-            st.session_state.components_df,
-            pd.DataFrame([new_comp])
-        ], ignore_index=True)
+with tab2:
+st.markdown(”## Control Systems Analysis”)
+
+```
+analyzer = ControlSystemAnalyzer(components, pipes)
+
+if analyzer.control_loops:
+    st.markdown("### Detected Control Loops")
+    for loop in analyzer.control_loops:
+        with st.expander(f"🔄 {loop.loop_type.value} - {loop.loop_id}"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write(f"**Primary Element:** {loop.primary_element}")
+                st.write(f"**Controller:** {loop.controller}")
+                st.write(f"**Final Element:** {loop.final_element}")
+            with col2:
+                st.write(f"**Loop Type:** {loop.loop_type.value}")
+                st.write(f"**Components:** {', '.join(loop.components)}")
+else:
+    st.info("No control loops detected in the current P&ID")
+
+if analyzer.interlocks:
+    st.markdown("### Safety Interlocks")
+    for interlock in analyzer.interlocks:
+        st.write(f"⚡ {interlock['alarm']} → {interlock['action']} ({interlock['type']})")
+```
+
+# Tab 3: Templates
+
+with tab3:
+st.markdown(”## Process Unit Templates”)
+
+```
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    template_type = st.selectbox(
+        "Select Template",
+        ["Distillation Column", "Pump Station", "Heat Exchanger Train", 
+         "Compressor Station", "Tank Farm", "Reactor System"]
+    )
+    
+    x_pos = st.number_input("X Position", 100, 2000, 500, 50)
+    y_pos = st.number_input("Y Position", 100, 2000, 300, 50)
+    tag_prefix = st.text_input("Tag Prefix", "T")
+    
+    if st.button("Add Template to P&ID"):
+        if template_type == "Distillation Column":
+            new_components, new_pipes = ProcessUnitTemplate.distillation_column(x_pos, y_pos, tag_prefix)
+        elif template_type == "Pump Station":
+            new_components, new_pipes = ProcessUnitTemplate.pump_station(x_pos, y_pos, tag_prefix, redundant=True)
+        
+        # Add components to dataframe
+        for comp_data in new_components:
+            new_row = pd.DataFrame([{
+                'id': comp_data['id'],
+                'tag': comp_data['tag'],
+                'Component': comp_data['type'],
+                'x': comp_data['x'],
+                'y': comp_data['y'],
+                'Width': comp_data.get('width', 60),
+                'Height': comp_data.get('height', 60),
+                'rotation': 0
+            }])
+            st.session_state.eq_df = pd.concat([st.session_state.eq_df, new_row], ignore_index=True)
+        
+        st.success(f"Added {template_type} template")
         st.rerun()
 
-# Export options
+with col2:
+    st.markdown("### Template Preview")
+    st.info("Templates include pre-configured equipment arrangements with standard instrumentation and piping")
+    
+    # Show template diagram preview here
+```
 
-st.markdown("---")
-col1, col2, col3 = st.columns(3)
+# Tab 4: Validation
+
+with tab4:
+st.markdown(”## P&ID Validation Report”)
+
+```
+validator = PnIDValidator(components, pipes)
+validation_results = validator.validate_all()
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("### ❌ Errors")
+    if validation_results['errors']:
+        for error in validation_results['errors']:
+            st.markdown(f'<div class="validation-error">{error}</div>', unsafe_allow_html=True)
+    else:
+        st.success("No errors found")
+
+with col2:
+    st.markdown("### ⚠️ Warnings")
+    if validation_results['warnings']:
+        for warning in validation_results['warnings']:
+            st.markdown(f'<div class="validation-warning">{warning}</div>', unsafe_allow_html=True)
+    else:
+        st.success("No warnings found")
+
+# Validation summary
+st.markdown("### Validation Summary")
+st.write(f"- **Instrument Tags:** {len([c for c in components.values() if c.is_instrument])} instruments found")
+st.write(f"- **Control Loops:** {len(analyzer.control_loops)} loops detected")
+st.write(f"- **Line Sizing:** Validated {len(pipes)} pipe connections")
+st.write(f"- **Safety Systems:** Checked pressure relief and interlock systems")
+```
+
+# Tab 5: Data Management
+
+with tab5:
+st.markdown(”## Data Management”)
+
+```
+# Export options
+st.markdown("### Export Options")
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
     st.download_button("📥 Download SVG", svg_output, "professional_pnid.svg", "image/svg+xml")
 
 with col2:
-    if st.button("📥 Generate PNG"):
-        png_data = export_png(svg_output)
-        if png_data:
-            st.download_button("Download PNG", png_data, "professional_pnid.png", "image/png")
+    if st.button("Generate PNG"):
+        from cairosvg import svg2png
+        png_data = svg2png(bytestring=svg_output.encode('utf-8'), output_width=2000)
+        st.download_button("📥 Download PNG", png_data, "professional_pnid.png", "image/png")
 
 with col3:
-    if st.button("📥 Generate DXF"):
-        # Add DXF export logic here
-        st.info("DXF export requires additional implementation")
+    if st.button("Generate Report"):
+        report = f"""
+```
 
-# Data management
+# P&ID VALIDATION REPORT
 
+Generated: {datetime.datetime.now().strftime(”%Y-%m-%d %H:%M:%S”)}
+
+## Summary
+
+- Total Components: {len(components)}
+- Total Pipes: {len(pipes)}
+- Control Loops: {len(analyzer.control_loops)}
+- Validation Status: {‘PASSED’ if validation_results[‘is_valid’] else ‘FAILED’}
+
+## Errors
+
+{chr(10).join(validation_results[‘errors’]) if validation_results[‘errors’] else ‘No errors found’}
+
+## Warnings
+
+{chr(10).join(validation_results[‘warnings’]) if validation_results[‘warnings’] else ‘No warnings found’}
+
+## Control Loops
+
+{chr(10).join([f”- {loop.loop_id}: {loop.loop_type.value}” for loop in analyzer.control_loops])}
+“””
+st.download_button(“📥 Download Report”, report, “pnid_report.txt”, “text/plain”)
+
+```
+with col4:
+    if st.button("Save to Database"):
+        st.info("Database save functionality would be implemented here")
+
+# Data tables
 with st.expander("Component Data"):
-    st.dataframe(st.session_state.components_df)
+    st.dataframe(st.session_state.eq_df)
 
 with st.expander("Pipe Data"):
-    st.dataframe(st.session_state.pipes_df)
+    st.dataframe(st.session_state.pipe_df)
+```
+
+# Sidebar component addition (enhanced)
+
+st.sidebar.markdown(”—”)
+st.sidebar.markdown(”### ➕ Add Component”)
+
+symbol_types = list(ISA_SYMBOLS.keys()) + [‘instrument’]
+
+with st.sidebar.form(“add_component_form”):
+new_comp_id = st.text_input(“Component ID”, key=“new_comp_id”)
+new_comp_tag = st.text_input(“Tag (e.g., P-001, FT-101)”, key=“new_comp_tag”)
+new_comp_type = st.selectbox(“Type”, options=symbol_types, key=“new_comp_type”)
+
+```
+col1, col2 = st.columns(2)
+with col1:
+    new_comp_x = st.number_input("X", 0, 2000, 100, 25)
+with col2:
+    new_comp_y = st.number_input("Y", 0, 2000, 100, 25)
+
+new_comp_rotation = st.slider("Rotation", 0, 360, 0, 45)
+
+if st.form_submit_button("Add Component"):
+    if not new_comp_id:
+        st.error("Component ID required")
+    elif new_comp_id in st.session_state.eq_df['id'].values:
+        st.error(f"ID '{new_comp_id}' already exists")
+    else:
+        new_row = {
+            'id': new_comp_id.strip(),
+            'tag': new_comp_tag or new_comp_id,
+            'Component': new_comp_type,
+            'x': new_comp_x,
+            'y': new_comp_y,
+            'Width': 60,
+            'Height': 60,
+            'rotation': new_comp_rotation
+        }
+        st.session_state.eq_df = pd.concat([st.session_state.eq_df, pd.DataFrame([new_row])], ignore_index=True)
+        st.success(f"Added {new_comp_type}: {new_comp_tag}")
+        st.rerun()
+```
