@@ -1,0 +1,19 @@
+Component,id,tag,x,y,Width,Height,Description
+kdp_330_pump,P-001,P-001,400,350,120,100,KDP-330 Dry Pump - Main vacuum pump
+suction_filter,SF-001,SF-001,250,320,80,120,Suction filter upstream of pump
+y_strainer,YS-001,YS-001,150,370,60,40,Y-strainer for cooling water
+condenser,C-001,C-001,550,200,150,100,External condenser for vapor condensation
+control_panel,CP-001,CP-001,50,50,120,100,FLP Control Panel with VFD and HMI
+catch_pot,CPT-001,CPT-001,450,180,60,80,Catch pot for liquid collection
+scrubber,SCR-001,SCR-001,750,250,100,150,Scrubber for gas treatment
+exhaust_silencer,SIL-001,SIL-001,900,300,80,60,Exhaust silencer for noise reduction
+gate_valve,GV-001,GV-001,200,375,50,50,Gate valve on cooling water line
+pressure_regulator,PR-001,PR-001,100,200,60,60,Pressure regulator for N2 purge
+rotameter,RM-001,RM-001,120,280,50,80,Rotameter for N2 flow measurement
+temperature_transmitter,TT-001,TT-001,580,150,50,50,Temperature transmitter on condenser
+pressure_transmitter,PT-001,PT-001,420,300,50,50,Pressure transmitter on pump discharge
+level_switch,LS-001,LS-001,480,120,50,50,Level switch on catch pot
+flow_switch,FS-001,FS-001,620,170,50,50,Flow switch on cooling water
+temperature_control_valve,TCV-001,TCV-001,650,250,60,60,Temperature control valve
+flame_arrestor,FA-001,FA-001,820,275,70,50,Flame arrestor on exhaust line
+drain_point,DP-001,DP-001,400,520,60,40,Drain collection point
