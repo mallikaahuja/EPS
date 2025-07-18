@@ -425,7 +425,7 @@ ARROW_MARKERS = '''
 </defs>
 '''
 
-def get_component_symbol(component_type: str) -> str:
+def get_component_symbol_from_type(component_type: str) -> str:
     """
     Returns the appropriate symbol SVG for a component type
     """
