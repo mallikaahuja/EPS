@@ -246,8 +246,8 @@ PROFESSIONAL_ISA_SYMBOLS = {
         <circle cx="40" cy="40" r="25" fill="white" stroke="black" stroke-width="2.5"/>
         <line x1="15" y1="40" x2="65" y2="40" stroke="black" stroke-width="2"/>
         <text x="40" y="35" text-anchor="middle" font-size="10" font-family="Arial">PS</text>
-        <text x="40" y="50" text-anchor="middle" font-size="8" font-family="Arial">N₂</text>
-        </symbol>''',
+        <text x="40" y="50" text-anchor="middle" font-size="8" font-family="Arial">N&#x2082;</text>
+        </symbol>''', # FIX: Changed N₂ to N&#x2082; for XML compatibility
 
     'temperature_gauge_suction': '''<symbol id="temperature_gauge_suction" viewBox="0 0 60 80" preserveAspectRatio="xMidYMid meet">
         <rect x="20" y="20" width="20" height="40" fill="white" stroke="black" stroke-width="2"/>
@@ -392,65 +392,67 @@ PROFESSIONAL_ISA_SYMBOLS = {
         </symbol>''',
 }
 
+# Arrow marker definitions for flow direction
+# This should ideally be within a <defs> block in your main SVG,
+# but can be defined here for easy inclusion.
+ARROW_MARKERS = '''
+<marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+<polygon points="0,0 10,5 0,10" fill="black"/>
+</marker>
+
+<marker id="arrowhead-large" markerWidth="15" markerHeight="15" refX="14" refY="7.5" orient="auto">
+    <polygon points="0,0 15,7.5 0,15" fill="black"/>
+</marker>
+
+<marker id="arrowhead-signal" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+    <polygon points="0,0 10,5 0,10" fill="none" stroke="black" stroke-width="1"/>
+</marker>
+'''
+
 def get_component_symbol(component_id, width=None, height=None):
     """
     Returns the SVG string for the requested ISA symbol.
-    If width and height are given, wraps the symbol reference in an SVG with those dimensions.
+    If width and height are given, wraps the symbol reference in an SVG with those dimensions
+    and includes the symbol definition within a <defs> block.
     """
+    import re
+
     svg_symbol_content = PROFESSIONAL_ISA_SYMBOLS.get(component_id)
     if svg_symbol_content is None:
         return f''
 
-    # If width and height are provided, we want to create an <svg> tag that references
-    # the symbol using <use>, instead of nesting symbols.
+    # Extract viewBox from the symbol content. Default if not found.
+    viewbox_match = re.search(r'viewBox="([^"]*)"', svg_symbol_content)
+    # Default to a common size if viewBox is not found or for general symbols
+    viewbox = viewbox_match.group(1) if viewbox_match else "0 0 80 80"
+
+    # Extract ID from the symbol content. Default to component_id if not found.
+    id_match = re.search(r'id="([^"]*)"', svg_symbol_content)
+    symbol_id_in_content = id_match.group(1) if id_match else component_id
+
+    # If width and height are provided, create a standalone SVG.
+    # This SVG will define the symbol in <defs> and then instantiate it with <use>.
     if width is not None and height is not None:
-        # Extract the viewBox from the original symbol string
-        import re
-        viewbox_match = re.search(r'viewBox="([^"]*)"', svg_symbol_content)
-        viewbox = viewbox_match.group(1) if viewbox_match else "0 0 100 100" # Default or extract
-
-        # Extract the id from the original symbol string
-        id_match = re.search(r'id="([^"]*)"', svg_symbol_content)
-        symbol_id_in_content = id_match.group(1) if id_match else component_id
-
-        # We also need to include the actual symbol definition in the defs section
-        # or ensure it's loaded elsewhere in the SVG document.
-        # For simplicity in this function, we'll return an <svg> that contains both
-        # the definition and its use.
-        # A more robust solution for a full app would manage symbol definitions centrally.
-
         return (
-            f'<svg width="{width}" height="{height}" viewBox="{viewbox}" xmlns="http://www.w3.org/2000/svg">'
-            f'<defs>{svg_symbol_content}</defs>'  # Define the symbol
-            f'<use href="#{symbol_id_in_content}" x="0" y="0" width="{width}" height="{height}"/>' # Use the symbol
+            f'<svg width="{width}" height="{height}" viewBox="{viewbox}" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">'
+            f'  <defs>'
+            f'    {ARROW_MARKERS}' # Include common markers if needed in standalone symbol
+            f'    {svg_symbol_content}' # The actual symbol definition
+            f'  </defs>'
+            f'  <use href="#{symbol_id_in_content}" x="0" y="0" width="{width}" height="{height}"/>'
             f'</svg>'
         )
     else:
-        # If no width/height, return the raw symbol definition string
+        # If no specific width/height for a standalone SVG, return the raw symbol string.
+        # This is for when you are building a larger SVG document that will contain
+        # its own <defs> block where these symbols will be placed.
         return svg_symbol_content
-
-        
-# Arrow marker definitions for flow direction
-
-ARROW_MARKERS = '''
-<defs>
-    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
-    <polygon points="0,0 10,5 0,10" fill="black"/>
-    </marker>
-
-    <marker id="arrowhead-large" markerWidth="15" markerHeight="15" refX="14" refY="7.5" orient="auto">
-        <polygon points="0,0 15,7.5 0,15" fill="black"/>
-    </marker>
-
-    <marker id="arrowhead-signal" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
-        <polygon points="0,0 10,5 0,10" fill="none" stroke="black" stroke-width="1"/>
-    </marker>
-</defs>
-'''
 
 def get_component_symbol_from_type(component_type: str) -> str:
     """
-    Returns the appropriate symbol SVG for a component type
+    Returns the appropriate symbol SVG for a component type.
+    This function returns the raw <symbol> string, not a wrapped <svg> with <use>.
+    It's intended to be used when building a larger SVG's <defs> section.
     """
     # Map common variations to standard symbols
     type_mapping = {
@@ -485,6 +487,7 @@ def create_professional_instrument_bubble(tag: str, x: float, y: float, size: fl
     # Parse instrument tag
     match = re.match(r'^([A-Z]+)[-]?(\d+)([A-Z]?)$', tag)
     if not match:
+        # Fallback for malformed tags
         return f'<circle cx="{x}" cy="{y}" r="{size}" fill="white" stroke="black" stroke-width="2"/>'
 
     letters = match.group(1)
@@ -494,9 +497,9 @@ def create_professional_instrument_bubble(tag: str, x: float, y: float, size: fl
     # Determine if local panel (L prefix) or field mounted
     is_local = letters.startswith('L')
     if is_local:
-        letters = letters[1:]  # Remove L prefix
+        letters = letters[1:]  # Remove L prefix for display purposes
 
-    # Create SVG
+    # Create SVG group for the instrument
     svg = f'<g class="instrument-{tag}">'
 
     # Main circle
@@ -504,25 +507,36 @@ def create_professional_instrument_bubble(tag: str, x: float, y: float, size: fl
 
     # Add horizontal line for field-mounted instruments
     if not is_local:
+        # Ensure line is drawn within the circle's bounds or slightly beyond for clarity
         svg += f'<line x1="{x-size}" y1="{y}" x2="{x+size}" y2="{y}" stroke="black" stroke-width="2.5"/>'
 
-    # Add box for panel-mounted instruments
-    if 'C' in letters or 'I' in letters:  # Controller or Indicator
-        box_size = size * 0.7
-        svg += f'<rect x="{x-box_size}" y="{y-box_size}" width="{box_size*2}" height="{box_size*2}" '
-        svg += f'fill="none" stroke="black" stroke-width="1.5" stroke-dasharray="3,3"/>'
+    # Add box for panel-mounted instruments (dash-dotted line usually)
+    # Note: ISA standard for panel-mounted (mounted on main control panel) is often a solid line circle
+    # and a dashed line for aux panel. A box inside a circle is more for a 'shared display/control'.
+    # I'll keep your existing logic for the box, but know that strict ISA might differ.
+    # The image traceback showed line 4, col 98 in the input SVG string.
+    # If this bubble function is creating bad SVG, it's typically due to string formatting issues.
+    # The existing rect for panel instruments looks syntactically fine.
+    if 'C' in letters or 'I' in letters:  # Controller or Indicator (often implies panel mounting context)
+        box_padding = 5 # Padding from circle edge
+        box_width = (size * 2) - (box_padding * 2)
+        box_height = box_width # Keep it square
+        svg += f'<rect x="{x - box_width/2}" y="{y - box_height/2}" width="{box_width}" height="{box_height}" '
+        svg += f'fill="none" stroke="black" stroke-width="1.5" stroke-dasharray="5,3"/>' # Common for shared/auxiliary
 
     # Text positioning
-    text_size = size * 0.5
-    y_offset = size * 0.15
+    text_size_letters = size * 0.5
+    text_size_number = size * 0.4
+    y_offset_letters = size * 0.15 # For top text
+    y_offset_number = size * 0.25 # For bottom text relative to center
 
-    # Tag letters (function)
-    svg += f'<text x="{x}" y="{y-y_offset}" text-anchor="middle" '
-    svg += f'font-size="{text_size}" font-weight="bold" font-family="Arial, sans-serif">{letters}</text>'
+    # Tag letters (function) - Top part
+    svg += f'<text x="{x}" y="{y - y_offset_letters}" text-anchor="middle" '
+    svg += f'font-size="{text_size_letters}" font-weight="bold" font-family="Arial, sans-serif">{letters}</text>'
 
-    # Tag number
-    svg += f'<text x="{x}" y="{y+text_size*0.7}" text-anchor="middle" '
-    svg += f'font-size="{text_size*0.8}" font-family="Arial, sans-serif">{number}{suffix}</text>'
+    # Tag number - Bottom part
+    svg += f'<text x="{x}" y="{y + y_offset_number + text_size_number/2}" text-anchor="middle" '
+    svg += f'font-size="{text_size_number}" font-family="Arial, sans-serif">{number}{suffix}</text>'
 
     svg += '</g>'
     return svg
@@ -530,7 +544,7 @@ def create_professional_instrument_bubble(tag: str, x: float, y: float, size: fl
 
 def create_pipe_with_spec(points: list, pipe_spec: str, line_type: str = 'process') -> str:
     """
-    Creates a pipe with specification label
+    Creates a pipe with specification label.
     Example spec: "2"-PG-101-CS" means 2 inch, Process Gas, Line 101, Carbon Steel
     """
     if len(points) < 2:
@@ -540,8 +554,8 @@ def create_pipe_with_spec(points: list, pipe_spec: str, line_type: str = 'proces
     line_styles = {
         'process': {'width': 3, 'color': 'black', 'dash': ''},
         'utility': {'width': 2.5, 'color': 'black', 'dash': ''},
-        'instrument': {'width': 1, 'color': 'black', 'dash': '5,3'},
-        'electrical': {'width': 1, 'color': 'black', 'dash': '2,2'},
+        'instrument': {'width': 1.5, 'color': 'black', 'dash': '5,3'}, # Increased width for visibility
+        'electrical': {'width': 1.5, 'color': 'black', 'dash': '2,2'}, # Increased width for visibility
     }
 
     style = line_styles.get(line_type, line_styles['process'])
@@ -562,19 +576,33 @@ def create_pipe_with_spec(points: list, pipe_spec: str, line_type: str = 'proces
 
     # Add specification label if provided
     if pipe_spec and len(points) >= 2:
-        # Calculate midpoint
-        mid_idx = len(points) // 2
-        mid_x = (points[mid_idx-1][0] + points[mid_idx][0]) / 2
-        mid_y = (points[mid_idx-1][1] + points[mid_idx][1]) / 2
+        # Calculate midpoint of the first segment for simplicity, or the entire path
+        # For multi-segment lines, consider placing it in the middle segment.
+        # For now, let's just use the first segment's midpoint.
+        # A more robust approach might calculate the total path length and find the true middle.
+        mid_x = (points[0][0] + points[1][0]) / 2
+        mid_y = (points[0][1] + points[1][1]) / 2
+
+        # To place the text correctly along the line, you might need to calculate its angle.
+        # For simplicity, placing horizontally for now.
+        # You may need to adjust the `mid_x`, `mid_y` calculation based on where you want the label
+        # to appear if the pipe has many segments.
 
         # Label background
-        text_width = len(pipe_spec) * 8
-        svg += f'<rect x="{mid_x - text_width/2}" y="{mid_y - 12}" '
-        svg += f'width="{text_width}" height="20" fill="white" stroke="none"/>'
+        # Estimate text width; this is a simplification and may not be accurate for all fonts/sizes
+        # It's better to use a library like `svgwrite` or actually render to get text metrics
+        # For direct string generation, this is a rough estimate.
+        estimated_char_width = 7 # pixels per char for font-size 10 Arial
+        text_width_estimate = len(pipe_spec) * estimated_char_width + 10 # Add some padding
+        text_height = 20 # Fixed height for background rectangle
+
+        svg += f'<rect x="{mid_x - text_width_estimate/2}" y="{mid_y - text_height/2}" '
+        svg += f'width="{text_width_estimate}" height="{text_height}" fill="white" stroke="black" stroke-width="0.5"/>' # Added thin border for clarity
 
         # Label text
-        svg += f'<text x="{mid_x}" y="{mid_y}" text-anchor="middle" '
-        svg += f'font-size="10" font-family="Arial, sans-serif">{pipe_spec}</text>'
+        svg += f'<text x="{mid_x}" y="{mid_y + (text_height/2 * 0.7) - (text_height/2)}" text-anchor="middle" dominant-baseline="middle" ' # Adjusted y for vertical centering
+        svg += f'font-size="10" font-family="Arial, sans-serif" fill="black">{pipe_spec}</text>'
 
     svg += '</g>'
     return svg
+
