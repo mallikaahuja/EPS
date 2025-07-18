@@ -4,7 +4,8 @@ import json
 import os
 from PIL import Image
 from professional_symbols import PROFESSIONAL_ISA_SYMBOLS
-from component_prompt_map import COMPONENT_PROMPT_MAP
+with open("component_prompt_map.json", "r") as f:
+    COMPONENT_PROMPT_MAP = json.load(f)
 from advanced_rendering import ProfessionalRenderer
 import stability_sdk.interfaces.gooseai.generation.generation_pb2 as generation
 from stability_sdk import client
