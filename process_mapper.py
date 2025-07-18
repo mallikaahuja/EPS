@@ -1,75 +1,97 @@
-# process_mapper.py
+import pandas as pd
 
-def map_process_to_eps_products(industry, flow_rate, pressure, application, compliance):
+def auto_sequence(equipment_df, pipeline_df):
     """
-    Returns a list of recommended EPS systems based on customer input.
+    Returns a list of equipment IDs in a logical process sequence (left to right),
+    based on pipeline connections. Can be improved for more complex processes.
     """
+    # Build forward connection map
+    forward = {}
+    for _, row in pipeline_df.iterrows():
+        src, dst = row["Source"], row["Destination"]
+        if src not in forward:
+            forward[src] = []
+        forward[src].append(dst)
 
-    # Normalize inputs
-    industry = industry.lower()
-    application = application.lower()
-    compliance = [c.lower() for c in compliance]
+    # Identify all unique IDs
+    all_ids = set(equipment_df["ID"])
+    # Find possible "start" nodes: appear as source but not as destination
+    all_src = set(pipeline_df["Source"])
+    all_dst = set(pipeline_df["Destination"])
+    possible_starts = list(all_src - all_dst)
+    if not possible_starts:
+        # Fallback: pick first equipment in file
+        possible_starts = [equipment_df.iloc[0]["ID"]]
 
-    recommendations = []
-
-    # Flow tiers (in m³/h or l/h depending on system)
-    def is_low_flow(val): return val < 100
-    def is_medium_flow(val): return 100 <= val <= 1000
-    def is_high_flow(val): return val > 1000
-
-    # Vacuum range (mbar)
-    def is_deep_vacuum(p): return p < 10
-    def is_medium_vacuum(p): return 10 <= p < 100
-    def is_rough_vacuum(p): return p >= 100
-
-    # Main product logic
-    if "drying" in application or "solvent" in application or "distillation" in application:
-        if is_deep_vacuum(pressure):
-            recommendations.append("Dry Screw Vacuum Pump")
-            if is_high_flow(flow_rate):
-                recommendations.append("Mechanical Vacuum Booster")
-        elif is_medium_vacuum(pressure):
-            recommendations.append("Liquid Ring Vacuum Pump")
-        elif is_rough_vacuum(pressure):
-            recommendations.append("Rotary Vane Vacuum Pump")
-
-    elif "evaporation" in application or "concentration" in application:
-        if is_high_flow(flow_rate):
-            recommendations.append("Multi Effect Evaporator (MEE)")
-        elif is_medium_flow(flow_rate):
-            recommendations.append("Agitated Thin Film Evaporator (ATFE)")
-        else:
-            recommendations.append("Short Path Distillation Unit (SPDU)")
-
-    elif "filtration" in application:
-        recommendations.append("Agitated Nutsche Filter Dryer")
-
-    elif "packaging" in application:
-        recommendations.append("Rotary Vane Vacuum Pump")
-        recommendations.append("Beverage Processing & Packaging Lines")
-
-    elif "effluent" in application or "waste" in industry:
-        recommendations.append("Effluent Treatment/ZLD Systems")
-        if is_high_flow(flow_rate):
-            recommendations.append("Twin Lobe Root Air Blower")
-
-    # Add compliance-sensitive filters
-    if "pharma" in industry or "food" in industry:
-        if "dry screw vacuum pump" not in recommendations:
-            recommendations.insert(0, "Dry Screw Vacuum Pump")
-        if "rotary vane vacuum pump" in recommendations and "cGMP" in compliance:
-            recommendations = [r for r in recommendations if r != "Rotary Vane Vacuum Pump"]
-            recommendations.insert(0, "Dry Screw Vacuum Pump")
-
-    # Always include control/automation optionally
-    recommendations.append("Control Panels, Automation, Spares")
-
-    # Deduplicate while preserving order
+    # Depth-first process order from first "start"
+    result = []
     seen = set()
-    final = []
-    for r in recommendations:
-        if r not in seen:
-            final.append(r)
-            seen.add(r)
+    def dfs(node):
+        if node in seen or node not in all_ids:
+            return
+        seen.add(node)
+        result.append(node)
+        for nbr in forward.get(node, []):
+            dfs(nbr)
+    dfs(possible_starts[0])
 
-    return final
+    # Add leftovers that weren't connected
+    for eq in all_ids:
+        if eq not in result:
+            result.append(eq)
+    return result
+
+def detect_process_flow(equipment_df, pipeline_df):
+    """
+    Returns a dict representing the adjacency/process graph for all equipment.
+    """
+    process_graph = {}
+    for _, row in pipeline_df.iterrows():
+        src, dst = row["Source"], row["Destination"]
+        if src not in process_graph:
+            process_graph[src] = []
+        process_graph[src].append(dst)
+    return process_graph
+
+def get_equipment_type_map(equipment_df):
+    """
+    Returns a dict of equipment ID -> type for use in auto-grouping.
+    """
+    id_type = {}
+    for _, row in equipment_df.iterrows():
+        # Use column 'Type' or fall back to Description
+        eq_id = row["ID"]
+        eq_type = row.get("Type", "") or row.get("Description", "")
+        id_type[eq_id] = eq_type
+    return id_type
+
+def group_equipment_by_section(equipment_df, pipeline_df):
+    """
+    Optionally group equipment into sections (e.g., by function or process step).
+    Returns a dict section_name -> list of equipment IDs.
+    """
+    # Example: Group by substring in Description or a custom CSV field
+    groups = {}
+    for _, row in equipment_df.iterrows():
+        section = "Ungrouped"
+        desc = str(row.get("Description", "")).lower()
+        if "pump" in desc:
+            section = "Pumps"
+        elif "condenser" in desc:
+            section = "Condensers"
+        elif "receiver" in desc:
+            section = "Receivers"
+        elif "tank" in desc or "vessel" in desc:
+            section = "Tanks/Vessels"
+        elif "scrubber" in desc:
+            section = "Scrubbers"
+        elif "filter" in desc:
+            section = "Filters"
+        if section not in groups:
+            groups[section] = []
+        groups[section].append(row["ID"])
+    return groups
+
+# Optional: For more advanced layouts, you can implement topological sorting,
+# handle loops/branches, or use the networkx package for graph traversal.
+# This basic setup will work for most straightforward process P&IDs.
