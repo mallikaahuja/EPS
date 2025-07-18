@@ -12,246 +12,238 @@ from control_systems import ControlSystemAnalyzer, PipeRouter, PnIDValidator
 import re
 import math # math is needed for add_flow_arrows
 
-# — CONFIG —
+# --- CONFIG ---
 
-st.set_page_config(page_title=“EPS P&ID Suite”, layout=“wide”, initial_sidebar_state=“expanded”)
+st.set_page_config(page_title="EPS P&ID Suite", layout="wide", initial_sidebar_state="expanded")
 
 # Initialize session state
 
-if ‘components’ not in st.session_state:
-st.session_state.components = {}
-if ‘pipes’ not in st.session_state:
-st.session_state.pipes = []
-if ‘selected_component’ not in st.session_state:
-st.session_state.selected_component = None
-if ‘drawing_mode’ not in st.session_state:
-st.session_state.drawing_mode = ‘select’
+if 'components' not in st.session_state:
+    st.session_state.components = {}
+if 'pipes' not in st.session_state:
+    st.session_state.pipes = []
+if 'selected_component' not in st.session_state:
+    st.session_state.selected_component = None
+if 'drawing_mode' not in st.session_state:
+    st.session_state.drawing_mode = 'select'
 
-# — LOAD DATA —
+# --- LOAD DATA ---
 
 @st.cache_data
 def load_equipment_data():
-return pd.read_csv(“equipment_list.csv”)
+    return pd.read_csv("equipment_list.csv")
 
 @st.cache_data
 def load_pipeline_data():
-return pd.read_csv(“pipeline_list.csv”)
+    return pd.read_csv("pipeline_list.csv")
 
 @st.cache_data
 def load_inline_data():
-return pd.read_csv(“inline_component_list.csv”)
+    return pd.read_csv("inline_component_list.csv")
 
 @st.cache_data
 def load_component_layout():
-return pd.read_csv(“enhanced_equipment_layout.csv”)
+    return pd.read_csv("enhanced_equipment_layout.csv")
 
 @st.cache_data
 def load_pipe_connections():
-return pd.read_csv(“pipes_connections.csv”)
+    return pd.read_csv("pipes_connections.csv")
 
 # Professional component class
 
 class ProfessionalPnidComponent:
-def **init**(self, comp_id, tag, component_type, x, y, width, height, description=””):
-self.id = comp_id
-self.tag = tag
-self.component_type = component_type
-self.x = x
-self.y = y
-self.width = width
-self.height = height
-self.description = description
-self.is_instrument = any(inst in tag for inst in [‘PT’, ‘TT’, ‘FT’, ‘LT’, ‘FIC’, ‘PIC’, ‘TIC’, ‘LIC’])
-self.ports = self._define_ports()
+    def __init__(self, comp_id, tag, component_type, x, y, width, height, description=""):
+        self.id = comp_id
+        self.tag = tag
+        self.component_type = component_type
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.description = description
+        self.is_instrument = any(inst in tag for inst in ['PT', 'TT', 'FT', 'LT', 'FIC', 'PIC', 'TIC', 'LIC'])
+        self.ports = self._define_ports()
 
-```
-def _define_ports(self):
-    """Define connection ports based on component type"""
-    ports = {}
-    if 'pump' in self.component_type:
-        ports = {'suction': (self.x, self.y + self.height/2),
-                'discharge': (self.x + self.width, self.y + self.height/2)}
-    elif 'valve' in self.component_type:
-        ports = {'inlet': (self.x, self.y + self.height/2),
-                'outlet': (self.x + self.width, self.y + self.height/2)}
-    elif 'vessel' in self.component_type:
-        ports = {'top': (self.x + self.width/2, self.y),
-                'bottom': (self.x + self.width/2, self.y + self.height),
-                'side_top': (self.x + self.width, self.y + self.height/3),
-                'side_bottom': (self.x + self.width, self.y + 2*self.height/3)}
-    elif 'heat_exchanger' in self.component_type:
-        ports = {'inlet': (self.x, self.y + self.height/3),
-                'outlet': (self.x + self.width, self.y + 2*self.height/3),
-                'cooling_in': (self.x + self.width/3, self.y),
-                'cooling_out': (self.x + 2*self.width/3, self.y + self.height)}
-    return ports
+    def _define_ports(self):
+        """Define connection ports based on component type"""
+        ports = {}
+        if 'pump' in self.component_type:
+            ports = {'suction': (self.x, self.y + self.height/2),
+                    'discharge': (self.x + self.width, self.y + self.height/2)}
+        elif 'valve' in self.component_type:
+            ports = {'inlet': (self.x, self.y + self.height/2),
+                    'outlet': (self.x + self.width, self.y + self.height/2)}
+        elif 'vessel' in self.component_type:
+            ports = {'top': (self.x + self.width/2, self.y),
+                    'bottom': (self.x + self.width/2, self.y + self.height),
+                    'side_top': (self.x + self.width, self.y + self.height/3),
+                    'side_bottom': (self.x + self.width, self.y + 2*self.height/3)}
+        elif 'heat_exchanger' in self.component_type:
+            ports = {'inlet': (self.x, self.y + self.height/3),
+                    'outlet': (self.x + self.width, self.y + 2*self.height/3),
+                    'cooling_in': (self.x + self.width/3, self.y),
+                    'cooling_out': (self.x + 2*self.width/3, self.y + self.height)}
+        return ports
 
-def get_svg(self):
-    """Get SVG representation using professional symbols"""
-    # Try reference exact symbols first
-    if self.component_type in REFERENCE_EXACT_SYMBOLS:
-        symbol_svg = REFERENCE_EXACT_SYMBOLS[self.component_type]
-    elif self.component_type in PROFESSIONAL_ISA_SYMBOLS:
-        symbol_svg = PROFESSIONAL_ISA_SYMBOLS[self.component_type]
-    else:
-        # Fallback to basic rectangle
-        symbol_svg = f'''<rect x="0" y="0" width="{self.width}" height="{self.height}" 
-                       fill="white" stroke="black" stroke-width="2.5"/>
-                       <text x="{self.width/2}" y="{self.height/2}" text-anchor="middle" 
-                       font-size="10">{self.tag}</text>'''
-    
-    # Wrap in group with transform
-    return f'''<g transform="translate({self.x},{self.y})">
-                {symbol_svg}
-                <text x="{self.width/2}" y="{self.height + 15}" text-anchor="middle" 
-                font-size="12" font-weight="bold">{self.tag}</text>
-               </g>'''
-```
+    def get_svg(self):
+        """Get SVG representation using professional symbols"""
+        # Try reference exact symbols first
+        if self.component_type in REFERENCE_EXACT_SYMBOLS:
+            symbol_svg = REFERENCE_EXACT_SYMBOLS[self.component_type]
+        elif self.component_type in PROFESSIONAL_ISA_SYMBOLS:
+            symbol_svg = PROFESSIONAL_ISA_SYMBOLS[self.component_type]
+        else:
+            # Fallback to basic rectangle
+            symbol_svg = f'''<rect x="0" y="0" width="{self.width}" height="{self.height}"
+                           fill="white" stroke="black" stroke-width="2.5"/>
+                           <text x="{self.width/2}" y="{self.height/2}" text-anchor="middle"
+                           font-size="10">{self.tag}</text>'''
+        
+        # Wrap in group with transform
+        return f'''<g transform="translate({self.x},{self.y})">
+                    {symbol_svg}
+                    <text x="{self.width/2}" y="{self.height + 15}" text-anchor="middle"
+                    font-size="12" font-weight="bold">{self.tag}</text>
+                   </g>'''
 
 class ProfessionalPipe:
-def **init**(self, from_comp, from_port, to_comp, to_port, label=””, line_type=“process”):
-self.from_comp = from_comp
-self.from_port = from_port
-self.to_comp = to_comp
-self.to_port = to_port
-self.label = label
-self.line_type = line_type
-self.waypoints = []
+    def __init__(self, from_comp, from_port, to_comp, to_port, label="", line_type="process"):
+        self.from_comp = from_comp
+        self.from_port = from_port
+        self.to_comp = to_comp
+        self.to_port = to_port
+        self.label = label
+        self.line_type = line_type
+        self.waypoints = []
 
-```
-def get_svg(self):
-    """Get SVG representation of pipe with proper routing"""
-    if not self.from_comp or not self.to_comp:
-        return ""
-    
-    # Get port positions
-    from_pos = self.from_comp.ports.get(self.from_port, (self.from_comp.x, self.from_comp.y))
-    to_pos = self.to_comp.ports.get(self.to_port, (self.to_comp.x, self.to_comp.y))
-    
-    # Create orthogonal path
-    path_points = self._create_orthogonal_path(from_pos, to_pos)
-    
-    # Build SVG path
-    path_d = f"M {path_points[0][0]},{path_points[0][1]}"
-    for point in path_points[1:]:
-        path_d += f" L {point[0]},{point[1]}"
-    
-    # Line style based on type
-    if self.line_type == "instrument_signal":
-        stroke_width = "1"
-        stroke_dasharray = 'stroke-dasharray="5,3"'
-    else:
-        stroke_width = "3"
-        stroke_dasharray = ""
-    
-    svg = f'<path d="{path_d}" fill="none" stroke="black" stroke-width="{stroke_width}" {stroke_dasharray}/>'
-    
-    # Add flow arrow for process lines
-    if self.line_type == "process" and len(path_points) >= 2:
-        # Calculate arrow position and angle
-        p1, p2 = path_points[-2], path_points[-1]
-        angle = self._calculate_angle(p1, p2)
-        arrow_x = p2[0] - 20 * (p2[0] - p1[0]) / self._distance(p1, p2)
-        arrow_y = p2[1] - 20 * (p2[1] - p1[1]) / self._distance(p1, p2)
+    def get_svg(self):
+        """Get SVG representation of pipe with proper routing"""
+        if not self.from_comp or not self.to_comp:
+            return ""
         
-        svg += f'''<polygon points="-5,-5 5,0 -5,5" fill="black" 
-                  transform="translate({arrow_x},{arrow_y}) rotate({angle})"/>'''
-    
-    # Add label
-    if self.label and len(path_points) >= 2:
-        mid_idx = len(path_points) // 2
-        label_x = (path_points[mid_idx-1][0] + path_points[mid_idx][0]) / 2
-        label_y = (path_points[mid_idx-1][1] + path_points[mid_idx][1]) / 2
+        # Get port positions
+        from_pos = self.from_comp.ports.get(self.from_port, (self.from_comp.x, self.from_comp.y))
+        to_pos = self.to_comp.ports.get(self.to_port, (self.to_comp.x, self.to_comp.y))
         
-        svg += f'''<rect x="{label_x - 40}" y="{label_y - 10}" width="80" height="20" 
-                  fill="white" stroke="none"/>
-                  <text x="{label_x}" y="{label_y + 3}" text-anchor="middle" 
-                  font-size="10" font-family="Arial">{self.label}</text>'''
-    
-    return svg
+        # Create orthogonal path
+        path_points = self._create_orthogonal_path(from_pos, to_pos)
+        
+        # Build SVG path
+        path_d = f"M {path_points[0][0]},{path_points[0][1]}"
+        for point in path_points[1:]:
+            path_d += f" L {point[0]},{point[1]}"
+        
+        # Line style based on type
+        if self.line_type == "instrument_signal":
+            stroke_width = "1"
+            stroke_dasharray = 'stroke-dasharray="5,3"'
+        else:
+            stroke_width = "3"
+            stroke_dasharray = ""
+        
+        svg = f'<path d="{path_d}" fill="none" stroke="black" stroke-width="{stroke_width}" {stroke_dasharray}/>'
+        
+        # Add flow arrow for process lines
+        if self.line_type == "process" and len(path_points) >= 2:
+            # Calculate arrow position and angle
+            p1, p2 = path_points[-2], path_points[-1]
+            angle = self._calculate_angle(p1, p2)
+            arrow_x = p2[0] - 20 * (p2[0] - p1[0]) / self._distance(p1, p2)
+            arrow_y = p2[1] - 20 * (p2[1] - p1[1]) / self._distance(p1, p2)
+            
+            svg += f'''<polygon points="-5,-5 5,0 -5,5" fill="black"
+                      transform="translate({arrow_x},{arrow_y}) rotate({angle})"/>'''
+        
+        # Add label
+        if self.label and len(path_points) >= 2:
+            mid_idx = len(path_points) // 2
+            label_x = (path_points[mid_idx-1][0] + path_points[mid_idx][0]) / 2
+            label_y = (path_points[mid_idx-1][1] + path_points[mid_idx][1]) / 2
+            
+            svg += f'''<rect x="{label_x - 40}" y="{label_y - 10}" width="80" height="20"
+                      fill="white" stroke="none"/>
+                      <text x="{label_x}" y="{label_y + 3}" text-anchor="middle"
+                      font-size="10" font-family="Arial">{self.label}</text>'''
+        
+        return svg
 
-def _create_orthogonal_path(self, start, end):
-    """Create orthogonal (right-angle) path between two points"""
-    # Simple orthogonal routing - can be enhanced with A* algorithm
-    if abs(start[0] - end[0]) > abs(start[1] - end[1]):
-        # Horizontal first
-        mid_x = (start[0] + end[0]) / 2
-        return [start, (mid_x, start[1]), (mid_x, end[1]), end]
-    else:
-        # Vertical first
-        mid_y = (start[1] + end[1]) / 2
-        return [start, (start[0], mid_y), (end[0], mid_y), end]
+    def _create_orthogonal_path(self, start, end):
+        """Create orthogonal (right-angle) path between two points"""
+        # Simple orthogonal routing - can be enhanced with A* algorithm
+        if abs(start[0] - end[0]) > abs(start[1] - end[1]):
+            # Horizontal first
+            mid_x = (start[0] + end[0]) / 2
+            return [start, (mid_x, start[1]), (mid_x, end[1]), end]
+        else:
+            # Vertical first
+            mid_y = (start[1] + end[1]) / 2
+            return [start, (start[0], mid_y), (end[0], mid_y), end]
 
-def _distance(self, p1, p2):
-    """Calculate distance between two points"""
-    return ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)**0.5
+    def _distance(self, p1, p2):
+        """Calculate distance between two points"""
+        return ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)**0.5
 
-def _calculate_angle(self, p1, p2):
-    """Calculate angle for arrow rotation"""
-    import math
-    return math.degrees(math.atan2(p2[1] - p1[1], p2[0] - p1[0]))
-```
+    def _calculate_angle(self, p1, p2):
+        """Calculate angle for arrow rotation"""
+        return math.degrees(math.atan2(p2[1] - p1[1], p2[0] - p1[0]))
 
 def create_professional_pnid():
-“”“Create a professional P&ID from loaded data”””
-# Load layout and connections
-layout_df = load_component_layout()
-connections_df = load_pipe_connections()
+    """Create a professional P&ID from loaded data"""
+    # Load layout and connections
+    layout_df = load_component_layout()
+    connections_df = load_pipe_connections()
 
-```
-components = {}
-pipes = []
+    components = {}
+    pipes = []
 
-# Create components from layout
-for _, row in layout_df.iterrows():
-    comp = ProfessionalPnidComponent(
-        comp_id=row['id'],
-        tag=row['tag'],
-        component_type=row['Component'],
-        x=float(row['x']),
-        y=float(row['y']),
-        width=float(row['Width']),
-        height=float(row['Height']),
-        description=row.get('description', '')
-    )
-    components[comp.id] = comp
-
-# Create pipes from connections
-for _, row in connections_df.iterrows():
-    if row['from_component'] in components and row['to_component'] in components:
-        pipe = ProfessionalPipe(
-            from_comp=components[row['from_component']],
-            from_port=row['from_port'],
-            to_comp=components[row['to_component']],
-            to_port=row['to_port'],
-            label=row.get('line_number', ''),
-            line_type=row.get('line_type', 'process')
+    # Create components from layout
+    for _, row in layout_df.iterrows():
+        comp = ProfessionalPnidComponent(
+            comp_id=row['id'],
+            tag=row['tag'],
+            component_type=row['Component'],
+            x=float(row['x']),
+            y=float(row['y']),
+            width=float(row['Width']),
+            height=float(row['Height']),
+            description=row.get('description', '')
         )
-        pipes.append(pipe)
+        components[comp.id] = comp
 
-return components, pipes
-```
+    # Create pipes from connections
+    for _, row in connections_df.iterrows():
+        if row['from_component'] in components and row['to_component'] in components:
+            pipe = ProfessionalPipe(
+                from_comp=components[row['from_component']],
+                from_port=row['from_port'],
+                to_comp=components[row['to_component']],
+                to_port=row['to_port'],
+                label=row.get('line_number', ''),
+                line_type=row.get('line_type', 'process')
+            )
+            pipes.append(pipe)
+
+    return components, pipes
 
 def render_professional_svg(components, pipes, width=1600, height=1200):
-“”“Render complete P&ID as SVG”””
-svg_parts = []
+    """Render complete P&ID as SVG"""
+    svg_parts = []
 
-```
-# SVG header with professional styling
-svg_parts.append(f'''<?xml version="1.0" encoding="UTF-8"?>
-<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" 
+    # SVG header with professional styling
+    svg_parts.append(f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}"
      xmlns="http://www.w3.org/2000/svg" version="1.1"
      style="font-family: Arial, sans-serif; background-color: white">''')
 
-# Add arrow markers
-svg_parts.append(ARROW_MARKERS)
+    # Add arrow markers
+    svg_parts.append(ARROW_MARKERS)
 
-# Draw border and title block
-svg_parts.append(f'''
+    # Draw border and title block
+    svg_parts.append(f'''
 <g id="drawing-frame">
-    <rect x="10" y="10" width="{width-20}" height="{height-20}" 
+    <rect x="10" y="10" width="{width-20}" height="{height-20}"
           fill="none" stroke="black" stroke-width="2"/>
-    <rect x="10" y="{height-100}" width="{width-20}" height="90" 
+    <rect x="10" y="{height-100}" width="{width-20}" height="90"
           fill="none" stroke="black" stroke-width="2"/>
     <text x="30" y="{height-70}" font-size="16" font-weight="bold">
         TENTATIVE P&ID DRAWING FOR SUCTION FILTER + KDP-330
@@ -261,215 +253,196 @@ svg_parts.append(f'''
     <text x="{width-200}" y="{height-30}" font-size="10">Rev: 00</text>
 </g>''')
 
-# Draw grid (optional)
-if st.session_state.get('show_grid', False):
-    svg_parts.append('<g id="grid" opacity="0.3">')
-    for x in range(0, width, 50):
-        svg_parts.append(f'<line x1="{x}" y1="0" x2="{x}" y2="{height}" stroke="gray" stroke-width="0.5"/>')
-    for y in range(0, height, 50):
-        svg_parts.append(f'<line x1="0" y1="{y}" x2="{width}" y2="{y}" stroke="gray" stroke-width="0.5"/>')
+    # Draw grid (optional)
+    if st.session_state.get('show_grid', False):
+        svg_parts.append('<g id="grid" opacity="0.3">')
+        for x in range(0, width, 50):
+            svg_parts.append(f'<line x1="{x}" y1="0" x2="{x}" y2="{height}" stroke="gray" stroke-width="0.5"/>')
+        for y in range(0, height, 50):
+            svg_parts.append(f'<line x1="0" y1="{y}" x2="{width}" y2="{y}" stroke="gray" stroke-width="0.5"/>')
+        svg_parts.append('</g>')
+
+    # Draw pipes first (behind components)
+    svg_parts.append('<g id="pipes">')
+    for pipe in pipes:
+        svg_parts.append(pipe.get_svg())
     svg_parts.append('</g>')
 
-# Draw pipes first (behind components)
-svg_parts.append('<g id="pipes">')
-for pipe in pipes:
-    svg_parts.append(pipe.get_svg())
-svg_parts.append('</g>')
+    # Draw components
+    svg_parts.append('<g id="components">')
+    for comp in components.values():
+        svg_parts.append(comp.get_svg())
+    svg_parts.append('</g>')
 
-# Draw components
-svg_parts.append('<g id="components">')
-for comp in components.values():
-    svg_parts.append(comp.get_svg())
-svg_parts.append('</g>')
+    # Add legend
+    if st.session_state.get('show_legend', True):
+        svg_parts.append(render_legend(width - 300, 50))
 
-# Add legend
-if st.session_state.get('show_legend', True):
-    svg_parts.append(render_legend(width - 300, 50))
+    # Add BOM table
+    if st.session_state.get('show_bom', True):
+        svg_parts.append(render_bom_table(components, width - 500, height - 400))
 
-# Add BOM table
-if st.session_state.get('show_bom', True):
-    svg_parts.append(render_bom_table(components, width - 500, height - 400))
-
-svg_parts.append('</svg>')
-return '\n'.join(svg_parts)
-```
+    svg_parts.append('</svg>')
+    return '\n'.join(svg_parts)
 
 def render_legend(x, y):
-“”“Render symbol legend”””
-legend_svg = f’’’<g id="legend" transform="translate({x},{y})">
+    """Render symbol legend"""
+    legend_svg = f'''<g id="legend" transform="translate({x},{y})">
 <rect x="0" y="0" width="280" height="400" fill="white" stroke="black" stroke-width="1"/>
-<text x="140" y="20" text-anchor="middle" font-size="14" font-weight="bold">SYMBOL LEGEND</text>’’’
+<text x="140" y="20" text-anchor="middle" font-size="14" font-weight="bold">SYMBOL LEGEND</text>'''
 
-```
-# Add common symbols
-symbols = [
-    ("pump_centrifugal", "CENTRIFUGAL PUMP", 40),
-    ("valve_gate", "GATE VALVE", 100),
-    ("filter", "FILTER", 160),
-    ("vessel_vertical", "VESSEL", 220),
-    ("control_valve", "CONTROL VALVE", 280),
-]
+    # Add common symbols
+    symbols = [
+        ("pump_centrifugal", "CENTRIFUGAL PUMP", 40),
+        ("valve_gate", "GATE VALVE", 100),
+        ("filter", "FILTER", 160),
+        ("vessel_vertical", "VESSEL", 220),
+        ("control_valve", "CONTROL VALVE", 280),
+    ]
 
-for symbol_type, description, y_pos in symbols:
-    if symbol_type in PROFESSIONAL_ISA_SYMBOLS:
-        legend_svg += f'''<g transform="translate(30,{y_pos}) scale(0.5)">
-            {PROFESSIONAL_ISA_SYMBOLS[symbol_type]}
-            </g>
-            <text x="100" y="{y_pos + 20}" font-size="10">{description}</text>'''
+    for symbol_type, description, y_pos in symbols:
+        if symbol_type in PROFESSIONAL_ISA_SYMBOLS:
+            legend_svg += f'''<g transform="translate(30,{y_pos}) scale(0.5)">
+                {PROFESSIONAL_ISA_SYMBOLS[symbol_type]}
+                </g>
+                <text x="100" y="{y_pos + 20}" font-size="10">{description}</text>'''
 
-legend_svg += '</g>'
-return legend_svg
-```
+    legend_svg += '</g>'
+    return legend_svg
 
 def render_bom_table(components, x, y):
-“”“Render Bill of Materials table”””
-bom_svg = f’’’<g id="bom" transform="translate({x},{y})">
+    """Render Bill of Materials table"""
+    bom_svg = f'''<g id="bom" transform="translate({x},{y})">
 <rect x="0" y="0" width="480" height="300" fill="white" stroke="black" stroke-width="1"/>
 <text x="240" y="20" text-anchor="middle" font-size="14" font-weight="bold">BILL OF MATERIALS</text>
-<line x1="0" y1="30" x2="480" y2="30" stroke="black"/>’’’
+<line x1="0" y1="30" x2="480" y2="30" stroke="black"/>'''
 
-```
-# Table headers
-headers = ["SR NO.", "TAG", "DESCRIPTION", "SIZE", "QTY"]
-col_widths = [50, 80, 200, 80, 70]
-x_pos = 0
-for i, header in enumerate(headers):
-    bom_svg += f'<text x="{x_pos + col_widths[i]/2}" y="45" text-anchor="middle" font-size="10" font-weight="bold">{header}</text>'
-    x_pos += col_widths[i]
+    # Table headers
+    headers = ["SR NO.", "TAG", "DESCRIPTION", "SIZE", "QTY"]
+    col_widths = [50, 80, 200, 80, 70]
+    x_pos = 0
+    for i, header in enumerate(headers):
+        bom_svg += f'<text x="{x_pos + col_widths[i]/2}" y="45" text-anchor="middle" font-size="10" font-weight="bold">{header}</text>'
+        x_pos += col_widths[i]
 
-bom_svg += '<line x1="0" y1="50" x2="480" y2="50" stroke="black"/>'
+    bom_svg += '<line x1="0" y1="50" x2="480" y2="50" stroke="black"/>'
 
-# Table rows
-y_pos = 65
-for i, (comp_id, comp) in enumerate(components.items()):
-    if i < 10:  # Limit to first 10 items
-        x_pos = 0
-        row_data = [str(i+1), comp.tag, comp.description[:30], "-", "1"]
-        for j, data in enumerate(row_data):
-            bom_svg += f'<text x="{x_pos + col_widths[j]/2}" y="{y_pos}" text-anchor="middle" font-size="9">{data}</text>'
-            x_pos += col_widths[j]
-        y_pos += 15
+    # Table rows
+    y_pos = 65
+    for i, (comp_id, comp) in enumerate(components.items()):
+        if i < 10:  # Limit to first 10 items
+            x_pos = 0
+            row_data = [str(i+1), comp.tag, comp.description[:30], "-", "1"]
+            for j, data in enumerate(row_data):
+                bom_svg += f'<text x="{x_pos + col_widths[j]/2}" y="{y_pos}" text-anchor="middle" font-size="9">{data}</text>'
+                x_pos += col_widths[j]
+            y_pos += 15
 
-bom_svg += '</g>'
-return bom_svg
-```
+    bom_svg += '</g>'
+    return bom_svg
 
-# — STREAMLIT UI —
+# --- STREAMLIT UI ---
 
-st.title(“🏭 EPS P&ID Suite”)
+st.title("🏭 EPS P&ID Suite")
 
 # Sidebar controls
-
 with st.sidebar:
-st.header(“📐 Drawing Standards”)
+    st.header("📐 Drawing Standards")
+    drawing_standard = st.selectbox("Standard", ["ISA", "ISO", "DIN", "JIS"])
+    drawing_size = st.selectbox("Size", ["A3", "A2", "A1", "A0"])
 
-```
-drawing_standard = st.selectbox("Standard", ["ISA", "ISO", "DIN", "JIS"])
-drawing_size = st.selectbox("Size", ["A3", "A2", "A1", "A0"])
+    st.header("🎨 Visual Controls")
+    st.session_state.show_grid = st.checkbox("Show Grid", value=False)
+    st.session_state.show_legend = st.checkbox("Show Legend", value=True)
+    st.session_state.show_bom = st.checkbox("Show BOM", value=True)
 
-st.header("🎨 Visual Controls")
-st.session_state.show_grid = st.checkbox("Show Grid", value=False)
-st.session_state.show_legend = st.checkbox("Show Legend", value=True)
-st.session_state.show_bom = st.checkbox("Show BOM", value=True)
-
-grid_spacing = st.slider("Grid Spacing (mm)", 10, 50, 25)
-symbol_scale = st.slider("Symbol Scale", 0.5, 2.0, 1.0, 0.1)
-```
+    grid_spacing = st.slider("Grid Spacing (mm)", 10, 50, 25)
+    symbol_scale = st.slider("Symbol Scale", 0.5, 2.0, 1.0, 0.1)
 
 # Main drawing area
-
 col1, col2 = st.columns([3, 1])
 
 with col1:
-# Create P&ID
-components, pipes = create_professional_pnid()
+    # Create P&ID
+    components, pipes = create_professional_pnid()
 
-```
-# Render SVG
-svg_content = render_professional_svg(components, pipes)
+    # Render SVG
+    svg_content = render_professional_svg(components, pipes)
 
-# Display SVG
-st.markdown("### P&ID Drawing")
-st.components.v1.html(f'''
-    <div style="background: white; border: 2px solid #333; overflow: auto; height: 800px;">
-        {svg_content}
-    </div>
-''', height=820)
-```
+    # Display SVG
+    st.markdown("### P&ID Drawing")
+    st.components.v1.html(f'''
+        <div style="background: white; border: 2px solid #333; overflow: auto; height: 800px;">
+            {svg_content}
+        </div>
+    ''', height=820)
 
 with col2:
-st.markdown(”### Component Library”)
+    st.markdown("### Component Library")
+    # Component categories
+    category = st.selectbox("Category", ["Pumps", "Valves", "Vessels", "Instruments", "Piping"])
 
-```
-# Component categories
-category = st.selectbox("Category", ["Pumps", "Valves", "Vessels", "Instruments", "Piping"])
+    # Show component thumbnails
+    if category == "Pumps":
+        st.write("🔄 Centrifugal Pump")
+        st.write("🔄 Vacuum Pump")
+        st.write("🔄 Positive Displacement")
+    elif category == "Valves":
+        st.write("🔧 Gate Valve")
+        st.write("🔧 Globe Valve")
+        st.write("🔧 Control Valve")
 
-# Show component thumbnails
-if category == "Pumps":
-    st.write("🔄 Centrifugal Pump")
-    st.write("🔄 Vacuum Pump")
-    st.write("🔄 Positive Displacement")
-elif category == "Valves":
-    st.write("🔧 Gate Valve")
-    st.write("🔧 Globe Valve")
-    st.write("🔧 Control Valve")
-
-# Component properties
-if st.session_state.selected_component:
-    st.markdown("### Properties")
-    comp = components.get(st.session_state.selected_component)
-    if comp:
-        st.text_input("Tag", comp.tag)
-        st.text_area("Description", comp.description)
-        st.number_input("X Position", value=comp.x)
-        st.number_input("Y Position", value=comp.y)
-```
+    # Component properties
+    if st.session_state.selected_component:
+        st.markdown("### Properties")
+        comp = components.get(st.session_state.selected_component)
+        if comp:
+            st.text_input("Tag", comp.tag)
+            st.text_area("Description", comp.description)
+            st.number_input("X Position", value=comp.x)
+            st.number_input("Y Position", value=comp.y)
 
 # Bottom toolbar
-
 col3, col4, col5, col6 = st.columns(4)
 
 with col3:
-if st.button(“🔍 Validate P&ID”):
-validator = PnIDValidator(components, pipes)
-results = validator.validate_all()
+    if st.button("🔍 Validate P&ID"):
+        validator = PnIDValidator(components, pipes)
+        results = validator.validate_all()
 
-```
-    if results['is_valid']:
-        st.success("✅ P&ID validation passed!")
-    else:
-        st.error(f"❌ Found {len(results['errors'])} errors")
-        for error in results['errors'][:5]:
-            st.error(error)
-    
-    if results['warnings']:
-        st.warning(f"⚠️ {len(results['warnings'])} warnings")
-        for warning in results['warnings'][:3]:
-            st.warning(warning)
-```
+        if results['is_valid']:
+            st.success("✅ P&ID validation passed!")
+        else:
+            st.error(f"❌ Found {len(results['errors'])} errors")
+            for error in results['errors'][:5]:
+                st.error(error)
+        
+        if results['warnings']:
+            st.warning(f"⚠️ {len(results['warnings'])} warnings")
+            for warning in results['warnings'][:3]:
+                st.warning(warning)
 
 with col4:
-if st.button(“🤖 Analyze Control Loops”):
-analyzer = ControlSystemAnalyzer(components, pipes)
-st.info(f”Found {len(analyzer.control_loops)} control loops”)
-for loop in analyzer.control_loops:
-st.write(f”- {loop.loop_type.value}: {loop.loop_id}”)
+    if st.button("🤖 Analyze Control Loops"):
+        analyzer = ControlSystemAnalyzer(components, pipes)
+        st.info(f"Found {len(analyzer.control_loops)} control loops")
+        for loop in analyzer.control_loops:
+            st.write(f"- {loop.loop_type.value}: {loop.loop_id}")
 
 with col5:
-if st.button(“💾 Export SVG”):
-# Create download link
-b64 = base64.b64encode(svg_content.encode()).decode()
-href = f’<a href="data:image/svg+xml;base64,{b64}" download="pnid_drawing.svg">Download SVG File</a>’
-st.markdown(href, unsafe_allow_html=True)
+    if st.button("💾 Export SVG"):
+        # Create download link
+        b64 = base64.b64encode(svg_content.encode()).decode()
+        href = f'<a href="data:image/svg+xml;base64,{b64}" download="pnid_drawing.svg">Download SVG File</a>'
+        st.markdown(href, unsafe_allow_html=True)
 
 with col6:
-if st.button(“🖨️ Export PDF”):
-st.info(“PDF export requires additional libraries (cairosvg)”)
+    if st.button("🖨️ Export PDF"):
+        st.info("PDF export requires additional libraries (cairosvg)")
 
 # Footer
-
-st.markdown(”—”)
-st.markdown(“EPS Process Solutions Pvt. Ltd. - P&ID Automation Platform v2.0”)
+st.markdown("---")
+st.markdown("EPS Process Solutions Pvt. Ltd. - P&ID Automation Platform v2.0")
 
 def add_scope_boundaries(svg_content, scope_areas):
     """Add dashed scope boundary boxes"""
@@ -561,7 +534,7 @@ def add_flow_arrows(pipe_svg, path_points):
 
         for i in range(len(path_points) - 1):
             p1, p2 = path_points[i], path_points[i + 1]
-            length = ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)**0.5
+            length = math.sqrt((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)
             segments.append((p1, p2, length))
             total_length += length
 
@@ -605,4 +578,3 @@ REFERENCE_SCOPE_AREAS = [
         'label': 'CONTROL PANEL'
     }
 ]
-
