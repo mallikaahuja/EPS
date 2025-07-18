@@ -1,172 +1,170 @@
 class ImprovedPipeRouter:
-“”“Professional pipe routing for P&ID diagrams”””
+    """Professional pipe routing for P&ID diagrams"""
 
-```
-def __init__(self, grid_size=10):
-    self.grid_size = grid_size
-    self.occupied_paths = []
-    
-def route_pipe(self, start_point, end_point, components, existing_pipes=[]):
-    """
-    Route a pipe between two points avoiding components and minimizing crossings
-    """
-    # Convert points to grid coordinates
-    start_grid = (int(start_point[0] / self.grid_size), int(start_point[1] / self.grid_size))
-    end_grid = (int(end_point[0] / self.grid_size), int(end_point[1] / self.grid_size))
-    
-    # Determine routing strategy based on relative positions
-    path = []
-    
-    # Get component bounds for collision detection
-    obstacles = self._get_obstacle_grid(components)
-    
-    # Try different routing strategies
-    if start_grid[0] == end_grid[0]:  # Vertical alignment
-        path = self._route_vertical(start_point, end_point)
-    elif start_grid[1] == end_grid[1]:  # Horizontal alignment
-        path = self._route_horizontal(start_point, end_point)
-    else:
-        # Need orthogonal routing
-        path = self._route_orthogonal(start_point, end_point, obstacles)
-    
-    return path
+    def __init__(self, grid_size=10):
+        self.grid_size = grid_size
+        self.occupied_paths = []
 
-def _route_vertical(self, start, end):
-    """Route a straight vertical pipe"""
-    return [start, end]
+    def route_pipe(self, start_point, end_point, components, existing_pipes=[]):
+        """
+        Route a pipe between two points avoiding components and minimizing crossings
+        """
+        # Convert points to grid coordinates
+        start_grid = (int(start_point[0] / self.grid_size), int(start_point[1] / self.grid_size))
+        end_grid = (int(end_point[0] / self.grid_size), int(end_point[1] / self.grid_size))
 
-def _route_horizontal(self, start, end):
-    """Route a straight horizontal pipe"""
-    return [start, end]
+        # Determine routing strategy based on relative positions
+        path = []
 
-def _route_orthogonal(self, start, end, obstacles):
-    """Route with right angles, avoiding obstacles"""
-    # Try horizontal-then-vertical
-    path1 = [
-        start,
-        (end[0], start[1]),  # Horizontal segment
-        end                   # Vertical segment
-    ]
-    
-    # Try vertical-then-horizontal
-    path2 = [
-        start,
-        (start[0], end[1]),  # Vertical segment
-        end                   # Horizontal segment
-    ]
-    
-    # Try with intermediate points for complex routing
-    mid_x = (start[0] + end[0]) / 2
-    mid_y = (start[1] + end[1]) / 2
-    
-    path3 = [
-        start,
-        (start[0], mid_y),    # Vertical to midpoint
-        (end[0], mid_y),      # Horizontal across
-        end                    # Vertical to end
-    ]
-    
-    path4 = [
-        start,
-        (mid_x, start[1]),    # Horizontal to midpoint
-        (mid_x, end[1]),      # Vertical across
-        end                    # Horizontal to end
-    ]
-    
-    # Choose path with least obstacles (simplified)
-    # In production, use A* or similar pathfinding
-    for path in [path1, path2, path3, path4]:
-        if self._is_path_clear(path, obstacles):
-            return path
-    
-    # Default to path3 if no clear path found
-    return path3
+        # Get component bounds for collision detection
+        obstacles = self._get_obstacle_grid(components)
 
-def _get_obstacle_grid(self, components):
-    """Convert components to grid obstacles"""
-    obstacles = set()
-    for comp in components.values():
-        # Add padding around components
-        padding = 20
-        x1 = int((comp.x - padding) / self.grid_size)
-        y1 = int((comp.y - padding) / self.grid_size)
-        x2 = int((comp.x + comp.width + padding) / self.grid_size)
-        y2 = int((comp.y + comp.height + padding) / self.grid_size)
-        
-        for x in range(x1, x2 + 1):
-            for y in range(y1, y2 + 1):
-                obstacles.add((x, y))
-    
-    return obstacles
+        # Try different routing strategies
+        if start_grid[0] == end_grid[0]:  # Vertical alignment
+            path = self._route_vertical(start_point, end_point)
+        elif start_grid[1] == end_grid[1]:  # Horizontal alignment
+            path = self._route_horizontal(start_point, end_point)
+        else:
+            # Need orthogonal routing
+            path = self._route_orthogonal(start_point, end_point, obstacles)
 
-def _is_path_clear(self, path, obstacles):
-    """Check if path avoids obstacles"""
-    for i in range(len(path) - 1):
-        p1, p2 = path[i], path[i + 1]
-        # Check if line segment intersects obstacles
-        # Simplified check - in production use proper line-rectangle intersection
-        grid_p1 = (int(p1[0] / self.grid_size), int(p1[1] / self.grid_size))
-        grid_p2 = (int(p2[0] / self.grid_size), int(p2[1] / self.grid_size))
-        
-        if grid_p1 in obstacles or grid_p2 in obstacles:
-            return False
-    
-    return True
-```
+        return path
+
+    def _route_vertical(self, start, end):
+        """Route a straight vertical pipe"""
+        return [start, end]
+
+    def _route_horizontal(self, start, end):
+        """Route a straight horizontal pipe"""
+        return [start, end]
+
+    def _route_orthogonal(self, start, end, obstacles):
+        """Route with right angles, avoiding obstacles"""
+        # Try horizontal-then-vertical
+        path1 = [
+            start,
+            (end[0], start[1]),  # Horizontal segment
+            end                   # Vertical segment
+        ]
+
+        # Try vertical-then-horizontal
+        path2 = [
+            start,
+            (start[0], end[1]),  # Vertical segment
+            end                   # Horizontal segment
+        ]
+
+        # Try with intermediate points for complex routing
+        mid_x = (start[0] + end[0]) / 2
+        mid_y = (start[1] + end[1]) / 2
+
+        path3 = [
+            start,
+            (start[0], mid_y),    # Vertical to midpoint
+            (end[0], mid_y),      # Horizontal across
+            end                    # Vertical to end
+        ]
+
+        path4 = [
+            start,
+            (mid_x, start[1]),    # Horizontal to midpoint
+            (mid_x, end[1]),      # Vertical across
+            end                    # Horizontal to end
+        ]
+
+        # Choose path with least obstacles (simplified)
+        # In production, use A* or similar pathfinding
+        for path in [path1, path2, path3, path4]:
+            if self._is_path_clear(path, obstacles):
+                return path
+
+        # Default to path3 if no clear path found
+        return path3
+
+    def _get_obstacle_grid(self, components):
+        """Convert components to grid obstacles"""
+        obstacles = set()
+        for comp in components.values():
+            # Add padding around components
+            padding = 20
+            x1 = int((comp.x - padding) / self.grid_size)
+            y1 = int((comp.y - padding) / self.grid_size)
+            x2 = int((comp.x + comp.width + padding) / self.grid_size)
+            y2 = int((comp.y + comp.height + padding) / self.grid_size)
+
+            for x in range(x1, x2 + 1):
+                for y in range(y1, y2 + 1):
+                    obstacles.add((x, y))
+
+        return obstacles
+
+    def _is_path_clear(self, path, obstacles):
+        """Check if path avoids obstacles"""
+        for i in range(len(path) - 1):
+            p1, p2 = path[i], path[i + 1]
+            # Check if line segment intersects obstacles
+            # Simplified check - in production use proper line-rectangle intersection
+            grid_p1 = (int(p1[0] / self.grid_size), int(p1[1] / self.grid_size))
+            grid_p2 = (int(p2[0] / self.grid_size), int(p2[1] / self.grid_size))
+
+            if grid_p1 in obstacles or grid_p2 in obstacles:
+                return False
+
+        return True
+
 
 def create_reference_style_pipes(components):
-“”“Create pipes matching the reference P&ID style”””
-pipes = []
+    """Create pipes matching the reference P&ID style"""
+    pipes = []
 
-```
-# Define connections as in reference
-connections = [
-    # Main process flow
-    ("EB-001", "outlet", "Y-001", "inlet", "2\"-PG-001-CS", "process"),
-    ("Y-001", "outlet", "V-001", "inlet", "2\"-PG-002-CS", "process"),
-    ("V-001", "outlet", "F-001", "inlet", "2\"-PG-003-CS", "process"),
-    ("F-001", "outlet", "V-002", "inlet", "2\"-PG-004-CS", "process"),
-    ("V-002", "outlet", "P-001", "suction", "2\"-PG-005-CS", "process"),
-    ("P-001", "discharge", "CT-001", "inlet", "2\"-PG-006-CS", "process"),
-    
-    # Instrument connections
-    ("PT-001", "signal", "CP-001", "input", "IS-001", "instrument_signal"),
-    ("FT-001", "signal", "FIC-001", "input", "IS-002", "instrument_signal"),
-    ("FIC-001", "output", "FCV-001", "control", "IS-003", "instrument_signal"),
-    
-    # Utilities
-    ("PR-001", "outlet", "V-003", "inlet", "1\"-NG-001-SS", "utility"),
-]
+    # Define connections as in reference
+    connections = [
+        # Main process flow
+        ("EB-001", "outlet", "Y-001", "inlet", "2\"-PG-001-CS", "process"),
+        ("Y-001", "outlet", "V-001", "inlet", "2\"-PG-002-CS", "process"),
+        ("V-001", "outlet", "F-001", "inlet", "2\"-PG-003-CS", "process"),
+        ("F-001", "outlet", "V-002", "inlet", "2\"-PG-004-CS", "process"),
+        ("V-002", "outlet", "P-001", "suction", "2\"-PG-005-CS", "process"),
+        ("P-001", "discharge", "CT-001", "inlet", "2\"-PG-006-CS", "process"),
 
-router = ImprovedPipeRouter()
+        # Instrument connections
+        ("PT-001", "signal", "CP-001", "input", "IS-001", "instrument_signal"),
+        ("FT-001", "signal", "FIC-001", "input", "IS-002", "instrument_signal"),
+        ("FIC-001", "output", "FCV-001", "control", "IS-003", "instrument_signal"),
 
-for from_id, from_port, to_id, to_port, label, line_type in connections:
-    if from_id in components and to_id in components:
-        from_comp = components[from_id]
-        to_comp = components[to_id]
-        
-        # Get port positions
-        from_pos = from_comp.ports.get(from_port, 
-                                      (from_comp.x + from_comp.width/2, 
-                                       from_comp.y + from_comp.height/2))
-        to_pos = to_comp.ports.get(to_port,
-                                  (to_comp.x + to_comp.width/2,
-                                   to_comp.y + to_comp.height/2))
-        
-        # Route pipe
-        path = router.route_pipe(from_pos, to_pos, components, pipes)
-        
-        # Create pipe object
-        pipe = ProfessionalPipe(
-            from_comp=from_comp,
-            from_port=from_port,
-            to_comp=to_comp,
-            to_port=to_port,
-            label=label,
-            line_type=line_type
-        )
-        pipe.waypoints = path
-        pipes.append(pipe)
+        # Utilities
+        ("PR-001", "outlet", "V-003", "inlet", "1\"-NG-001-SS", "utility"),
+    ]
 
-return pipes
-```
+    router = ImprovedPipeRouter()
+
+    for from_id, from_port, to_id, to_port, label, line_type in connections:
+        if from_id in components and to_id in components:
+            from_comp = components[from_id]
+            to_comp = components[to_id]
+
+            # Get port positions
+            from_pos = from_comp.ports.get(from_port,
+                                          (from_comp.x + from_comp.width/2,
+                                           from_comp.y + from_comp.height/2))
+            to_pos = to_comp.ports.get(to_port,
+                                      (to_comp.x + to_comp.width/2,
+                                       to_comp.y + to_comp.height/2))
+
+            # Route pipe
+            path = router.route_pipe(from_pos, to_pos, components, pipes)
+
+            # Create pipe object
+            # Assuming 'ProfessionalPipe' class is defined elsewhere and has these attributes
+            pipe = ProfessionalPipe(
+                from_comp=from_comp,
+                from_port=from_port,
+                to_comp=to_comp,
+                to_port=to_port,
+                label=label,
+                line_type=line_type
+            )
+            pipe.waypoints = path
+            pipes.append(pipe)
+
+    return pipes
