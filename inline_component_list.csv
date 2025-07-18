@@ -1,14 +1,14 @@
-ID,tag_prefix,name,type,subtype,isa_code,default_properties,default_width_px,default_height_px,port_definitions,placement_rule,cost_usd,manufacturer,efficiency_pct
-gate_valve,GV,Gate Valve,valve,gate_valve,,"{""actuation"": ""Manual"", ""material"": ""SS316""}",50,50,"{""left"": [0, 25], ""right"": [50, 25]}",inline,250,ValveCo,95
-solenoid_valve,SV,Solenoid Valve,valve,solenoid_valve,,"{""actuation"": ""Electric"", ""voltage"": ""24VDC""}",50,50,"{""left"": [0, 25], ""right"": [50, 25]}",inline,450,ValveCo,92
-knob_valve,KV,Knob Valve,valve,needle_valve,,"{""actuation"": ""Manual"", ""type"": ""Fine Control""}",40,40,"{""left"": [0, 20], ""right"": [40, 20]}",inline,180,ValveCo,93
-pressure_regulator,PR,Pressure Regulator,instrument,pressure_regulator,PR,"{""range"": ""0-10 bar"", ""type"": ""Self Acting""}",60,60,"{""inlet"": [0, 30], ""outlet"": [60, 30]}",inline,800,RegulatorCo,90
-rotameter,RM,Rotameter,instrument,flow_meter,FI,"{""range"": ""0-50 LPM"", ""fluid"": ""N2""}",50,80,"{""inlet"": [25, 80], ""outlet"": [25, 0]}",inline,650,FlowCo,94
-temperature_transmitter,TT,Temperature Transmitter,instrument,temperature_transmitter,TT,"{""range"": ""0-200C"", ""output"": ""4-20mA""}",50,50,"{""process_connection"": [5, 25]}",tapped_above,750,TransmitterCo,95
-pressure_transmitter,PT,Pressure Transmitter,instrument,pressure_transmitter,PT,"{""range"": ""0-10 bar"", ""output"": ""4-20mA""}",50,50,"{""process_connection"": [5, 25]}",tapped_above,600,TransmitterCo,95
-level_switch,LS,Level Switch,instrument,level_switch,LS,"{""type"": ""Float"", ""contact"": ""SPDT""}",50,50,"{""process_connection"": [5, 25]}",tapped_side,350,InstrumentCo,92
-flow_switch,FS,Flow Switch,instrument,flow_switch,FS,"{""setpoint"": ""5 LPM"", ""contact"": ""SPDT""}",50,50,"{""process_connection"": [25, 0]}",tapped_above,420,InstrumentCo,90
-temperature_control_valve,TCV,Temperature Control Valve,valve,control_valve,TCV,"{""actuation"": ""Pneumatic"", ""fail_position"": ""FC""}",60,60,"{""left"": [0, 30], ""right"": [60, 30]}",inline,1200,ControlValveCo,88
-temperature_gauge,TG,Temperature Gauge,instrument,temperature_gauge,TG,"{""range"": ""0-200C"", ""type"": ""Dial""}",40,40,"{""process_connection"": [5, 20]}",tapped_above,150,GaugeCo,95
-pressure_gauge,PG,Pressure Gauge,instrument,pressure_gauge,PG,"{""range"": ""0-10 bar"", ""type"": ""Dial""}",40,40,"{""process_connection"": [5, 20]}",tapped_above,120,GaugeCo,95
-flame_arrestor,FA,Flame Arrestor,safety,flame_arrestor,,"{""type"": ""Deflagration"", ""material"": ""SS316""}",70,50,"{""inlet"": [0, 25], ""outlet"": [70, 25]}",inline,2200,SafetyCo,98
+ID,tag_prefix,name,type,subtype,isa_code,default_properties,default_width_px,default_height_px,port_definitions,placement_rule,cost_usd,manufacturer,efficiency_pct,Pipeline,Description
+V-001,V,Gate Valve Inlet,valve,gate_valve,,"{""actuation"":""Manual"",""material"":""SS316""}",50,50,"{""left"":[0,25],""right"":[50,25]}",inline,250,ValveCo,95,PROCESS_LINE_1,GATE VALVE
+V-002,V,Gate Valve Filter Outlet,valve,gate_valve,,"{""actuation"":""Manual"",""material"":""SS316""}",50,50,"{""left"":[0,25],""right"":[50,25]}",inline,250,ValveCo,95,PROCESS_LINE_3,GATE VALVE
+SV-001,SV,Solenoid Valve N2,valve,solenoid_valve,,"{""actuation"":""Electric"",""voltage"":""24VDC""}",50,50,"{""left"":[0,25],""right"":[50,25]}",inline,450,ValveCo,92,NITROGEN_PURGE,SOLENOID VALVE
+V-003,V,Drain Valve Catch Pot,valve,gate_valve,,"{""actuation"":""Manual"",""material"":""CS""}",40,40,"{""left"":[0,20],""right"":[40,20]}",inline,180,ValveCo,93,DRAIN_LINE_1,DRAIN VALVE
+V-004,V,Drain Valve Scrubber,valve,gate_valve,,"{""actuation"":""Manual"",""material"":""CS""}",40,40,"{""left"":[0,20],""right"":[40,20]}",inline,180,ValveCo,93,DRAIN_LINE_2,DRAIN VALVE
+NRV-001,NRV,Check Valve Pump Discharge,valve,check_valve,,"{""type"":""Swing Check"",""material"":""SS316""}",50,50,"{""left"":[0,25],""right"":[50,25]}",inline,350,ValveCo,98,PROCESS_LINE_4,NON RETURN VALVE
+PT-001,PT,Pressure Transmitter,instrument,pressure_transmitter,PT,"{""range"":""0-10 bar"",""output"":""4-20mA""}",50,50,"{""process_connection"":[5,25]}",tapped_above,600,TransmitterCo,95,PROCESS_LINE_4,PRESSURE TRANSMITTER
+TT-001,TT,Temperature Transmitter,instrument,temperature_transmitter,TT,"{""range"":""0-200C"",""output"":""4-20mA""}",50,50,"{""process_connection"":[5,25]}",tapped_above,750,TransmitterCo,95,PROCESS_LINE_3,TEMPERATURE TRANSMITTER
+LS-001,LS,Level Switch Scrubber,instrument,level_switch,LS,"{""type"":""Float"",""contact"":""SPDT""}",50,50,"{""process_connection"":[5,25]}",tapped_side,350,InstrumentCo,92,SCR-001,LEVEL SWITCH
+FT-001,FT,Flow Transmitter,instrument,flow_transmitter,FT,"{""range"":""0-1000 m3/hr"",""output"":""4-20mA""}",50,50,"{""process_connection"":[25,0]}",inline,850,TransmitterCo,95,PROCESS_LINE_4,FLOW TRANSMITTER
+PG-001,PG,Pressure Gauge Suction,instrument,pressure_gauge,PG,"{""range"":""-1 to 0 bar"",""type"":""Dial""}",40,40,"{""process_connection"":[5,20]}",tapped_above,120,GaugeCo,95,PROCESS_LINE_3,PRESSURE GAUGE
+PG-002,PG,Pressure Gauge Discharge,instrument,pressure_gauge,PG,"{""range"":""0-2 bar"",""type"":""Dial""}",40,40,"{""process_connection"":[5,20]}",tapped_above,120,GaugeCo,95,PROCESS_LINE_4,PRESSURE GAUGE
+TG-001,TG,Temperature Gauge,instrument,temperature_gauge,TG,"{""range"":""0-200C"",""type"":""Dial""}",40,40,"{""process_connection"":[5,20]}",tapped_above,150,GaugeCo,95,PROCESS_LINE_6,TEMPERATURE GAUGE
