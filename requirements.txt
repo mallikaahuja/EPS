@@ -12,7 +12,7 @@ psycopg2-binary>=2.9.0
 
 openai>=1.0.0
 
-stability-sdk==0.6.2
+stability-sdk==0.6.1
 
 # Drawing and export
 
