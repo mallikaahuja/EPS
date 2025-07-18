@@ -390,6 +390,22 @@ PROFESSIONAL_ISA_SYMBOLS = {
         <text x="40" y="35" text-anchor="middle" font-size="10" font-family="Arial">LS</text>
         <text x="40" y="50" text-anchor="middle" font-size="8" font-family="Arial">PURGE</text>
         </symbol>''',
+
+def get_component_symbol(component_id, width=None, height=None):
+    """
+    Returns the SVG string for the requested ISA symbol.
+    If width and height are given, wraps in an SVG with those dimensions.
+    """
+    svg = PROFESSIONAL_ISA_SYMBOLS.get(component_id)
+    if svg is None:
+        return f'<!-- Unknown symbol: {component_id} -->'
+    # Wrap the raw SVG in an <svg> tag with width/height if given
+    if width and height:
+        # Try to detect if the SVG already has a viewBox or set one
+        viewbox = "0 0 80 80"  # Default, adjust as needed
+        return f'<svg width="{width}" height="{height}" viewBox="{viewbox}" xmlns="http://www.w3.org/2000/svg">{svg}</svg>'
+    else:
+        return svg
 }
 
 # Arrow marker definitions for flow direction
