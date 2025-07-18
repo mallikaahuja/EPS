@@ -23,7 +23,7 @@ def render_svg(equipment_df, pipeline_df, inline_df, positions, pipelines, inlin
 
     # --- Title Block, BOM, Legend (footer blocks) ---
     svg_layers.append(render_title_block(
-        title="TENTATIVE P&ID DRAWING FOR SUCTION FILTER + KDP-330",
+        title="TENTATIVE P&amp;ID DRAWING FOR SUCTION FILTER + KDP-330",
         project="EPSPL_V2526-TP",
         rev="00",
         scale="1:50",
