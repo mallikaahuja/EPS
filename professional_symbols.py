@@ -6,8 +6,18 @@ Detailed, industry-standard P&ID symbols matching real engineering drawings
 # Professional ISA Symbols with accurate details
 # All symbols are designed to fit conceptually within a 80x80 unit space.
 # The viewBox "0 0 80 80" will be applied for scaling.
+#
+# Note: Some new symbols may be designed on a 100x100 viewBox implicitly.
+# The get_component_symbol function is designed to scale these correctly
+# by applying a "0 0 80 80" viewBox to the outer <svg> tag.
+# If symbols consistently use a different internal viewBox,
+# the default_viewbox variable in get_component_symbol might need adjustment
+# or a per-symbol viewBox definition could be added to the dictionary.
+
+import re
 
 PROFESSIONAL_ISA_SYMBOLS = {
+    # --- Existing symbols from your previous file ---
     "kdp_330_pump": '''
         <rect x="20" y="20" width="40" height="30" rx="8" stroke="black" stroke-width="2" fill="none"/>
         <text x="40" y="38" font-size="14" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">KDP</text>
@@ -16,47 +26,169 @@ PROFESSIONAL_ISA_SYMBOLS = {
         <rect x="12" y="31" width="8" height="8" rx="2" stroke="black" fill="white"/>
         <rect x="60" y="31" width="8" height="8" rx="2" stroke="black" fill="white"/>
     ''',
-
     "motor_10hp_2pole_b5": '''
         <rect x="25" y="25" width="30" height="20" stroke="black" stroke-width="2" fill="none"/>
         <rect x="25" y="20" width="30" height="5" stroke="black" fill="white"/>
         <text x="40" y="38" font-size="10" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">10HP</text>
         <line x1="25" y1="45" x2="55" y2="45" stroke="black" stroke-width="2"/>
     ''',
-
     "vfd": '''
         <rect x="28" y="20" width="24" height="40" stroke="black" stroke-width="2" fill="none"/>
         <rect x="30" y="22" width="20" height="8" fill="white" stroke="black"/>
         <circle cx="40" cy="42" r="3" stroke="black" fill="white"/>
         <text x="40" y="54" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">VFD</text>
     ''',
-
     "epo_valve": '''
         <circle cx="40" cy="40" r="13" stroke="black" stroke-width="2" fill="none"/>
         <text x="40" y="45" font-size="11" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">EPO</text>
         <line x1="40" y1="53" x2="60" y2="53" stroke="black" stroke-width="1" stroke-dasharray="3,2"/>
         <rect x="60" y="50" width="8" height="6" stroke="black" fill="white"/>
     ''',
-
     "n2_purge_assembly": '''
         <ellipse cx="30" cy="40" rx="12" ry="7" stroke="black" fill="white"/>
         <text x="30" y="44" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">N2</text>
         <rect x="42" y="36" width="10" height="8" rx="3" stroke="black" fill="white"/>
         <polygon points="52,40 62,38 62,42" fill="white" stroke="black"/>
     ''',
-
     "liquid_flushing_assembly": '''
         <polygon points="30,40 35,30 40,40" fill="white" stroke="black"/>
         <rect x="42" y="34" width="8" height="12" stroke="black" fill="white"/>
         <polygon points="55,40 65,38 65,42" fill="white" stroke="black"/>
     ''',
-
     "suction_condenser": '''
         <rect x="34" y="22" width="12" height="36" stroke="black" fill="white"/>
         <polyline points="36,26 44,30 36,34 44,38 36,42 44,46" stroke="black" fill="none"/>
         <text x="40" y="40" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Condenser</text>
     ''',
-
+    "suction_filter": '''
+        <rect x="24" y="24" width="32" height="32" stroke="black" fill="white"/>
+        <line x1="26" y1="26" x2="54" y2="54" stroke="black" stroke-width="1"/>
+        <line x1="54" y1="26" x2="26" y2="54" stroke="black" stroke-width="1"/>
+        <text x="40" y="48" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Suction Filter</text>
+    ''',
+    "scrubber": '''
+        <rect x="32" y="15" width="16" height="50" rx="8" stroke="black" fill="white"/>
+        <line x1="32" y1="28" x2="48" y2="28" stroke="black"/>
+        <line x1="32" y1="38" x2="48" y2="38" stroke="black"/>
+        <line x1="32" y1="48" x2="48" y2="48" stroke="black"/>
+        <text x="40" y="70" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Scrubber</text>
+    ''',
+    "flame_arrestor_suction": '''
+        <rect x="30" y="32" width="20" height="16" stroke="black" fill="white"/>
+        <polygon points="38,36 40,42 42,36 44,42 46,36" fill="none" stroke="black"/>
+        <polyline points="30,40 20,40" stroke="black"/>
+        <polyline points="50,40 60,40" stroke="black"/>
+        <text x="40" y="60" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Flame</text>
+        <polygon points="62,37 65,40 62,43" fill="black"/>
+    ''',
+    "flame_arrestor_discharge": '''
+        <rect x="30" y="32" width="20" height="16" stroke="black" fill="white"/>
+        <polygon points="38,36 40,42 42,36 44,42 46,36" fill="none" stroke="black"/>
+        <polyline points="30,40 20,40" stroke="black"/>
+        <polyline points="50,40 60,40" stroke="black"/>
+        <text x="40" y="60" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Flame</text>
+        <polygon points="18,37 15,40 18,43" fill="black"/>
+    ''',
+    "flex_conn_suction": '''
+        <path d="M20,40 Q30,35 40,45 Q50,55 60,40" stroke="black" fill="none"/>
+        <text x="40" y="60" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Flex Conn (Suction)</text>
+    ''',
+    "flex_conn_discharge": '''
+        <path d="M20,40 Q30,45 40,35 Q50,25 60,40" stroke="black" fill="none"/>
+        <text x="40" y="60" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Flex Conn (Discharge)</text>
+    ''',
+    "pressure_transmitter_discharge": '''
+        <circle cx="40" cy="40" r="12" stroke="black" stroke-width="2" fill="white"/>
+        <text x="40" y="44" font-size="10" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">PT</text>
+        <line x1="40" y1="52" x2="60" y2="60" stroke="black" stroke-width="1" stroke-dasharray="3,2"/>
+        <rect x="60" y="57" width="10" height="6" stroke="black" fill="white"/>
+    ''',
+    "discharge_condenser": '''
+        <rect x="20" y="34" width="40" height="12" stroke="black" fill="white"/>
+        <polyline points="22,36 38,44 54,36" stroke="black" fill="none"/>
+        <text x="40" y="56" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Condenser</text>
+    ''',
+    "temp_transmitter_suction": '''
+        <circle cx="40" cy="40" r="12" stroke="black" stroke-width="2" fill="white"/>
+        <text x="40" y="44" font-size="10" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">TT</text>
+        <line x1="40" y1="52" x2="60" y2="60" stroke="black" stroke-width="1" stroke-dasharray="3,2"/>
+        <rect x="60" y="57" width="10" height="6" stroke="black" fill="white"/>
+    ''',
+    "temp_transmitter_discharge": '''
+        <circle cx="40" cy="40" r="12" stroke="black" stroke-width="2" fill="white"/>
+        <text x="40" y="44" font-size="10" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">TT</text>
+        <line x1="40" y1="52" x2="60" y2="60" stroke="black" stroke-width="1" stroke-dasharray="3,2"/>
+        <rect x="60" y="57" width="10" height="6" stroke="black" fill="white"/>
+    ''',
+    "temp_gauge_suction": '''
+        <circle cx="40" cy="40" r="11" stroke="black" fill="white"/>
+        <rect x="37" y="30" width="6" height="12" fill="white" stroke="black"/>
+        <text x="40" y="44" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">&#8451;</text>
+    ''',
+    "temp_gauge_discharge": '''
+        <circle cx="40" cy="40" r="11" stroke="black" fill="white"/>
+        <rect x="37" y="30" width="6" height="12" fill="white" stroke="black"/>
+        <text x="40" y="44" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">&#8451;</text>
+    ''',
+    "acg_filter_suction": '''
+        <ellipse cx="40" cy="40" rx="10" ry="20" stroke="black" fill="white"/>
+        <line x1="40" y1="20" x2="40" y2="60" stroke="black"/>
+        <line x1="35" y1="30" x2="45" y2="50" stroke="black"/>
+        <line x1="45" y1="30" x2="35" y2="50" stroke="black"/>
+        <text x="40" y="64" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">ACG Filter</text>
+    ''',
+    "tc": '''
+        <rect x="30" y="30" width="20" height="20" fill="white" stroke="black"/>
+        <text x="40" y="44" font-size="10" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">TC</text>
+    ''',
+    "solenoid_valve": '''
+        <rect x="30" y="30" width="20" height="20" stroke="black" fill="white"/>
+        <rect x="35" y="18" width="10" height="10" stroke="black" fill="white"/>
+        <line x1="40" y1="40" x2="40" y2="18" stroke="black" stroke-width="2" stroke-dasharray="3,2"/>
+    ''',
+    "pressure_regulator": '''
+        <ellipse cx="40" cy="40" rx="16" ry="8" stroke="black" fill="white"/>
+        <path d="M32,40 Q40,30 48,40" stroke="black" fill="none"/>
+        <polygon points="40,32 38,36 42,36" fill="black"/>
+    ''',
+    "rotameter": '''
+        <rect x="35" y="22" width="10" height="36" stroke="black" fill="white"/>
+        <ellipse cx="40" cy="38" rx="5" ry="8" stroke="black" fill="none"/>
+        <text x="40" y="60" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Rotameter</text>
+    ''',
+    "level_switch": '''
+        <rect x="32" y="36" width="16" height="16" fill="white" stroke="black"/>
+        <text x="40" y="46" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">LS</text>
+        <line x1="40" y1="52" x2="60" y2="54" stroke="black" stroke-width="1" stroke-dasharray="3,2"/>
+    ''',
+    "temperature_control_valve": '''
+        <rect x="32" y="36" width="16" height="16" stroke="black" fill="white"/>
+        <text x="40" y="46" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">TCV</text>
+        <circle cx="40" cy="60" r="6" stroke="black" fill="white"/>
+        <text x="40" y="64" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">CV</text>
+    ''',
+    "drain_point": '''
+        <polygon points="40,64 46,76 34,76" fill="white" stroke="black"/>
+        <line x1="40" y1="64" x2="40" y2="54" stroke="black"/>
+        <text x="40" y="80" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Drain</text>
+    ''',
+    "interconnecting_piping": '''
+        <rect x="24" y="38" width="32" height="8" fill="white" stroke="black" stroke-dasharray="3,2"/>
+        <text x="40" y="56" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Interconnect</text>
+    ''',
+    "electrical_panel_box": '''
+        <rect x="24" y="24" width="32" height="32" rx="6" fill="white" stroke="black"/>
+        <text x="40" y="38" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">FLP/NFLP</text>
+        <rect x="32" y="24" width="16" height="6" fill="white" stroke="black"/>
+    ''',
+    "discharge_silencer": '''
+        <ellipse cx="40" cy="40" rx="18" ry="9" stroke="black" fill="white"/>
+        <path d="M22,40 Q40,30 58,40" stroke="black" fill="none"/>
+        <text x="40" y="54" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Silencer</text>
+        <polyline points="22,40 10,40" stroke="black"/>
+        <polyline points="58,40 70,40" stroke="black"/>
+        <text x="40" y="18" font-size="8" text-anchor="middle" dominant-baseline="middle" fill="#aaa" font-family="Arial, sans-serif">~</text>
+    ''',
     "catch_pot_manual_drain": '''
         <ellipse cx="40" cy="28" rx="13" ry="7" stroke="black" fill="white"/>
         <rect x="27" y="28" width="26" height="30" stroke="black" fill="none"/>
@@ -71,63 +203,6 @@ PROFESSIONAL_ISA_SYMBOLS = {
         <circle cx="40" cy="71" r="5" stroke="black" fill="white"/>
         <line x1="40" y1="58" x2="40" y2="76" stroke="black"/>
     ''',
-
-    "suction_filter": '''
-        <rect x="24" y="24" width="32" height="32" stroke="black" fill="white"/>
-        <line x1="26" y1="26" x2="54" y2="54" stroke="black" stroke-width="1"/>
-        <line x1="54" y1="26" x2="26" y2="54" stroke="black" stroke-width="1"/>
-        <text x="40" y="48" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Suction Filter</text>
-    ''',
-
-    "scrubber": '''
-        <rect x="32" y="15" width="16" height="50" rx="8" stroke="black" fill="white"/>
-        <line x1="32" y1="28" x2="48" y2="28" stroke="black"/>
-        <line x1="32" y1="38" x2="48" y2="38" stroke="black"/>
-        <line x1="32" y1="48" x2="48" y2="48" stroke="black"/>
-        <text x="40" y="70" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Scrubber</text>
-    ''',
-
-    "flame_arrestor_suction": '''
-        <rect x="30" y="32" width="20" height="16" stroke="black" fill="white"/>
-        <polygon points="38,36 40,42 42,36 44,42 46,36" fill="none" stroke="black"/>
-        <polyline points="30,40 20,40" stroke="black"/>
-        <polyline points="50,40 60,40" stroke="black"/>
-        <text x="40" y="60" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Flame</text>
-        <polygon points="62,37 65,40 62,43" fill="black"/>
-    ''',
-
-    "flame_arrestor_discharge": '''
-        <rect x="30" y="32" width="20" height="16" stroke="black" fill="white"/>
-        <polygon points="38,36 40,42 42,36 44,42 46,36" fill="none" stroke="black"/>
-        <polyline points="30,40 20,40" stroke="black"/>
-        <polyline points="50,40 60,40" stroke="black"/>
-        <text x="40" y="60" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Flame</text>
-        <polygon points="18,37 15,40 18,43" fill="black"/>
-    ''',
-
-    "flex_conn_suction": '''
-        <path d="M20,40 Q30,35 40,45 Q50,55 60,40" stroke="black" fill="none"/>
-        <text x="40" y="60" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Flex Conn (Suction)</text>
-    ''',
-
-    "flex_conn_discharge": '''
-        <path d="M20,40 Q30,45 40,35 Q50,25 60,40" stroke="black" fill="none"/>
-        <text x="40" y="60" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Flex Conn (Discharge)</text>
-    ''',
-
-    "pressure_transmitter_discharge": '''
-        <circle cx="40" cy="40" r="12" stroke="black" stroke-width="2" fill="white"/>
-        <text x="40" y="44" font-size="10" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">PT</text>
-        <line x1="40" y1="52" x2="60" y2="60" stroke="black" stroke-width="1" stroke-dasharray="3,2"/>
-        <rect x="60" y="57" width="10" height="6" stroke="black" fill="white"/>
-    ''',
-
-    "discharge_condenser": '''
-        <rect x="20" y="34" width="40" height="12" stroke="black" fill="white"/>
-        <polyline points="22,36 38,44 54,36" stroke="black" fill="none"/>
-        <text x="40" y="56" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Condenser</text>
-    ''',
-
     "catch_pot_discharge_manual": '''
         <ellipse cx="40" cy="28" rx="13" ry="7" stroke="black" fill="white"/>
         <rect x="27" y="28" width="26" height="30" stroke="black" fill="none"/>
@@ -136,7 +211,6 @@ PROFESSIONAL_ISA_SYMBOLS = {
         <line x1="40" y1="58" x2="40" y2="72" stroke="black"/>
         <text x="40" y="76" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Manual Drain</text>
     ''',
-
     "catch_pot_discharge_auto": '''
         <ellipse cx="40" cy="28" rx="13" ry="7" stroke="black" fill="white"/>
         <rect x="27" y="28" width="26" height="30" stroke="black" fill="none"/>
@@ -145,120 +219,78 @@ PROFESSIONAL_ISA_SYMBOLS = {
         <line x1="40" y1="58" x2="40" y2="76" stroke="black"/>
         <text x="40" y="78" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Auto Drain</text>
     ''',
-
-    "discharge_silencer": '''
-        <ellipse cx="40" cy="40" rx="18" ry="9" stroke="black" fill="white"/>
-        <path d="M22,40 Q40,30 58,40" stroke="black" fill="none"/>
-        <text x="40" y="54" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Silencer</text>
-        <polyline points="22,40 10,40" stroke="black"/>
-        <polyline points="58,40 70,40" stroke="black"/>
-        <text x="40" y="18" font-size="8" text-anchor="middle" dominant-baseline="middle" fill="#aaa" font-family="Arial, sans-serif">~</text>
+    # --- NEW / UPDATED SYMBOLS from your provided list ---
+    "vertical_vessel": '''
+      <ellipse cx="50" cy="15" rx="15" ry="8" fill="white" stroke="black" stroke-width="2"/>
+      <rect x="35" y="15" width="30" height="60" fill="#f8fafc" stroke="black" stroke-width="2"/>
+      <ellipse cx="50" cy="75" rx="15" ry="8" fill="white" stroke="black" stroke-width="2"/>
+      <text x="50" y="43" font-size="10" text-anchor="middle" font-family="Arial" fill="#212121">V-101</text>
+      <text x="50" y="88" font-size="8" text-anchor="middle" font-family="Arial" fill="#333">COLUMN</text>
+      <line x1="50" y1="5" x2="50" y2="15" stroke="black" stroke-width="2"/>
+      <circle cx="50" cy="10" r="2" fill="none" stroke="black" stroke-width="1"/>
     ''',
-
-    "temp_transmitter_suction": '''
-        <circle cx="40" cy="40" r="12" stroke="black" stroke-width="2" fill="white"/>
-        <text x="40" y="44" font-size="10" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">TT</text>
-        <line x1="40" y1="52" x2="60" y2="60" stroke="black" stroke-width="1" stroke-dasharray="3,2"/>
-        <rect x="60" y="57" width="10" height="6" stroke="black" fill="white"/>
+    "gate_valve": '''
+      <line x1="50" y1="20" x2="50" y2="45" stroke="black" stroke-width="2"/>
+      <line x1="46" y1="20" x2="54" y2="20" stroke="black" stroke-width="2"/>
+      <rect x="40" y="45" width="20" height="10" fill="#e0e7ef" stroke="#212121" stroke-width="2"/>
+      <text x="70" y="53" font-size="10" font-family="Arial" fill="#383838">GV-101</text>
     ''',
-
-    "temp_transmitter_discharge": '''
-        <circle cx="40" cy="40" r="12" stroke="black" stroke-width="2" fill="white"/>
-        <text x="40" y="44" font-size="10" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">TT</text>
-        <line x1="40" y1="52" x2="60" y2="60" stroke="black" stroke-width="1" stroke-dasharray="3,2"/>
-        <rect x="60" y="57" width="10" height="6" stroke="black" fill="white"/>
+    "centrifugal_pump": '''
+      <circle cx="50" cy="60" r="15" fill="#eef6fb" stroke="black" stroke-width="2"/>
+      <rect x="35" y="40" width="30" height="18" fill="white" stroke="#223155" stroke-width="2"/>
+      <line x1="65" y1="50" x2="85" y2="50" stroke="black" stroke-width="2"/>
+      <line x1="35" y1="50" x2="15" y2="50" stroke="black" stroke-width="2"/>
+      <text x="50" y="80" font-size="10" font-family="Arial" text-anchor="middle" fill="#2b2b2b">PUMP P-101</text>
     ''',
-
-    "temp_gauge_suction": '''
-        <circle cx="40" cy="40" r="11" stroke="black" fill="white"/>
-        <rect x="37" y="30" width="6" height="12" fill="white" stroke="black"/>
-        <text x="40" y="44" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">&#8451;</text>
-    ''',
-
-    "temp_gauge_discharge": '''
-        <circle cx="40" cy="40" r="11" stroke="black" fill="white"/>
-        <rect x="37" y="30" width="6" height="12" fill="white" stroke="black"/>
-        <text x="40" y="44" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">&#8451;</text>
-    ''',
-
-    "acg_filter_suction": '''
-        <ellipse cx="40" cy="40" rx="10" ry="20" stroke="black" fill="white"/>
-        <line x1="40" y1="20" x2="40" y2="60" stroke="black"/>
-        <line x1="35" y1="30" x2="45" y2="50" stroke="black"/>
-        <line x1="45" y1="30" x2="35" y2="50" stroke="black"/>
-        <text x="40" y="64" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">ACG Filter</text>
-    ''',
-
-    "tc": '''
-        <rect x="30" y="30" width="20" height="20" fill="white" stroke="black"/>
-        <text x="40" y="44" font-size="10" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">TC</text>
-    ''',
-
-    "solenoid_valve": '''
-        <rect x="30" y="30" width="20" height="20" stroke="black" fill="white"/>
-        <rect x="35" y="18" width="10" height="10" stroke="black" fill="white"/>
-        <line x1="40" y1="40" x2="40" y2="18" stroke="black" stroke-width="2" stroke-dasharray="3,2"/>
-    ''',
-
-    "pressure_regulator": '''
-        <ellipse cx="40" cy="40" rx="16" ry="8" stroke="black" fill="white"/>
-        <path d="M32,40 Q40,30 48,40" stroke="black" fill="none"/>
-        <polygon points="40,32 38,36 42,36" fill="black"/>
-    ''',
-
-    "rotameter": '''
-        <rect x="35" y="22" width="10" height="36" stroke="black" fill="white"/>
-        <ellipse cx="40" cy="38" rx="5" ry="8" stroke="black" fill="none"/>
-        <text x="40" y="60" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Rotameter</text>
-    ''',
-
-    "level_switch": '''
-        <rect x="32" y="36" width="16" height="16" fill="white" stroke="black"/>
-        <text x="40" y="46" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">LS</text>
-        <line x1="40" y1="52" x2="60" y2="54" stroke="black" stroke-width="1" stroke-dasharray="3,2"/>
-    ''',
-
-    "temperature_control_valve": '''
-        <rect x="32" y="36" width="16" height="16" stroke="black" fill="white"/>
-        <text x="40" y="46" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">TCV</text>
-        <circle cx="40" cy="60" r="6" stroke="black" fill="white"/>
-        <text x="40" y="64" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">CV</text>
-    ''',
-
-    "drain_point": '''
-        <polygon points="40,64 46,76 34,76" fill="white" stroke="black"/>
-        <line x1="40" y1="64" x2="40" y2="54" stroke="black"/>
-        <text x="40" y="80" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Drain</text>
-    ''',
-
-    "expansion_bellow": '''
-        <rect x="32" y="36" width="16" height="16" fill="white" stroke="black"/>
-        <path d="M36,38 Q40,44 44,38" stroke="black" fill="none"/>
-        <path d="M36,46 Q40,52 44,46" stroke="black" fill="none"/>
-        <text x="40" y="58" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Bellow</text>
-    ''',
-
-    "interconnecting_piping": '''
-        <rect x="24" y="38" width="32" height="8" fill="white" stroke="black" stroke-dasharray="3,2"/>
-        <text x="40" y="56" font-size="7" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">Interconnect</text>
-    ''',
-
-    "electrical_panel_box": '''
-        <rect x="24" y="24" width="32" height="32" rx="6" fill="white" stroke="black"/>
-        <text x="40" y="38" font-size="9" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">FLP/NFLP</text>
-        <rect x="32" y="24" width="16" height="6" fill="white" stroke="black"/>
-    ''',
-
     "control_panel": '''
-        <rect x="20" y="20" width="40" height="40" rx="10" fill="white" stroke="black"/>
-        <rect x="24" y="24" width="32" height="10" fill="white" stroke="black"/>
-        <rect x="24" y="34" width="32" height="18" fill="white" stroke="black"/>
-        <text x="40" y="28" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">VFD</text>
-        <text x="40" y="48" font-size="8" text-anchor="middle" dominant-baseline="middle" font-family="Arial, sans-serif">HMI</text>
-    '''
+      <rect x="10" y="10" width="80" height="80" fill="#f6f4ed" stroke="black" stroke-width="2"/>
+      <rect x="15" y="25" width="20" height="50" fill="#e5ebfa" stroke="black" stroke-width="1"/>
+      <text x="25" y="82" font-size="9" text-anchor="middle" font-family="Arial">HMI</text>
+      <rect x="39" y="25" width="20" height="50" fill="#e5faf1" stroke="black" stroke-width="1"/>
+      <text x="49" y="82" font-size="9" text-anchor="middle" font-family="Arial">VFD</text>
+      <rect x="62" y="25" width="12" height="24" fill="#fbeee5" stroke="black" stroke-width="1"/>
+      <text x="68" y="58" font-size="8" text-anchor="middle" font-family="Arial">FLP</text>
+      <rect x="62" y="54" width="12" height="21" fill="#e5faf8" stroke="black" stroke-width="1"/>
+      <text x="68" y="80" font-size="8" text-anchor="middle" font-family="Arial">NFLP</text>
+      <text x="50" y="105" font-size="10" text-anchor="middle" font-family="Arial" fill="#3e3e3e">CONTROL PANEL</text>
+    ''',
+    "pressure_gauge": '''
+      <circle cx="50" cy="45" r="18" fill="#fff" stroke="black" stroke-width="2"/>
+      <path d="M50,45 L62,33" stroke="#c23a1a" stroke-width="2"/>
+      <text x="50" y="69" font-size="10" text-anchor="middle" font-weight="bold" font-family="Arial" fill="#184bd7">PI</text>
+      <rect x="48" y="63" width="4" height="8" fill="#404040"/>
+      <text x="75" y="50" font-size="10" font-family="Arial">PG-101</text>
+    ''',
+    "flow_transmitter": '''
+      <circle cx="50" cy="50" r="14" fill="#f8f8ff" stroke="#222" stroke-width="2"/>
+      <text x="50" y="56" font-size="11" text-anchor="middle" font-family="Arial" fill="#4878c0" font-weight="bold">FT</text>
+      <rect x="47" y="60" width="6" height="10" fill="#385" stroke="#212121" stroke-width="1"/>
+      <text x="77" y="54" font-size="9" font-family="Arial" fill="#212121">FT-101</text>
+    ''',
+    "globe_valve": '''
+      <circle cx="50" cy="50" r="10" fill="#fff" stroke="#333" stroke-width="2"/>
+      <rect x="45" y="20" width="10" height="20" fill="#fed" stroke="black" stroke-width="1"/>
+      <line x1="10" y1="50" x2="40" y2="50" stroke="black" stroke-width="2"/>
+      <line x1="60" y1="50" x2="90" y2="50" stroke="black" stroke-width="2"/>
+      <text x="82" y="63" font-size="10" font-family="Arial" fill="#212121">GV-102</text>
+    ''',
+    "flange": '''
+      <circle cx="50" cy="50" r="20" fill="#e6f7fc" stroke="#222" stroke-width="2"/>
+      <circle cx="50" cy="50" r="14" fill="#fff" stroke="#222" stroke-width="2"/>
+      <text x="50" y="50" font-size="10" text-anchor="middle" font-family="Arial" fill="#075">FLG</text>
+    ''',
+    "expansion_bellow": '''
+      <rect x="37" y="44" width="26" height="12" rx="3" fill="#f6e9e1" stroke="#a67c52" stroke-width="2"/>
+      <path d="M37,44 Q50,55 63,44" fill="none" stroke="#a67c52" stroke-width="2"/>
+      <text x="50" y="65" font-size="9" text-anchor="middle" font-family="Arial" fill="#555">EXPN. BELLOWS</text>
+    ''',
+    "catch_pot": '''
+      <ellipse cx="50" cy="80" rx="15" ry="5" fill="#f9f9fa" stroke="#111" stroke-width="2"/>
+      <rect x="35" y="45" width="30" height="35" fill="#fff" stroke="#222" stroke-width="2"/>
+      <ellipse cx="50" cy="45" rx="15" ry="5" fill="#f9f9fa" stroke="#222" stroke-width="2"/>
+      <text x="50" y="36" font-size="10" text-anchor="middle" font-family="Arial" fill="#553">CATCH POT</text>
+    ''',
 }
-
-import re
 
 # Define standard arrowhead for pipes, to be used in the main SVG <defs>
 ARROWHEAD_MARKER = '''
@@ -270,7 +302,7 @@ ARROWHEAD_MARKER = '''
 def get_component_symbol(component_id, target_width=None, target_height=None):
     """
     Returns a valid SVG string for the requested ISA symbol.
-    The symbols in PROFESSIONAL_ISA_SYMBOLS are designed for a 80x80 unit space.
+    The symbols in PROFESSIONAL_ISA_SYMBOLS are generally designed for a base unit space (e.g., 80x80 or 100x100).
     This function scales them to the target_width and target_height by
     wrapping them in an <svg> tag with the appropriate viewBox.
     If a symbol is not found, it returns a "NO SYMBOL" placeholder.
@@ -278,7 +310,9 @@ def get_component_symbol(component_id, target_width=None, target_height=None):
     svg_inner = PROFESSIONAL_ISA_SYMBOLS.get(component_id)
     
     # Default viewBox for the internal symbol definitions
-    # Assuming all your symbols are drawn on an 80x80 canvas
+    # Assuming most symbols are drawn on an 80x80 canvas,
+    # but some new ones might implicitly use 100x100.
+    # The outer SVG's viewBox will handle the scaling to the final dimensions.
     default_viewbox = "0 0 80 80" 
 
     if svg_inner is None:
@@ -347,6 +381,15 @@ def get_component_symbol_from_type(component_type: str) -> str:
         'interconnecting_piping': 'interconnecting_piping',
         'electrical_panel_box': 'electrical_panel_box',
         'control_panel': 'control_panel',
+        # --- Mappings for new symbols ---
+        'vertical_vessel': 'vertical_vessel',
+        'gate_valve': 'gate_valve',
+        'centrifugal_pump': 'centrifugal_pump',
+        'pressure_gauge': 'pressure_gauge',
+        'flow_transmitter': 'flow_transmitter',
+        'globe_valve': 'globe_valve',
+        'flange': 'flange',
+        'catch_pot': 'catch_pot',
     }
 
     normalized_type = component_type.lower().replace('-', '_').replace(' ', '_')
@@ -487,4 +530,3 @@ def create_pipe_with_spec(points: list, pipe_spec: str, line_type: str = 'proces
 
     svg += '</g>'
     return svg
-
