@@ -1,4 +1,4 @@
-Component,tag_prefix,name,type,subtype,isa_code,default_properties,default_width_px,default_height_px,port_definitions,placement_rule,cost_usd,manufacturer,efficiency_pct
+ID,tag_prefix,name,type,subtype,isa_code,default_properties,default_width_px,default_height_px,port_definitions,placement_rule,cost_usd,manufacturer,efficiency_pct
 gate_valve,GV,Gate Valve,valve,gate_valve,,"{""actuation"": ""Manual"", ""material"": ""SS316""}",50,50,"{""left"": [0, 25], ""right"": [50, 25]}",inline,250,ValveCo,95
 solenoid_valve,SV,Solenoid Valve,valve,solenoid_valve,,"{""actuation"": ""Electric"", ""voltage"": ""24VDC""}",50,50,"{""left"": [0, 25], ""right"": [50, 25]}",inline,450,ValveCo,92
 knob_valve,KV,Knob Valve,valve,needle_valve,,"{""actuation"": ""Manual"", ""type"": ""Fine Control""}",40,40,"{""left"": [0, 20], ""right"": [40, 20]}",inline,180,ValveCo,93
