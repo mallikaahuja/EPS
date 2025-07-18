@@ -1,9 +1,16 @@
-ID,Name,Service,Min_Diameter_DN,Max_Diameter_DN,Material,Design_Pressure_bar,Design_Temperature_C,Line_Weight,Stroke_Dasharray,Flow_Arrow_Required,Default_Layout_Offset
-PROCESS_VACUUM_100NB,Process Vacuum Line 100NB,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0
-PROCESS_VACUUM_50NB,Process Vacuum Line 50NB,Process Vacuum,50,50,Stainless Steel 316,Full Vacuum,80,2.0,,True,5
-PROCESS_VACUUM_40NB,Process Vacuum Line 40NB,Process Vacuum,40,40,Stainless Steel 316,Full Vacuum,80,2.0,,True,5
-COOLING_WATER_25NB,Cooling Water Line 25NB,Cooling Water,25,25,Carbon Steel,6,40,1.5,,True,10
-COOLING_WATER_15NB,Cooling Water Line 15NB,Cooling Water,15,15,Carbon Steel,6,40,1.0,,True,8
-NITROGEN_PURGE,Nitrogen Purge Line,Nitrogen Purge,15,25,Stainless Steel 304,7,30,1.0,5 5,False,5
-DRAIN_LINE_25NB,Drain Line 25NB,Drain,25,25,Carbon Steel,2,60,1.0,,False,0
-INSTRUMENT_AIR,Instrument Air Line,Instrument Air,15,20,Carbon Steel,7,30,1.0,5 5,False,0
+ID,Name,Service,Min_Diameter_DN,Max_Diameter_DN,Material,Design_Pressure_bar,Design_Temperature_C,Line_Weight,Stroke_Dasharray,Flow_Arrow_Required,Default_Layout_Offset,Source,Destination,Source Port,Destination Port
+PROCESS_LINE_1,Process Line to Y-Strainer,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,EB-001,YS-001,right,inlet
+PROCESS_LINE_2,Y-Strainer to Suction Filter,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,YS-001,SF-001,outlet,inlet_top
+PROCESS_LINE_3,Suction Filter to Pump,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,SF-001,P-001,outlet_bottom,suction
+PROCESS_LINE_4,Pump Discharge to Catch Pot,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,P-001,CPT-001,discharge,inlet
+PROCESS_LINE_5,Catch Pot to Scrubber,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,CPT-001,SCR-001,outlet,gas_inlet
+PROCESS_LINE_6,Scrubber to Condenser,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,SCR-001,C-001,gas_outlet,process_in
+PROCESS_LINE_7,Condenser to Catch Pot 2,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,C-001,CPT-002,process_out,inlet
+PROCESS_LINE_8,Catch Pot 2 to Flame Arrestor,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,CPT-002,FA-001,outlet,inlet
+PROCESS_LINE_9,Flame Arrestor to Silencer,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,FA-001,SIL-001,outlet,inlet
+COOLING_WATER_IN,Cooling Water Supply,Cooling Water,25,25,Carbon Steel,6,40,1.5,,True,0,UTILITY_IN,C-001,inlet,cooling_in
+COOLING_WATER_OUT,Cooling Water Return,Cooling Water,25,25,Carbon Steel,6,40,1.5,,True,0,C-001,UTILITY_OUT,cooling_out,outlet
+NITROGEN_PURGE,Nitrogen Purge Line,Nitrogen Purge,15,25,Stainless Steel 304,7,30,1.0,5 5,False,0,N2_SUPPLY,YS-001,outlet,purge_port
+DRAIN_LINE_1,Catch Pot Drain,Drain,25,25,Carbon Steel,2,60,1.0,,False,0,CPT-001,DP-001,drain,inlet
+DRAIN_LINE_2,Scrubber Drain,Drain,25,25,Carbon Steel,2,60,1.0,,False,0,SCR-001,DP-001,drain,inlet
+INSTRUMENT_SIGNAL_1,Pressure Control,Instrument Signal,6,6,Copper,7,30,0.5,3 3,False,0,PT-001,CP-001,signal,input
