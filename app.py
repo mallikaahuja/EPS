@@ -47,4 +47,4 @@ with tab2:
     st.subheader("Equipment List Table")
     st.dataframe(equipment_df)
     st.markdown("#### Legend")
-    st.markdown("_(Rendered in SVG legend at upper left of P&ID)_")
+    st.markdown("_(Rendered in SVG legend at lower center of P&ID)_")
