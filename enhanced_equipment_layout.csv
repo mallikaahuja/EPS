@@ -1,19 +1,24 @@
-Component,id,tag,x,y,Width,Height,Description
-kdp_330_pump,P-001,P-001,400,350,120,100,KDP-330 Dry Pump - Main vacuum pump
-suction_filter,SF-001,SF-001,250,320,80,120,Suction filter upstream of pump
-y_strainer,YS-001,YS-001,150,370,60,40,Y-strainer for cooling water
-condenser,C-001,C-001,550,200,150,100,External condenser for vapor condensation
-control_panel,CP-001,CP-001,50,50,120,100,FLP Control Panel with VFD and HMI
-catch_pot,CPT-001,CPT-001,450,180,60,80,Catch pot for liquid collection
-scrubber,SCR-001,SCR-001,750,250,100,150,Scrubber for gas treatment
-exhaust_silencer,SIL-001,SIL-001,900,300,80,60,Exhaust silencer for noise reduction
-gate_valve,GV-001,GV-001,200,375,50,50,Gate valve on cooling water line
-pressure_regulator,PR-001,PR-001,100,200,60,60,Pressure regulator for N2 purge
-rotameter,RM-001,RM-001,120,280,50,80,Rotameter for N2 flow measurement
-temperature_transmitter,TT-001,TT-001,580,150,50,50,Temperature transmitter on condenser
-pressure_transmitter,PT-001,PT-001,420,300,50,50,Pressure transmitter on pump discharge
-level_switch,LS-001,LS-001,480,120,50,50,Level switch on catch pot
-flow_switch,FS-001,FS-001,620,170,50,50,Flow switch on cooling water
-temperature_control_valve,TCV-001,TCV-001,650,250,60,60,Temperature control valve
-flame_arrestor,FA-001,FA-001,820,275,70,50,Flame arrestor on exhaust line
-drain_point,DP-001,DP-001,400,520,60,40,Drain collection point
+Component,id,tag,x,y,Width,Height,Description,rotation
+expansion_bellows,EB-001,EB-001,100,250,80,40,EXPANSION BELLOWS,0
+strainer_y,YS-001,YS-001,200,250,60,60,Y-STRAINER,0
+valve_gate,GV-001,GV-001,300,250,50,50,GATE VALVE,0
+filter_suction,SF-001,SF-001,400,250,60,80,SUCTION FILTER,0
+valve_gate,V-001,V-001,500,250,50,50,GATE VALVE,0
+pump_centrifugal,P-001,P-001,600,250,80,80,KDP-330 PUMP,0
+instrument,PT-001,PT-001,650,180,40,40,PRESSURE TRANSMITTER,0
+catch_pot,CPT-001,CPT-001,750,250,60,60,CATCH POT,0
+vessel_vertical,SCR-001,SCR-001,850,200,70,100,SCRUBBER,0
+flame_arrestor,FA-001,FA-001,950,250,60,40,FLAME ARRESTOR,0
+vessel_horizontal,SIL-001,SIL-001,1050,250,80,50,EXHAUST SILENCER,0
+control_panel,CP-001,CP-001,900,50,150,100,CONTROL PANEL,0
+instrument,FT-001,FT-001,450,180,40,40,FLOW TRANSMITTER,0
+instrument,TT-001,TT-001,550,180,40,40,TEMPERATURE TRANSMITTER,0
+instrument,LS-001,LS-001,800,180,40,40,LEVEL SWITCH,0
+valve_control,TCV-001,TCV-001,700,350,60,60,TEMPERATURE CONTROL VALVE,0
+heat_exchanger,C-001,C-001,550,350,100,60,CONDENSER,0
+instrument,FS-001,FS-001,600,400,40,40,FLOW SWITCH,0
+valve_gate,V-002,V-002,350,350,50,50,GATE VALVE,0
+valve_drain,V-003,V-003,750,320,40,40,DRAIN VALVE,0
+pressure_regulator,PR-001,PR-001,200,350,60,60,PRESSURE REGULATOR,0
+rotameter,RM-001,RM-001,250,400,40,60,ROTAMETER,0
+vessel_vertical,DP-001,DP-001,750,450,60,60,DRAIN POINT,0
