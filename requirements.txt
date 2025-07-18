@@ -12,7 +12,8 @@ psycopg2-binary>=2.9.0
 
 openai>=1.0.0
 
-stability-sdk==0.6.1
+stability-sdk==0.6.1  # Official gRPC SDK
+stabilityai>=1.0.0  # Modern REST API alternative (easier to use)
 
 # Drawing and export
 
