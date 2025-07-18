@@ -1,4 +1,4 @@
-id,Name,Service,Min_Diameter_DN,Max_Diameter_DN,Material,Design_Pressure_bar,Design_Temperature_C,Line_Weight,Stroke_Dasharray,Flow_Arrow_Required,Default_Layout_Offset
+Component,Name,Service,Min_Diameter_DN,Max_Diameter_DN,Material,Design_Pressure_bar,Design_Temperature_C,Line_Weight,Stroke_Dasharray,Flow_Arrow_Required,Default_Layout_Offset
 PROCESS_VACUUM_100NB,Process Vacuum Line 100NB,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0
 PROCESS_VACUUM_50NB,Process Vacuum Line 50NB,Process Vacuum,50,50,Stainless Steel 316,Full Vacuum,80,2.0,,True,5
 PROCESS_VACUUM_40NB,Process Vacuum Line 40NB,Process Vacuum,40,40,Stainless Steel 316,Full Vacuum,80,2.0,,True,5
