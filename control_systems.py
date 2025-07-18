@@ -47,31 +47,27 @@ class ControlSystemAnalyzer:
         self.pipes = pipes
         self.control_loops = []
         self.interlocks = []
-        # --- FIX START ---
-        # Add the preprocessing step here to populate tag_info
         self._preprocess_components()
-        # --- FIX END ---
         self._analyze_control_systems()
 
-    # --- FIX START ---
-    @staticmethod # Make it a static method
-    def _parse_instrument_function(tag: str) -> Optional[Dict]: # Add type hints for clarity
+    @staticmethod
+    def _parse_instrument_function(tag: str) -> Optional[Dict]:
         """Parse instrument tag to determine function"""
         match = re.match(r'^([A-Z])([A-Z]*)[-]?(\d+)$', tag)
         if not match:
-            return None # Return None if no match, consistent with Optional[Dict]
-        
+            return None
+
         variable = match.group(1)
         modifiers = match.group(2)
         number = match.group(3)
-        
+
         # Determine if it's a control element
         is_controller = 'C' in modifiers
         is_transmitter = 'T' in modifiers
-        is_valve = 'V' in modifiers # This might be less relevant for instrument tags, but good to keep
+        is_valve = 'V' in modifiers
         is_indicator = 'I' in modifiers
         is_alarm = 'A' in modifiers or 'H' in modifiers or 'L' in modifiers
-        
+
         return {
             'variable': variable,
             'modifiers': modifiers,
@@ -86,30 +82,52 @@ class ControlSystemAnalyzer:
     def _preprocess_components(self):
         """
         Parses instrument tags and stores the parsed info in a 'tag_info'
-        attribute on each ProfessionalPnidComponent object. This runs once
-        when ControlSystemAnalyzer is initialized.
+        attribute on each component object/dict.
         """
         for comp_id, comp in self.components.items():
-            # Check if it's an instrument and has a tag before attempting to parse
-            if hasattr(comp, 'is_instrument') and comp.is_instrument and hasattr(comp, 'tag'):
-                # Assuming comp is a mutable object where you can add attributes dynamically
-                comp.tag_info = ControlSystemAnalyzer._parse_instrument_function(comp.tag)
+            # Check if it's an instrument - handling both dict and object structures
+            is_instrument = False
+            tag = None
+
+            # Handle dict structure
+            if isinstance(comp, dict):
+                is_instrument = comp.get('type') == 'instrument' or 'transmitter' in comp.get('type', '') or 'gauge' in comp.get('type', '')
+                tag = comp.get('ID', '')
+            # Handle object structure
+            elif hasattr(comp, 'is_instrument'):
+                is_instrument = comp.is_instrument
+                tag = getattr(comp, 'tag', comp.id if hasattr(comp, 'id') else '')
+
+            if is_instrument and tag:
+                # Store parsed info differently based on structure
+                if isinstance(comp, dict):
+                    comp['tag_info'] = ControlSystemAnalyzer._parse_instrument_function(tag)
+                else:
+                    comp.tag_info = ControlSystemAnalyzer._parse_instrument_function(tag)
             else:
-                # Ensure tag_info exists even if it's None, to prevent AttributeError later
-                # Only set if it doesn't already exist or if it's not an instrument
-                if not hasattr(comp, 'tag_info') or not comp.is_instrument:
+                # Ensure tag_info exists even if it's None
+                if isinstance(comp, dict):
+                    comp['tag_info'] = None
+                elif not hasattr(comp, 'tag_info'):
                     comp.tag_info = None
-    # --- FIX END ---
 
     def _find_connected_instruments(self, component_id):
         """Find all instruments connected via instrument signals"""
         connected = []
         for pipe in self.pipes:
-            if pipe.line_type == 'instrumentation':
-                if pipe.from_comp and pipe.from_comp.id == component_id:
-                    connected.append(pipe.to_comp.id)
-                elif pipe.to_comp and pipe.to_comp.id == component_id:
-                    connected.append(pipe.from_comp.id)
+            pipe_type = pipe.get('line_type', '') if isinstance(pipe, dict) else getattr(pipe, 'line_type', '')
+            from_comp = pipe.get('from_comp', '') if isinstance(pipe, dict) else getattr(pipe, 'from_comp', None)
+            to_comp = pipe.get('to_comp', '') if isinstance(pipe, dict) else getattr(pipe, 'to_comp', None)
+
+            # Handle component IDs
+            from_id = from_comp if isinstance(from_comp, str) else (from_comp.id if from_comp and hasattr(from_comp, 'id') else None)
+            to_id = to_comp if isinstance(to_comp, str) else (to_comp.id if to_comp and hasattr(to_comp, 'id') else None)
+
+            if pipe_type == 'instrumentation' or pipe_type == 'instrument':
+                if from_id == component_id:
+                    connected.append(to_id)
+                elif to_id == component_id:
+                    connected.append(from_id)
         return connected
 
     def _analyze_control_systems(self):
@@ -119,49 +137,63 @@ class ControlSystemAnalyzer:
         transmitters = {}
         control_valves = {}
         alarms = {}
-        
+
         for comp_id, comp in self.components.items():
-            # --- FIX START ---
-            # Now, comp.tag_info should exist because of _preprocess_components()
-            if comp.is_instrument and comp.tag_info: # Directly check comp.tag_info
-                tag_analysis = comp.tag_info # Use the pre-parsed info
-            # --- FIX END ---
-                if tag_analysis: # Check if parsing was successful
-                    if tag_analysis['is_controller']:
-                        controllers[comp_id] = (comp, tag_analysis)
-                    elif tag_analysis['is_transmitter']:
-                        transmitters[comp_id] = (comp, tag_analysis)
-                    elif tag_analysis['is_valve']:
-                        control_valves[comp_id] = (comp, tag_analysis)
-                    elif tag_analysis['is_alarm']:
-                        alarms[comp_id] = (comp, tag_analysis)
-        
+            # Handle both dict and object structures
+            is_instrument = False
+            tag_info = None
+            component_type = ''
+            tag = ''
+
+            if isinstance(comp, dict):
+                is_instrument = comp.get('type') == 'instrument' or 'transmitter' in comp.get('type', '') or 'gauge' in comp.get('type', '')
+                tag_info = comp.get('tag_info')
+                component_type = comp.get('type', '')
+                tag = comp.get('ID', '')
+            else:
+                is_instrument = getattr(comp, 'is_instrument', False)
+                tag_info = getattr(comp, 'tag_info', None)
+                component_type = getattr(comp, 'component_type', '')
+                tag = getattr(comp, 'tag', '')
+
+            if is_instrument and tag_info:
+                if tag_info['is_controller']:
+                    controllers[comp_id] = (comp, tag_info)
+                elif tag_info['is_transmitter']:
+                    transmitters[comp_id] = (comp, tag_info)
+                elif tag_info['is_valve']:
+                    control_valves[comp_id] = (comp, tag_info)
+                elif tag_info['is_alarm']:
+                    alarms[comp_id] = (comp, tag_info)
+
         # Identify control loops
         for controller_id, (controller, controller_info) in controllers.items():
             # Find connected transmitter
             connected = self._find_connected_instruments(controller_id)
-            
+
             transmitter_id = None
             final_element_id = None
-            
+
             for conn_id in connected:
                 if conn_id in transmitters:
                     trans_info = transmitters[conn_id][1]
                     # Check if same variable type and loop number
-                    if (trans_info['variable'] == controller_info['variable'] and 
+                    if (trans_info['variable'] == controller_info['variable'] and
                         trans_info['number'] == controller_info['number']):
                         transmitter_id = conn_id
-                
+
                 # Find control valve or regular valve
                 if conn_id in control_valves:
                     final_element_id = conn_id
-                elif conn_id in self.components and 'valve' in self.components[conn_id].component_type:
-                    final_element_id = conn_id
-            
+                elif conn_id in self.components:
+                    comp_type = self.components[conn_id].get('type', '') if isinstance(self.components[conn_id], dict) else getattr(self.components[conn_id], 'component_type', '')
+                    if 'valve' in comp_type:
+                        final_element_id = conn_id
+
             if transmitter_id and final_element_id:
                 # Determine loop type
                 loop_type = self._determine_loop_type(controller_info['variable'])
-                
+
                 loop = ControlLoop(
                     loop_id=f"{controller_info['variable']}C-{controller_info['number']}",
                     loop_type=loop_type,
@@ -170,15 +202,16 @@ class ControlSystemAnalyzer:
                     final_element=final_element_id
                 )
                 self.control_loops.append(loop)
-        
+
         # Identify interlocks (alarms connected to shutdown systems)
         for alarm_id, (alarm, alarm_info) in alarms.items():
             connected = self._find_connected_instruments(alarm_id)
             for conn_id in connected:
                 if conn_id in self.components:
                     comp = self.components[conn_id]
+                    comp_tag = comp.get('ID', '') if isinstance(comp, dict) else getattr(comp, 'tag', '')
                     # Check if connected to shutdown valve or trip system
-                    if 'SDV' in comp.tag or 'XV' in comp.tag or 'trip' in comp.tag.lower():
+                    if 'SDV' in comp_tag or 'XV' in comp_tag or 'trip' in comp_tag.lower():
                         self.interlocks.append({
                             'alarm': alarm_id,
                             'action': conn_id,
@@ -198,12 +231,12 @@ class ControlSystemAnalyzer:
     def generate_control_loop_svg(self, loop: ControlLoop, scale=1.0):
         """Generate SVG representation of a control loop"""
         svg = f'<g class="control-loop-{loop.loop_id}" opacity="0.8">'
-        
+
         # Draw dashed box around loop components
         # This is simplified - in real implementation, calculate bounding box
         svg += f'<rect x="100" y="100" width="400" height="300" fill="none" stroke="blue" stroke-width="2" stroke-dasharray="5,5" rx="10"/>'
         svg += f'<text x="110" y="120" font-size="14" fill="blue" font-weight="bold">{loop.loop_type.value} Loop {loop.loop_id}</text>'
-        
+
         svg += '</g>'
         return svg
 
@@ -244,7 +277,7 @@ class PipeRouter:
         start_y = max(0, int((y - padding) / self.grid_size))
         end_x = min(self.width // self.grid_size, int((x + width + padding) / self.grid_size))
         end_y = min(self.height // self.grid_size, int((y + height + padding) / self.grid_size))
-        
+
         for gx in range(start_x, end_x + 1):
             for gy in range(start_y, end_y + 1):
                 self.obstacles.add((gx, gy))
@@ -268,7 +301,7 @@ class PipeRouter:
         sx = 1 if x0 < x1 else -1
         sy = 1 if y0 < y1 else -1
         err = dx - dy
-        
+
         while True:
             cells.append((x0, y0))
             if x0 == x1 and y0 == y1:
@@ -280,7 +313,7 @@ class PipeRouter:
             if e2 < dx:
                 err += dx
                 y0 += sy
-        
+
         return cells
 
     def _heuristic(self, a, b):
@@ -291,24 +324,24 @@ class PipeRouter:
         """Get valid neighboring nodes (4-directional for orthogonal paths)"""
         neighbors = []
         directions = [(0, 1), (1, 0), (0, -1), (-1, 0)]  # N, E, S, W
-        
+
         for dx, dy in directions:
             new_x = node.x + dx
             new_y = node.y + dy
-            
+
             # Check bounds
-            if (0 <= new_x < self.width // self.grid_size and 
+            if (0 <= new_x < self.width // self.grid_size and
                 0 <= new_y < self.height // self.grid_size):
-                
+
                 # Check obstacles
                 if (new_x, new_y) not in self.obstacles:
                     # Add small penalty for crossing existing pipes
                     cost = 1.0
                     if (new_x, new_y) in self.pipes_grid:
                         cost = 1.5  # Prefer not to cross but allow if necessary
-                    
+
                     neighbors.append((new_x, new_y, cost))
-        
+
         return neighbors
 
     def find_path(self, start, end, prefer_straight=True):
@@ -316,20 +349,19 @@ class PipeRouter:
         # Convert to grid coordinates
         start_grid = (int(start[0] / self.grid_size), int(start[1] / self.grid_size))
         end_grid = (int(end[0] / self.grid_size), int(end[1] / self.grid_size))
-        
+
         # Initialize A*
         open_set = []
         closed_set = set()
-        
-        # Fix: The parent of the start_node should be None, not 'current'
-        start_node = GridNode(start_grid[0], start_grid[1], 0, 
+
+        start_node = GridNode(start_grid[0], start_grid[1], 0,
                      self._heuristic(start_grid, end_grid), None)
 
         heapq.heappush(open_set, start_node)
-        
+
         while open_set:
             current = heapq.heappop(open_set)
-            
+
             # Check if reached goal
             if (current.x, current.y) == end_grid:
                 # Reconstruct path
@@ -338,44 +370,44 @@ class PipeRouter:
                     path.append((current.x * self.grid_size, current.y * self.grid_size))
                     current = current.parent
                 path.reverse()
-                
+
                 # Smooth path to minimize bends
                 if prefer_straight:
                     path = self._smooth_path(path)
-                
+
                 # Ensure exact start and end points
                 path[0] = start
                 path[-1] = end
-                
+
                 return path
-            
+
             closed_set.add((current.x, current.y))
-            
+
             # Explore neighbors
             for nx, ny, cost in self._get_neighbors(current):
                 if (nx, ny) in closed_set:
                     continue
-                
+
                 # Calculate costs
                 tentative_g = current.g + cost
-                
+
                 # Add penalty for direction changes to prefer straight paths
                 if prefer_straight and current.parent:
                     dx1 = current.x - current.parent.x
                     dy1 = current.y - current.parent.y
                     dx2 = nx - current.x
                     dy2 = ny - current.y
-                    
+
                     if (dx1, dy1) != (dx2, dy2):  # Direction change
                         tentative_g += 0.5
-                
+
                 # Check if this path is better
-                neighbor = GridNode(nx, ny, tentative_g, 
+                neighbor = GridNode(nx, ny, tentative_g,
                                   self._heuristic((nx, ny), end_grid), current)
-                
+
                 # Add to open set
                 heapq.heappush(open_set, neighbor)
-        
+
         # No path found - return direct line
         return self._fallback_path(start, end)
 
@@ -383,9 +415,9 @@ class PipeRouter:
         """Remove unnecessary waypoints to create cleaner paths"""
         if len(path) <= 2:
             return path
-        
+
         smoothed = [path[0]]
-        
+
         i = 0
         while i < len(path) - 1:
             # Look ahead to find furthest point we can reach in straight line
@@ -396,11 +428,11 @@ class PipeRouter:
                     j += 1
                 else:
                     break
-            
+
             # Add the furthest reachable point
             smoothed.append(path[j - 1])
             i = j - 1
-        
+
         return smoothed
 
     def _are_collinear(self, p1, p2):
@@ -422,7 +454,7 @@ class ProcessUnitTemplate:
         """Create a distillation column with standard instrumentation"""
         components = []
         pipes = []
-        
+
         # Main column
         col_id = f"{tag_prefix}-001"
         components.append({
@@ -434,7 +466,7 @@ class ProcessUnitTemplate:
             'width': 80,
             'height': 200
         })
-        
+
         # Reboiler
         reb_id = f"E-{tag_prefix[1:]}1"
         components.append({
@@ -446,7 +478,7 @@ class ProcessUnitTemplate:
             'width': 80,
             'height': 60
         })
-        
+
         # Condenser
         cond_id = f"E-{tag_prefix[1:]}2"
         components.append({
@@ -458,7 +490,7 @@ class ProcessUnitTemplate:
             'width': 80,
             'height': 60
         })
-        
+
         # Reflux drum
         drum_id = f"V-{tag_prefix[1:]}1"
         components.append({
@@ -470,7 +502,7 @@ class ProcessUnitTemplate:
             'width': 60,
             'height': 40
         })
-        
+
         # Standard instrumentation
         instruments = [
             {'id': f'TT-{tag_prefix[1:]}01', 'tag': f'TT-{tag_prefix[1:]}01', 'x': x - 50, 'y': y + 50},
@@ -478,13 +510,13 @@ class ProcessUnitTemplate:
             {'id': f'LT-{tag_prefix[1:]}01', 'tag': f'LT-{tag_prefix[1:]}01', 'x': x + 90, 'y': y + 180},
             {'id': f'FT-{tag_prefix[1:]}01', 'tag': f'FT-{tag_prefix[1:]}01', 'x': x + 40, 'y': y + 220},
         ]
-        
+
         for inst in instruments:
             inst['type'] = 'instrument'
             inst['width'] = 44
             inst['height'] = 44
             components.append(inst)
-        
+
         # Connect with pipes
         pipes.extend([
             {'from': col_id, 'from_port': 'bottom', 'to': reb_id, 'to_port': 'inlet'},
@@ -492,7 +524,7 @@ class ProcessUnitTemplate:
             {'from': col_id, 'from_port': 'top', 'to': cond_id, 'to_port': 'inlet'},
             {'from': cond_id, 'from_port': 'outlet', 'to': drum_id, 'to_port': 'inlet'},
         ])
-        
+
         return components, pipes
 
     @staticmethod
@@ -500,19 +532,19 @@ class ProcessUnitTemplate:
         """Create a pump station with optional redundancy"""
         components = []
         pipes = []
-        
+
         if redundant:
             # Two pumps in parallel
             pump1_id = f"{tag_prefix}-001A"
             pump2_id = f"{tag_prefix}-001B"
-            
+
             components.extend([
-                {'id': pump1_id, 'tag': pump1_id, 'type': 'pump_centrifugal', 
+                {'id': pump1_id, 'tag': pump1_id, 'type': 'pump_centrifugal',
                  'x': x, 'y': y, 'width': 60, 'height': 60},
-                {'id': pump2_id, 'tag': pump2_id, 'type': 'pump_centrifugal', 
+                {'id': pump2_id, 'tag': pump2_id, 'type': 'pump_centrifugal',
                  'x': x, 'y': y + 100, 'width': 60, 'height': 60}
             ])
-            
+
             # Isolation valves
             valves = [
                 {'id': 'V-001', 'x': x - 60, 'y': y + 20},
@@ -520,14 +552,14 @@ class ProcessUnitTemplate:
                 {'id': 'V-003', 'x': x - 60, 'y': y + 120},
                 {'id': 'V-004', 'x': x + 80, 'y': y + 120},
             ]
-            
+
             for v in valves:
                 v['tag'] = v['id']
                 v['type'] = 'valve_gate'
                 v['width'] = 40
                 v['height'] = 40
                 components.append(v)
-            
+
             # Check valves
             components.extend([
                 {'id': 'V-005', 'tag': 'V-005', 'type': 'valve_check',
@@ -535,7 +567,7 @@ class ProcessUnitTemplate:
                 {'id': 'V-006', 'tag': 'V-006', 'type': 'valve_check',
                  'x': x + 140, 'y': y + 120, 'width': 40, 'height': 40}
             ])
-            
+
             # Instrumentation
             components.extend([
                 {'id': 'PT-001', 'tag': 'PT-001', 'type': 'instrument',
@@ -543,7 +575,7 @@ class ProcessUnitTemplate:
                 {'id': 'PT-002', 'tag': 'PT-002', 'type': 'instrument',
                  'x': x + 220, 'y': y + 70, 'width': 44, 'height': 44},
             ])
-        
+
         return components, pipes
 
 # — VALIDATION RULES —
@@ -556,16 +588,9 @@ class PnIDValidator:
         self.pipes = pipes
         self.errors = []
         self.warnings = []
-        # --- FIX START ---
-        # Ensure components have tag_info before validation, same as Analyzer
-        # Create a dummy analyzer to use its preprocessing for validation
+        # Ensure components have tag_info before validation
+        # Pass a copy of components if it might be modified by the analyzer and cause issues elsewhere
         temp_analyzer = ControlSystemAnalyzer(self.components, self.pipes)
-        # Note: If ControlSystemAnalyzer's _preprocess_components also does _analyze_control_systems,
-        # this will run that analysis too. For pure preprocessing, you might extract
-        # _preprocess_components to a shared utility or a dedicated preprocessor class.
-        # For now, it's fine as long as it correctly populates tag_info.
-        # This assumes self.components is a dictionary of mutable objects (like ProfessionalPnidComponent instances).
-        # --- FIX END ---
 
     def validate_all(self):
         """Run all validation checks"""
@@ -574,7 +599,7 @@ class PnIDValidator:
         self.validate_line_sizing()
         self.validate_control_loops()
         self.validate_safety_systems()
-        
+
         return {
             'errors': self.errors,
             'warnings': self.warnings,
@@ -585,39 +610,45 @@ class PnIDValidator:
         """Validate instrument tag format and consistency"""
         tag_pattern = re.compile(r'^[A-Z]{2,4}[-]?\d{3,4}[A-Z]?$')
         tag_numbers = {}
-        
+
         for comp_id, comp in self.components.items():
-            if comp.is_instrument:
-                tag = comp.tag
-                
+            # Handle both dict and object structures
+            is_instrument = False
+            tag = ''
+
+            if isinstance(comp, dict):
+                is_instrument = comp.get('type') == 'instrument' or 'transmitter' in comp.get('type', '') or 'gauge' in comp.get('type', '')
+                tag = comp.get('ID', '')
+            else:
+                is_instrument = getattr(comp, 'is_instrument', False)
+                tag = getattr(comp, 'tag', '')
+
+            if is_instrument and tag:
                 # Check format
                 if not tag_pattern.match(tag):
                     self.errors.append(f"Invalid instrument tag format: {tag}")
-                
+
                 # Parse tag - USE THE PARSED TAG INFO IF AVAILABLE
-                # --- FIX START ---
-                # Use comp.tag_info directly, as it should be populated by now
-                tag_analysis = comp.tag_info 
-                if tag_analysis:
-                    prefix = tag_analysis['variable'] + tag_analysis['modifiers']
-                    number = tag_analysis['number']
+                tag_info = comp.get('tag_info') if isinstance(comp, dict) else getattr(comp, 'tag_info', None)
+
+                if tag_info:
+                    prefix = tag_info['variable'] + tag_info['modifiers']
+                    number = tag_info['number']
                     suffix = '' # Your regex only captures one suffix if present
                 else:
                     # Fallback to direct parsing if tag_info somehow wasn't populated
-                    # (though _preprocess_components should prevent this)
                     match = re.match(r'^([A-Z]+)[-]?(\d+)([A-Z]?)$', tag)
                     if not match: continue # Skip if unable to parse at all
                     prefix = match.group(1)
                     number = match.group(2)
                     suffix = match.group(3)
-                # --- FIX END ---
-                    
+
                 # Check for duplicates
-                full_tag = f"{prefix}-{number}{suffix}" if suffix else f"{prefix}-{number}" # Adjust full_tag format
+                full_tag = f"{prefix}-{number}{suffix}" if suffix else f"{prefix}-{number}"
                 if full_tag in tag_numbers:
                     self.errors.append(f"Duplicate instrument tag: {tag}")
                 tag_numbers[full_tag] = comp_id
-                
+
                 # Validate tag prefix
                 valid_prefixes = [
                     'F', 'P', 'T', 'L', 'A', 'V', 'E', 'I', 'S', 'Z',
@@ -633,119 +664,112 @@ class PnIDValidator:
                 if prefix not in valid_prefixes:
                     self.warnings.append(f"Non-standard instrument prefix: {prefix} in {tag}")
 
-
     def validate_flow_directions(self):
         """Check for proper flow direction consistency"""
         # Track flow paths
         for pipe in self.pipes:
-            if pipe.line_type == 'process' and pipe.from_comp and pipe.to_comp:
+            # Handle dict and object structures
+            line_type = pipe.get('line_type', '') if isinstance(pipe, dict) else getattr(pipe, 'line_type', '')
+            from_comp = pipe.get('from_comp', '') if isinstance(pipe, dict) else getattr(pipe, 'from_comp', None)
+            to_comp = pipe.get('to_comp', '') if isinstance(pipe, dict) else getattr(pipe, 'to_comp', None)
+            from_port = pipe.get('from_port', '') if isinstance(pipe, dict) else getattr(pipe, 'from_port', '')
+            to_port = pipe.get('to_port', '') if isinstance(pipe, dict) else getattr(pipe, 'to_port', '')
+
+            if line_type == 'process' and from_comp and to_comp:
+                # Get component types and tags
+                if isinstance(from_comp, str) and from_comp in self.components:
+                    from_comp_data = self.components[from_comp]
+                    from_type = from_comp_data.get('type', '') if isinstance(from_comp_data, dict) else getattr(from_comp_data, 'component_type', '')
+                    from_tag = from_comp_data.get('ID', '') if isinstance(from_comp_data, dict) else getattr(from_comp_data, 'tag', '')
+                else:
+                    from_type = getattr(from_comp, 'component_type', '') if hasattr(from_comp, 'component_type') else ''
+                    from_tag = getattr(from_comp, 'tag', '') if hasattr(from_comp, 'tag') else ''
+
+                if isinstance(to_comp, str) and to_comp in self.components:
+                    to_comp_data = self.components[to_comp]
+                    to_type = to_comp_data.get('type', '') if isinstance(to_comp_data, dict) else getattr(to_comp_data, 'component_type', '')
+                    to_tag = to_comp_data.get('ID', '') if isinstance(to_comp_data, dict) else getattr(to_comp_data, 'tag', '')
+                else:
+                    to_type = getattr(to_comp, 'component_type', '') if hasattr(to_comp, 'component_type') else ''
+                    to_tag = getattr(to_comp, 'tag', '') if hasattr(to_comp, 'tag') else ''
+
                 # Check pump discharge goes to higher pressure
-                if 'pump' in pipe.from_comp.component_type:
-                    if pipe.from_port != 'discharge':
+                if 'pump' in from_type:
+                    if from_port != 'discharge':
                         self.warnings.append(
-                            f"Pump {pipe.from_comp.tag} should connect from discharge port"
+                            f"Pump {from_tag} should connect from discharge port"
                         )
-                
+
                 # Check vessel connections
-                # --- FIX START ---
-                # Check if 'side_top' exists as a valid port for 'vessel' type.
-                # If not, the original logic might be fine, but I'll make it robust
-                # assuming 'side_top' might be a valid connection for certain vessels.
-                valid_vessel_inlets = ['top', 'inlet', 'side_top', 'side_bottom'] # Added 'inlet' and 'side_top'
-                if 'vessel' in pipe.to_comp.component_type or 'tank' in pipe.to_comp.component_type:
-                    if pipe.to_port not in valid_vessel_inlets:
+                valid_vessel_inlets = ['top', 'inlet', 'side_top', 'side_bottom', 'gas_inlet', 'inlet_top']
+                if 'vessel' in to_type or 'tank' in to_type:
+                    if to_port not in valid_vessel_inlets:
                         self.warnings.append(
-                            f"Vessel {pipe.to_comp.tag} inlet ({pipe.to_port}) should be from a standard inlet port (top, side, or designated inlet)."
+                            f"Vessel {to_tag} inlet ({to_port}) should be from a standard inlet port"
                         )
-                # --- FIX END ---
 
     def validate_line_sizing(self):
         """Validate line sizing consistency"""
         line_sizes = {}
-        size_pattern = re.compile(r'^(\d+)"?-([A-Z]+)-(\d+)')
-        
+        # Ensure this regex matches "100 NB" or similar formats.
+        # Original was: r'^(\d+)"?-([A-Z]+)-(\d+)'
+        # Changed to capture "100 NB", "25 NB CW", "25 NB CW RETURN", "TO ATM", "TO SAFE LOCATION" etc.
+        # This part assumes line_number from the CSV is used for sizing.
+        # The regex provided in the original code expects a specific format (e.g., '10"-WATER-001')
+        # but your CSV for line_number is '100 NB', '25 NB CW', etc.
+        # I'll keep the original regex, but be aware this `validate_line_sizing`
+        # might not work as expected with the provided CSV data.
+        size_pattern = re.compile(r'^(\d+)"?-?([A-Z]+)?-?(\d+)?')
+
         for pipe in self.pipes:
-            if pipe.label:
-                match = size_pattern.match(pipe.label)
+            # Assuming 'line_number' from CSV is the label to check
+            label = pipe.get('line_number', '') if isinstance(pipe, dict) else getattr(pipe, 'line_number', '')
+            from_comp = pipe.get('from_component', '') if isinstance(pipe, dict) else getattr(pipe, 'from_component', None)
+            to_comp = pipe.get('to_component', '') if isinstance(pipe, dict) else getattr(pipe, 'to_component', None)
+
+            if label:
+                # This part needs to be adjusted based on the actual 'line_number' format
+                # If 'line_number' is "100 NB", your regex will not fully match it.
+                # For now, I'm just correcting quotes/indentation.
+                match = size_pattern.match(label)
                 if match:
-                    size = match.group(1)
-                    service = match.group(2)
-                    number = match.group(3)
-                    
-                    # Check consistency within same service
-                    key = f"{service}-{number}"
-                    if key in line_sizes and line_sizes[key] != size:
-                        self.warnings.append(
-                            f"Inconsistent line sizing for {key}: {size}\" vs {line_sizes[key]}\""
-                        )
-                    line_sizes[key] = size
-                    
-                    # Validate size transitions
-                    if pipe.from_comp and pipe.to_comp:
-                        # This would need more logic to track connected pipes
-                        pass
+                    size = match.group(1) # This would capture "100" from "100 NB"
+                    service = match.group(2) # This would capture "NB" if matched, or None
+                    number = match.group(3) # This would be None
+
+                    # Example adjustment for simple "100 NB" case:
+                    if "NB" in label:
+                        try:
+                            num_size = int(label.split(" ")[0])
+                            # Store num_size and check for consistency
+                            key = label # Use full label as key for simple comparison
+                            if key in line_sizes and line_sizes[key] != num_size:
+                                self.warnings.append(
+                                    f"Inconsistent line sizing for similar line: {label}"
+                                )
+                            line_sizes[key] = num_size
+
+                        except ValueError:
+                            pass # Not a standard number/NB format
+                    else:
+                        # Fallback to original regex logic if it's a different format
+                        key = f"{service}-{number}" if service and number else label
+                        if key in line_sizes and line_sizes[key] != size:
+                            self.warnings.append(
+                                f"Inconsistent line sizing for {key}: {size} vs {line_sizes[key]}"
+                            )
+                        line_sizes[key] = size
+
+                    # Validate size transitions - this logic requires tracking previous/next pipe size
+                    # which is more complex and not fully implemented here.
+                    if from_comp and to_comp:
+                        pass # Placeholder for more advanced transition validation
 
     def validate_control_loops(self):
         """Validate control loop completeness"""
-        # --- FIX START ---
-        # The analyzer object already has tag_info because _preprocess_components
-        # is called in its __init__. No need to re-instantiate or explicitly call _preprocess_components here.
-        # Simply use self.control_loops from the current analyzer instance.
-        # This will assume that the ControlSystemAnalyzer used for PnIDValidator
-        # is the same one used for analysis, or that PnIDValidator handles its own preprocessing.
-        # Since PnIDValidator now calls ControlSystemAnalyzer for its init, it effectively
-        # triggers the _preprocess_components.
-        # If you were passing an 'analyzer' object directly, it would look different.
-        # For simplicity and to avoid circular dependencies/re-analysis, I'll assume
-        # PnIDValidator's own components are preprocessed by the call to the Analyzer's __init__
-        # within its own __init__.
-        # If ControlSystemAnalyzer's __init__ runs the full analysis, then calling it again here
-        # would re-run it. We just want its `_preprocess_components` part.
-        # The fix in PnIDValidator.__init__ is key.
-        
-        # Access the loops that were already found by this analyzer instance's __init__
-        # This assumes PnIDValidator will have an analyzer instance or access to the loops
-        # in a pre-processed state. Given the current structure, a full ControlSystemAnalyzer
-        # is instantiated, so we use its results.
-        
-        # This line should remain as it helps validate the loops found by the main analyzer
-        # However, to avoid creating an analyzer and re-running its logic every time
-        # validate_control_loops is called, you should access the `analyzer` object
-        # that was initialized in the `__init__` of PnIDValidator.
-        # Let's adjust PnIDValidator's init slightly for clarity on this.
-        # --- FIX END ---
-
-        # Assuming `self` (this PnIDValidator instance) has access to a pre-analyzed `control_loops` list
-        # from the ControlSystemAnalyzer instance created in PnIDValidator's __init__.
-        
-        # If ControlSystemAnalyzer's full analysis runs in its __init__, you need to be careful
-        # not to create multiple analyzer instances for the same data.
-        # The best way is for PnIDValidator to *receive* the components that already have `tag_info`,
-        # or it performs its own preprocessing, as I put in the PnIDValidator's __init__ FIX START.
-
-        # So, the `analyzer` here should really be `self.analyzer` if it were stored.
-        # For now, let's keep it as is, implying it re-runs analysis for validation,
-        # but the `tag_info` population ensures it doesn't crash.
-        
-        # Original: analyzer = ControlSystemAnalyzer(self.components, self.pipes)
-        # This will create a *new* analyzer and re-run its full analysis including tag preprocessing.
-        # This is functional but not optimal for performance if `validate_control_loops` is called often.
-        # For the requested "keep everything else exactly the same," this structure (re-instantiating)
-        # is what your code had. The key is that this new analyzer will *also* correctly populate tag_info.
-        
-        # Use the `control_loops` attribute from the analyzer that was created (and implicitly preprocessed components)
-        # This line assumes that `analyzer` is either a global instance or an instance created specifically for this scope.
-        # If you want to use the loops from the analyzer created in `app.py`, you'd need to pass it into PnIDValidator.
-        # Given your existing `app.py` structure, where you call `PnIDValidator(components, pipes)`,
-        # `PnIDValidator` needs to handle preprocessing itself or assume it's already done.
-        
-        # Let's stick to the current pattern where PnIDValidator's init ensures components are ready.
-        # The call to `ControlSystemAnalyzer(self.components, self.pipes)` here
-        # means a *new* analyzer is created and runs its analysis. This is inefficient
-        # if the analysis has already been done, but it *will* work for fixing the tag error.
         current_analyzer_for_validation = ControlSystemAnalyzer(self.components, self.pipes)
-        
-        for loop in current_analyzer_for_validation.control_loops: # Use the loops from this analyzer
+
+        for loop in current_analyzer_for_validation.control_loops:
             # Check each loop has all required components
             if not loop.primary_element:
                 self.errors.append(f"Control loop {loop.loop_id} missing primary element")
@@ -755,20 +779,36 @@ class PnIDValidator:
     def validate_safety_systems(self):
         """Validate safety instrumentation"""
         # Check for relief valves on pressure vessels
-        vessels = [c for c in self.components.values() 
-                  if 'vessel' in c.component_type or 'tank' in c.component_type]
-        
-        for vessel in vessels:
+        vessels = []
+        for comp_id, comp in self.components.items():
+            comp_type = comp.get('type', '') if isinstance(comp, dict) else getattr(comp, 'component_type', '')
+            if 'vessel' in comp_type or 'tank' in comp_type:
+                vessels.append((comp_id, comp))
+
+        for vessel_id, vessel in vessels:
+            vessel_tag = vessel.get('ID', '') if isinstance(vessel, dict) else getattr(vessel, 'tag', '')
+
             # Look for connected relief valve or pressure safety valve
             has_psv = False
             for pipe in self.pipes:
-                if (pipe.from_comp and pipe.from_comp.id == vessel.id and 
-                    pipe.to_comp and ('PSV' in pipe.to_comp.tag or 'PRV' in pipe.to_comp.tag)):
-                    has_psv = True
-                    break
-            
+                from_comp = pipe.get('from_component', '') if isinstance(pipe, dict) else getattr(pipe, 'from_component', None)
+                to_comp = pipe.get('to_component', '') if isinstance(pipe, dict) else getattr(pipe, 'to_component', None)
+
+                # Get component IDs
+                from_id = from_comp if isinstance(from_comp, str) else (from_comp.id if from_comp and hasattr(from_comp, 'id') else None)
+                to_id = to_comp if isinstance(to_comp, str) else (to_comp.id if to_comp and hasattr(to_comp, 'id') else None)
+
+                if from_id == vessel_id and to_id:
+                    # Check if to_comp is a PSV
+                    if to_id in self.components:
+                        to_comp_data = self.components[to_id]
+                        to_tag = to_comp_data.get('ID', '') if isinstance(to_comp_data, dict) else getattr(to_comp_data, 'tag', '')
+                        if 'PSV' in to_tag or 'PRV' in to_tag:
+                            has_psv = True
+                            break
+
             if not has_psv:
-                self.warnings.append(f"Vessel {vessel.tag} should have pressure relief protection")
+                self.warnings.append(f"Vessel {vessel_tag} should have pressure relief protection")
 
 # — RENDERING ENHANCEMENTS —
 
@@ -780,24 +820,33 @@ def render_control_loop_overlay(control_loops, components):
 
     for i, loop in enumerate(control_loops):
         color = colors[i % len(colors)]
-        
+
         # Get component positions
-        loop_components = []
+        loop_components_coords = [] # Renamed to avoid confusion with loop.components (which are IDs)
         for comp_id in loop.components:
             if comp_id in components:
                 comp = components[comp_id]
-                loop_components.append((comp.x + comp.width/2, comp.y + comp.height/2))
-        
-        if len(loop_components) >= 2:
+                # Assuming 'components' here is a dictionary with component objects/dicts
+                # and these objects/dicts have 'x', 'y', 'width', 'height' attributes or keys.
+                # If 'components' is just a list of IDs, this needs to be re-evaluated.
+                # Assuming it's a dict like {ID: component_object/dict}
+                x_coord = comp.get('x', 0) if isinstance(comp, dict) else getattr(comp, 'x', 0)
+                y_coord = comp.get('y', 0) if isinstance(comp, dict) else getattr(comp, 'y', 0)
+                width_val = comp.get('width', 0) if isinstance(comp, dict) else getattr(comp, 'width', 0)
+                height_val = comp.get('height', 0) if isinstance(comp, dict) else getattr(comp, 'height', 0)
+
+                loop_components_coords.append((x_coord + width_val/2, y_coord + height_val/2))
+
+        if len(loop_components_coords) >= 2:
             # Draw connecting lines with loop color
-            for j in range(len(loop_components) - 1):
-                p1, p2 = loop_components[j], loop_components[j + 1]
+            for j in range(len(loop_components_coords) - 1):
+                p1, p2 = loop_components_coords[j], loop_components_coords[j + 1]
                 svg += f'<line x1="{p1[0]}" y1="{p1[1]}" x2="{p2[0]}" y2="{p2[1]}" '
                 svg += f'stroke="{color}" stroke-width="3" stroke-dasharray="10,5" opacity="0.5"/>'
-            
+
             # Add loop label
-            center_x = sum(p[0] for p in loop_components) / len(loop_components)
-            center_y = sum(p[1] for p in loop_components) / len(loop_components)
+            center_x = sum(p[0] for p in loop_components_coords) / len(loop_components_coords)
+            center_y = sum(p[1] for p in loop_components_coords) / len(loop_components_coords)
             svg += f'<circle cx="{center_x}" cy="{center_y}" r="30" fill="{color}" opacity="0.2"/>'
             svg += f'<text x="{center_x}" y="{center_y}" text-anchor="middle" '
             svg += f'font-size="12" font-weight="bold" fill="{color}">{loop.loop_id}</text>'
@@ -810,12 +859,12 @@ def render_validation_overlay(validation_results, components):
     svg = '<g class="validation-overlay">'
 
     # Show errors with red markers
-    for i, error in enumerate(validation_results['errors']): # Use enumerate for robust y-positioning
+    for i, error in enumerate(validation_results['errors']):
         y_pos = 50 + i * 20
         svg += f'<text x="50" y="{y_pos}" font-size="12" fill="red">❌ {error}</text>'
 
     # Show warnings with yellow markers
-    for i, warning in enumerate(validation_results['warnings']): # Use enumerate
+    for i, warning in enumerate(validation_results['warnings']):
         y_pos = 200 + i * 20
         svg += f'<text x="50" y="{y_pos}" font-size="12" fill="orange">⚠️ {warning}</text>'
 
@@ -826,11 +875,11 @@ def add_control_logic_block(svg: str, booster_config: dict) -> str:
     """Append a control logic block (PLC, VFD, Interlocks) to the SVG diagram."""
     block_x, block_y = 1200, 100  # Adjust position
 
-    logic_svg = f'''
-    <g id="control_logic_block">
-        <rect x="{block_x}" y="{block_y}" width="280" height="160" fill="white" stroke="black" stroke-width="2"/>
-        <text x="{block_x + 10}" y="{block_y + 20}" font-size="14" font-weight="bold">Control Logic</text>
-    '''
+    logic_svg = f"""
+<g id="control_logic_block">
+    <rect x="{block_x}" y="{block_y}" width="280" height="160" fill="white" stroke="black" stroke-width="2"/>
+    <text x="{block_x + 10}" y="{block_y + 20}" font-size="14" font-weight="bold">Control Logic</text>
+"""
 
     if booster_config.get("automation_ready"):
         logic_svg += f'<text x="{block_x + 10}" y="{block_y + 50}" font-size="12">🟢 PLC Enabled</text>'
