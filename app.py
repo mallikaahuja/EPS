@@ -9,6 +9,8 @@ from professional_symbols import PROFESSIONAL_ISA_SYMBOLS, ARROW_MARKERS
 from reference_exact_symbols import REFERENCE_EXACT_SYMBOLS
 from advanced_rendering import ProfessionalRenderer
 from control_systems import ControlSystemAnalyzer, PipeRouter, PnIDValidator
+import re
+import math # math is needed for add_flow_arrows
 
 # — CONFIG —
 
@@ -468,3 +470,139 @@ st.info(“PDF export requires additional libraries (cairosvg)”)
 
 st.markdown(”—”)
 st.markdown(“EPS Process Solutions Pvt. Ltd. - P&ID Automation Platform v2.0”)
+
+def add_scope_boundaries(svg_content, scope_areas):
+    """Add dashed scope boundary boxes"""
+    scope_svg = '<g id="scope-boundaries">'
+
+    for scope in scope_areas:
+        scope_svg += f'''
+    <rect x="{scope['x']}" y="{scope['y']}"
+          width="{scope['width']}" height="{scope['height']}"
+          fill="none" stroke="black" stroke-width="1.5"
+          stroke-dasharray="10,5" rx="5"/>
+    <text x="{scope['x'] + 10}" y="{scope['y'] - 5}"
+          font-size="12" font-weight="bold">{scope['label']}</text>
+    '''
+
+    scope_svg += '</g>'
+    return svg_content.replace('</svg>', scope_svg + '</svg>')
+
+def add_nozzle_indicators(component):
+    """Add nozzle markers to vessels"""
+    nozzle_svg = ''
+    # Assuming component.component_type is a string that might contain 'vessel'
+    if 'vessel' in component.component_type:
+        # Add nozzle indicators
+        nozzles = [
+            {'x': component.width/2, 'y': 0, 'tag': 'N1'},  # Top
+            {'x': component.width, 'y': component.height/3, 'tag': 'N2'},  # Side
+            {'x': component.width/2, 'y': component.height, 'tag': 'N3'},  # Bottom
+        ]
+
+        for nozzle in nozzles:
+            nozzle_svg += f'''
+        <circle cx="{nozzle['x']}" cy="{nozzle['y']}" r="5"
+                fill="white" stroke="black" stroke-width="2"/>
+        <text x="{nozzle['x'] + 10}" y="{nozzle['y'] + 3}"
+              font-size="8">{nozzle['tag']}</text>
+        '''
+
+    return nozzle_svg
+
+def create_instrument_bubble(tag, x, y):
+    """Create proper ISA instrument bubble"""
+    # Parse tag (e.g., PT-001, FIC-001)
+    match = re.match(r'^([A-Z]+)-(\d+)$', tag)
+    if not match:
+        return ''
+
+    letters = match.group(1)
+    number = match.group(2)
+
+    # Determine if controller or field instrument
+    is_controller = 'C' in letters
+
+    bubble_svg = f'<g transform="translate({x},{y})">'
+
+    # Main circle
+    bubble_svg += '<circle cx="0" cy="0" r="22" fill="white" stroke="black" stroke-width="2"/>'
+
+    # Add box for controllers
+    if is_controller:
+        bubble_svg += '<rect x="-22" y="-22" width="44" height="44" fill="none" stroke="black" stroke-width="1.5"/>'
+
+    # Add horizontal line for field instruments
+    if not is_controller:
+        bubble_svg += '<line x1="-22" y1="0" x2="22" y2="0" stroke="black" stroke-width="2"/>'
+
+    # Add text
+    bubble_svg += f'''
+<text x="0" y="-5" text-anchor="middle" font-size="12" font-weight="bold">{letters}</text>
+<text x="0" y="10" text-anchor="middle" font-size="10">{number}</text>
+'''
+
+    bubble_svg += '</g>'
+    return bubble_svg
+
+def add_flow_arrows(pipe_svg, path_points):
+    """Add flow direction arrows to pipes"""
+    if len(path_points) < 2:
+        return pipe_svg
+
+    # Calculate arrow positions (place at 1/3 and 2/3 of pipe length)
+    positions = [0.33, 0.67]
+    arrows_svg = ''
+
+    for pos in positions:
+        # Find point at position along path
+        total_length = 0
+        segments = []
+
+        for i in range(len(path_points) - 1):
+            p1, p2 = path_points[i], path_points[i + 1]
+            length = ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)**0.5
+            segments.append((p1, p2, length))
+            total_length += length
+
+        target_length = total_length * pos
+        current_length = 0
+
+        for p1, p2, length in segments:
+            if current_length + length >= target_length:
+                # Arrow is on this segment
+                if length == 0: # Avoid division by zero for coincident points
+                    continue
+                ratio = (target_length - current_length) / length
+                arrow_x = p1[0] + ratio * (p2[0] - p1[0])
+                arrow_y = p1[1] + ratio * (p2[1] - p1[1])
+
+                # Calculate angle
+                angle = math.degrees(math.atan2(p2[1] - p1[1], p2[0] - p1[0]))
+
+                arrows_svg += f'''
+            <polygon points="-8,-4 0,0 -8,4" fill="black"
+                     transform="translate({arrow_x},{arrow_y}) rotate({angle})"/>
+            '''
+                break
+
+            current_length += length
+
+    return pipe_svg + arrows_svg
+
+# Example scope areas for the reference P&ID
+REFERENCE_SCOPE_AREAS = [
+    {
+        'x': 100, 'y': 250, 'width': 600, 'height': 350,
+        'label': 'EPSPL SCOPE'
+    },
+    {
+        'x': 750, 'y': 250, 'width': 200, 'height': 200,
+        'label': 'CUSTOMER SCOPE'
+    },
+    {
+        'x': 980, 'y': 100, 'width': 250, 'height': 300,
+        'label': 'CONTROL PANEL'
+    }
+]
+
