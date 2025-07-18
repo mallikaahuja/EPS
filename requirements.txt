@@ -12,7 +12,7 @@ psycopg2-binary>=2.9.0
 
 openai>=1.0.0
 
-stability-sdk==0.6.6
+stability-sdk @ git+https://github.com/Stability-AI/stability-sdk.git
 
 # Drawing and export
 
