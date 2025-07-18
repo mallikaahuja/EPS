@@ -1,122 +1,144 @@
-# app.py
-
 import streamlit as st
-import pandas as pd
-import json
 import os
+import json
+import requests
+from pathlib import Path
+from stability_sdk import client
+import pandas as pd
 
-from process_mapper import map_process_to_eps_products
-from booster_logic import evaluate_booster_requirements
+from professional_symbols import get_component_symbol
 from advanced_rendering import ProfessionalRenderer
-from control_systems import add_control_logic_block
+from control_systems import ControlSystemAnalyzer, PnIDValidator, render_control_loop_overlay, render_validation_overlay
 
-# Load supporting files
-@st.cache_data
-def load_data():
-    with open("component_mapping.json") as f:
-        component_mapping = json.load(f)
-    eq_layout = pd.read_csv("enhanced_equipment_layout.csv")
-    pipe_layout = pd.read_csv("pipe_connections_layout.csv")
-    equipment_list = pd.read_csv("equipment_list.csv")
-    pipeline_list = pd.read_csv("pipeline_list.csv")
-    inline_list = pd.read_csv("inline_component_list.csv")
-    return component_mapping, eq_layout, pipe_layout, equipment_list, pipeline_list, inline_list
+# Load prompts
+with open("component_prompt_map.json", "r") as f:
+    PROMPT_MAP = json.load(f)
 
-component_mapping, eq_layout, pipe_layout, equipment_list, pipeline_list, inline_list = load_data()
+# Stability API
+STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
+STABILITY_ENGINE = "stable-diffusion-xl-1024-v1-0"  # Your selected engine
+STABILITY_CLIENT = client.StabilityInference(
+    key=STABILITY_API_KEY,
+    engine=STABILITY_ENGINE,
+    verbose=True,
+)
 
-# Phase 1 — Process Recommendation
-st.set_page_config(layout="wide")
-st.title("EPS Interactive PFD → P&ID Generator")
-
-with st.expander("🧠 Step 1: EPS System Recommendation"):
-    industry = st.selectbox("Industry", ["Pharmaceutical", "Chemical", "Food & Beverage", "Wastewater"])
-    flow_rate = st.number_input("Flow Rate (m³/h)", min_value=1)
-    pressure = st.number_input("Vacuum Level (mbar)", min_value=0.01)
-    application = st.text_input("Application", placeholder="e.g. drying, filtration, solvent recovery")
-    compliance = st.multiselect("Compliance", ["cGMP", "FDA", "HACCP", "ISO 9001"])
-    automation = st.selectbox("Automation Level", ["None", "Basic Panel", "PLC", "SCADA"])
-    vapor_type = st.selectbox("Vapor Type", ["Clean", "Condensable", "Corrosive"])
-    contamination_sensitive = st.checkbox("Contamination-Sensitive?", value=True)
-
-    if st.button("🎯 Recommend EPS Configuration"):
-        recommended = map_process_to_eps_products(industry, flow_rate, pressure, application, compliance)
-        primary = next((r for r in recommended if "Pump" in r and "Booster" not in r), None)
-        booster_cfg, booster_warnings = evaluate_booster_requirements(
-            flow_rate, pressure, vapor_type.lower(), contamination_sensitive, primary, automation
-        )
-        st.session_state["autocomponents"] = recommended.copy()
-        if booster_cfg["enabled"]:
-            st.session_state["autocomponents"].append("Mechanical Vacuum Booster")
-            st.session_state["booster_cfg"] = booster_cfg
-
-        st.success("✅ EPS Mapping Complete")
-        for c in st.session_state["autocomponents"]:
-            st.markdown(f"- {c}")
-        for w in booster_warnings:
-            st.warning(w)
-
-# Phase 2 — Manual + Auto Component Selection
-st.markdown("---")
-st.header("🔧 Step 2: Build and Customize Your P&ID")
-
-with st.expander("➕ Add Components"):
-    col1, col2, col3 = st.columns(3)
-    equipment = col1.selectbox("Equipment", equipment_list["Component"].tolist())
-    pipeline = col2.selectbox("Pipeline", pipeline_list["Component"].tolist())
-    inline = col3.selectbox("Inline Component", inline_list["Component"].tolist())
-
-    if "components" not in st.session_state:
-        st.session_state["components"] = []
-
-    if st.button("➕ Add Selected Components"):
-        st.session_state["components"] += [equipment, pipeline, inline]
-
-    if "autocomponents" in st.session_state:
-        if st.button("✨ Use Auto-Generated EPS Setup"):
-            st.session_state["components"] = st.session_state["autocomponents"]
-
-# Component Table
-st.subheader("📋 Tag Table")
-comp_data = [{"Component": c, "Tag": f"C-{i+1:03d}"} for i, c in enumerate(st.session_state["components"])]
-tag_df = pd.DataFrame(comp_data)
-edited_df = st.data_editor(tag_df, num_rows="dynamic", use_container_width=True)
-selected_tags = edited_df.to_dict("records")
-
-# Layout Controls
-st.subheader("🧱 Layout Controls")
-col1, col2, col3, col4 = st.columns(4)
-grid_rows = col1.slider("Grid Rows", 1, 12, 6)
-grid_cols = col2.slider("Grid Columns", 1, 12, 6)
-spacing = col3.slider("Spacing", 80, 300, 150)
-scale = col4.slider("Symbol Scale", 0.5, 2.0, 1.0)
-
-# Preview Panel
-st.subheader("🖼️ Symbol Preview")
-cols = st.columns(6)
-for idx, row in enumerate(selected_tags):
-    sym_file = f"symbols/{row['Component'].lower().replace(' ', '_')}.svg"
-    with cols[idx % 6]:
-        st.markdown(f"**{row['Tag']}**")
-        if os.path.exists(sym_file):
-            st.image(sym_file, use_column_width=True)
-        else:
-            st.error("Missing")
-
-# Generate P&ID
-if st.button("🚀 Generate Final P&ID"):
-    component_ids = [r["Component"].lower().replace(" ", "_") for r in selected_tags]
-
-    renderer = ProfessionalRenderer(booster_config=st.session_state.get("booster_cfg", {}))
-    pid_svg = renderer.render_professional_pnid(
-        components=component_ids,
-        pipes=pipe_layout.to_dict("records"),
-        width=grid_cols * spacing,
-        height=grid_rows * spacing
+def generate_symbol_svg(component_name: str, prompt: str) -> str:
+    """Use Stability AI to generate SVG-style symbol from prompt"""
+    print(f"Generating symbol for: {component_name}")
+    answers = STABILITY_CLIENT.generate(
+        prompt=prompt,
+        width=512,
+        height=512,
+        cfg_scale=7.0,
+        steps=30,
+        samples=1,
     )
 
-    pid_svg = add_control_logic_block(pid_svg, st.session_state.get("booster_cfg", {}))
+    for resp in answers:
+        for artifact in resp.artifacts:
+            if artifact.finish_reason == 0:
+                continue
+            if artifact.type == 1:
+                # Save to file
+                svg_path = Path("symbols") / f"{component_name}.svg"
+                with open(svg_path, "wb") as f:
+                    f.write(artifact.binary)
+                return str(svg_path)
+    return None
 
-    st.subheader("📌 Final Output")
-    st.image(pid_svg, use_column_width=True)
-    st.download_button("📥 PNG", pid_svg.encode(), file_name="pid_output.png")
-    st.download_button("📐 DXF", pid_svg.encode(), file_name="pid_output.dxf")
+def ensure_symbol_exists(component_name: str):
+    """Check for symbol, generate if missing"""
+    symbol_path = Path("symbols") / f"{component_name}.svg"
+    if not symbol_path.exists():
+        prompt = PROMPT_MAP.get(component_name)
+        if prompt:
+            return generate_symbol_svg(component_name, prompt)
+        else:
+            st.warning(f"No prompt found for missing symbol: {component_name}")
+    return str(symbol_path)
+
+# App UI
+st.set_page_config(layout="wide", page_title="EPS P&ID Generator")
+
+st.title("📘 EPS Interactive P&ID Generator")
+
+col1, col2, col3 = st.columns(3)
+
+# Load component data
+equipment_list = pd.read_csv("equipment_list.csv")
+pipeline_list = pd.read_csv("pipeline_list.csv")
+inline_list = pd.read_csv("inline_component_list.csv")
+
+equipment = col1.selectbox("Equipment", equipment_list["Component"].tolist())
+pipeline = col2.selectbox("Pipeline", pipeline_list["Component"].tolist())
+inline = col3.selectbox("Inline Component", inline_list["Component"].tolist())
+
+# Load layout data
+equipment_df = pd.read_csv("enhanced_equipment_layout.csv")
+pipe_df = pd.read_csv("pipe_connections_layout.csv")
+
+# Ensure all required symbols exist
+for comp in equipment_df["Component"].unique():
+    ensure_symbol_exists(comp)
+
+# Convert layout into usable component + pipe structures
+components = {}  # id: ProfessionalPnidComponent-like objects
+pipes = []       # List of Pipe-like dicts
+
+# Placeholder component data
+for _, row in equipment_df.iterrows():
+    cid = row["ID"]
+    components[cid] = type("Comp", (), {
+        "id": cid,
+        "tag": row.get("Tag", cid),
+        "component_type": row["Component"],
+        "x": row.get("x", 0),
+        "y": row.get("y", 0),
+        "width": row.get("Width", 80),
+        "height": row.get("Height", 60),
+        "is_instrument": "instrument" in row["Component"].lower(),
+        "symbol": get_component_symbol(row["Component"]),
+    })()
+
+# Pipe rendering
+for _, row in pipe_df.iterrows():
+    pipe = type("Pipe", (), {
+        "from_comp": components.get(row["From Component"]),
+        "to_comp": components.get(row["To Component"]),
+        "from_port": row["From Port"],
+        "to_port": row["To Port"],
+        "line_type": row.get("pipe_type", "process"),
+        "label": row.get("Label", ""),
+        "polyline": row.get("Polyline Points (x, y)", ""),
+    })()
+    pipes.append(pipe)
+
+# Render layout
+renderer = ProfessionalRenderer()
+svg_output = renderer.render_professional_pnid(components, pipes)
+
+# Add control logic overlays
+analyzer = ControlSystemAnalyzer(components, pipes)
+svg_output += render_control_loop_overlay(analyzer.control_loops, components)
+
+# Validation
+validator = PnIDValidator(components, pipes)
+validation = validator.validate_all()
+svg_output += render_validation_overlay(validation, components)
+
+# Display SVG
+st.subheader("P&ID Layout")
+st.components.v1.html(f"<div style='overflow-x:scroll'>{svg_output}</div>", height=800, scrolling=True)
+
+# BOM
+st.subheader("Bill of Materials")
+bom_data = pd.DataFrame([
+    {"Tag": c.tag, "Component": c.component_type, "Type": "Instrument" if c.is_instrument else "Equipment"}
+    for c in components.values()
+])
+st.dataframe(bom_data)
+
+# Footer
+st.markdown("---")
+st.caption("Built with ❤️ by EPS Engineering")
