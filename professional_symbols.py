@@ -400,11 +400,13 @@ def get_component_symbol(component_id, width=None, height=None):
     svg = PROFESSIONAL_ISA_SYMBOLS.get(component_id)
     if svg is None:
         return f'<!-- Unknown symbol: {component_id} -->'
+    # Wrap the raw SVG in an <svg> tag with width/height if given
     if width is not None and height is not None:
-        viewbox = "0 0 80 80"  # Adjust this if your SVG symbols use a different base size
+        viewbox = "0 0 80 80"  # Adjust if your SVGs are a different base size
         return f'<svg width="{width}" height="{height}" viewBox="{viewbox}" xmlns="http://www.w3.org/2000/svg">{svg}</svg>'
     else:
         return svg
+        
 # Arrow marker definitions for flow direction
 
 ARROW_MARKERS = '''
