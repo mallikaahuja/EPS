@@ -4,6 +4,8 @@ Detailed, industry-standard P&ID symbols matching real engineering drawings
 """
 
 # Professional ISA Symbols with accurate details
+# All symbols are designed to fit conceptually within a 80x80 unit space.
+# The viewBox "0 0 80 80" will be applied for scaling.
 
 PROFESSIONAL_ISA_SYMBOLS = {
     "kdp_330_pump": '''
@@ -258,47 +260,46 @@ PROFESSIONAL_ISA_SYMBOLS = {
 
 import re
 
-def get_component_symbol(component_id, width=None, height=None):
+# Define standard arrowhead for pipes, to be used in the main SVG <defs>
+ARROWHEAD_MARKER = '''
+    <marker id="arrowhead" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="black" stroke="black"/>
+    </marker>
+'''
+
+def get_component_symbol(component_id, target_width=None, target_height=None):
     """
     Returns a valid SVG string for the requested ISA symbol.
-    If width and height are given, wraps in an <svg> root tag for scaling.
-    All output is valid XML for SVG or PNG rendering.
+    The symbols in PROFESSIONAL_ISA_SYMBOLS are designed for a 80x80 unit space.
+    This function scales them to the target_width and target_height by
+    wrapping them in an <svg> tag with the appropriate viewBox.
+    If a symbol is not found, it returns a "NO SYMBOL" placeholder.
     """
     svg_inner = PROFESSIONAL_ISA_SYMBOLS.get(component_id)
+    
+    # Default viewBox for the internal symbol definitions
+    # Assuming all your symbols are drawn on an 80x80 canvas
+    default_viewbox = "0 0 80 80" 
+
     if svg_inner is None:
+        # Fallback "NO SYMBOL" representation, also designed for 80x80
         svg_inner = (
-            '<rect x="10" y="10" width="60" height="60" fill="#fff" stroke="#f00" stroke-width="3"/>'
-            '<text x="40" y="54" font-size="13" text-anchor="middle" fill="#f00" font-family="Arial, sans-serif">NO SYMBOL</text>'
+            '<rect x="10" y="10" width="60" height="60" fill="white" stroke="#f00" stroke-width="3"/>'
+            '<text x="40" y="40" font-size="10" text-anchor="middle" dominant-baseline="middle" fill="#f00" font-family="Arial, sans-serif">NO</text>'
+            '<text x="40" y="55" font-size="10" text-anchor="middle" dominant-baseline="middle" fill="#f00" font-family="Arial, sans-serif">SYMBOL</text>'
         )
 
-    # Attempt to derive a viewBox from the first element's attributes if available.
-    # Otherwise, use a sensible default.
-    # This is a heuristic and might need manual adjustment if symbols are oddly sized.
-    viewbox = "0 0 80 80" # Default viewBox
+    # Use target_width and target_height if provided, otherwise default to 80x80 for standalone SVG
+    final_width = target_width if target_width is not None else 80
+    final_height = target_height if target_height is not None else 80
 
-    # A more robust way to get a viewBox would be to calculate the bounding box
-    # of all elements within the SVG string, but that's complex without an XML parser.
-    # For now, we'll assume symbols are designed within an 80x80 or similar canvas.
-
-    if width is not None and height is not None:
-        svg = (
-            f'<svg width="{width}" height="{height}" viewBox="{viewbox}" '
-            f'xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">'
-            f'{svg_inner}'
-            f'</svg>'
-        )
-    else:
-        # If no explicit width/height, assume a default size for the standalone SVG
-        svg = (
-            f'<svg width="80" height="80" viewBox="{viewbox}" '
-            f'xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">'
-            f'{svg_inner}'
-            f'</svg>'
-        )
+    svg = (
+        f'<svg width="{final_width}" height="{final_height}" viewBox="{default_viewbox}" '
+        f'xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">'
+        f'{svg_inner}'
+        f'</svg>'
+    )
     return svg
-
-# Removed ARROW_MARKERS as it's not used by the current get_component_symbol implementation.
-# If you integrate these into a larger SVG with <defs> and <use>, you'd place this in that <defs> section.
 
 
 def get_component_symbol_from_type(component_type: str) -> str:
@@ -351,29 +352,46 @@ def get_component_symbol_from_type(component_type: str) -> str:
     normalized_type = component_type.lower().replace('-', '_').replace(' ', '_')
     mapped_type = type_mapping.get(normalized_type, normalized_type)
 
+    # This function should ideally return the raw SVG for embedding,
+    # without the wrapping <svg> tag, as it's meant for internal use
+    # within a larger SVG generation.
+    # The get_component_symbol function is for standalone symbol generation.
     return PROFESSIONAL_ISA_SYMBOLS.get(mapped_type, '')
 
 
 def create_professional_instrument_bubble(tag: str, x: float, y: float, size: float = 25) -> str:
     """
-    Creates a professional instrument bubble with proper ISA formatting
+    Creates a professional instrument bubble with proper ISA formatting.
+    This function should be called by advanced_rendering.py's render_tag_bubble.
+    It's moved here for symbol-specific logic.
     """
     import re
 
     # Parse instrument tag
     match = re.match(r'^([A-Z]+)[-]?(\d+)([A-Z]?)$', tag)
+    
+    # Default to a simple circle if tag doesn't match expected format
     if not match:
-        # Fallback for malformed tags
-        return f'<circle cx="{x}" cy="{y}" r="{size}" fill="white" stroke="black" stroke-width="2"/>'
+        return f'<circle cx="{x}" cy="{y}" r="{size}" fill="white" stroke="black" stroke-width="2.5"/>'
 
     letters = match.group(1)
     number = match.group(2)
-    suffix = match.group(3)
+    suffix = match.group(3) # Not currently used in display, but kept for parsing
 
     # Determine if local panel (L prefix) or field mounted
-    is_local = letters.startswith('L')
-    if is_local:
-        letters = letters[1:]  # Remove L prefix for display purposes
+    is_local_mounted = letters.startswith('L')
+    if is_local_mounted:
+        letters = letters[1:]  # Remove L prefix for display purposes in the bubble
+
+    # ISA Standard for mounting:
+    # Field Mounted: Circle with horizontal line through center
+    # Local Panel Mounted (within operator reach): Circle with single horizontal line above center
+    # Main Control Panel (shared display/control): Circle with a dashed horizontal line through center
+    # Auxiliary Control Panel (behind panel): Circle with a solid line above and below center (double line)
+    
+    # For simplicity, let's implement Field Mounted (line through center) and Local (no line)
+    # based on the `is_local_mounted` flag.
+    # If you need Shared/Auxiliary, you'd add more logic to distinguish them.
 
     # Create SVG group for the instrument
     svg = f'<g class="instrument-{tag}">'
@@ -382,34 +400,28 @@ def create_professional_instrument_bubble(tag: str, x: float, y: float, size: fl
     svg += f'<circle cx="{x}" cy="{y}" r="{size}" fill="white" stroke="black" stroke-width="2.5"/>'
 
     # Add horizontal line for field-mounted instruments
-    if not is_local:
-        # Ensure line is drawn within the circle's bounds or slightly beyond for clarity
+    if not is_local_mounted: # Assuming not 'local panel' means it's field mounted for now
         svg += f'<line x1="{x-size}" y1="{y}" x2="{x+size}" y2="{y}" stroke="black" stroke-width="2.5"/>'
 
-    # Add box for panel-mounted instruments (dash-dotted line usually)
-    # Note: ISA standard for panel-mounted (mounted on main control panel) is often a solid line circle
-    # and a dashed line for aux panel. A box inside a circle is more for a 'shared display/control'.
-    # I'll keep your existing logic for the box, but know that strict ISA might differ.
-    if 'C' in letters or 'I' in letters:  # Controller or Indicator (often implies panel mounting context)
-        box_padding = 5 # Padding from circle edge
-        box_width = (size * 2) - (box_padding * 2)
-        box_height = box_width # Keep it square
-        svg += f'<rect x="{x - box_width/2}" y="{y - box_height/2}" width="{box_width}" height="{box_height}" '
-        svg += f'fill="none" stroke="black" stroke-width="1.5" stroke-dasharray="5,3"/>' # Common for shared/auxiliary
-
-    # Text positioning
+    # Text positioning based on the 2-line format
     text_size_letters = size * 0.5
     text_size_number = size * 0.4
-    y_offset_letters = size * 0.15 # For top text
-    y_offset_number = size * 0.25 # For bottom text relative to center
+    
+    # Calculate Y positions for the two lines of text
+    # The overall height of the two lines of text will be approx (text_size_letters + text_size_number)
+    # We want to center this block of text vertically in the circle.
+    total_text_height = text_size_letters + text_size_number
+    
+    # Adjust base Y to move the combined text block's center to the circle's center
+    base_y_offset = (total_text_height / 2) - text_size_letters 
 
     # Tag letters (function) - Top part
-    svg += f'<text x="{x}" y="{y - y_offset_letters}" text-anchor="middle" '
+    svg += f'<text x="{x}" y="{y + base_y_offset + (text_size_letters * 0.75) / 2}" text-anchor="middle" '
     svg += f'font-size="{text_size_letters}" font-weight="bold" font-family="Arial, sans-serif">{letters}</text>'
 
     # Tag number - Bottom part
-    svg += f'<text x="{x}" y="{y + y_offset_number + text_size_number/2}" text-anchor="middle" '
-    svg += f'font-size="{text_size_number}" font-family="Arial, sans-serif">{number}{suffix}</text>'
+    svg += f'<text x="{x}" y="{y + base_y_offset + text_size_letters + (text_size_number * 0.75) / 2}" text-anchor="middle" '
+    svg += f'font-size="{text_size_number}" font-family="Arial, sans-serif">{number}</text>'
 
     svg += '</g>'
     return svg
@@ -423,12 +435,17 @@ def create_pipe_with_spec(points: list, pipe_spec: str, line_type: str = 'proces
     if len(points) < 2:
         return ''
 
-    # Line styles based on type
+    # Line styles based on type (replicated from advanced_rendering for self-containment if needed elsewhere)
+    # However, this function might be redundant if advanced_rendering.render_line_with_gradient
+    # handles all line drawing. The 'pipe_spec' part is unique here.
     line_styles = {
-        'process': {'width': 3, 'color': 'black', 'dash': ''},
-        'utility': {'width': 2.5, 'color': 'black', 'dash': ''},
-        'instrument': {'width': 1.5, 'color': 'black', 'dash': '5,3'}, # Increased width for visibility
-        'electrical': {'width': 1.5, 'color': 'black', 'dash': '2,2'}, # Increased width for visibility
+        'process': {'width': 2, 'color': 'black', 'dash': ''},
+        'utility': {'width': 5, 'color': '#666', 'dash': ''}, # From your original advanced_rendering
+        'instrument': {'width': 1, 'color': '#0a85ff', 'dash': '5,4'}, # From new advanced_rendering
+        'pneumatic': {'width': 1, 'color': '#33aa00', 'dash': '2,4'},
+        'electric': {'width': 1, 'color': '#ebbc33', 'dash': '1,4'},
+        'hydraulic': {'width': 1, 'color': '#b23d2a', 'dash': '8,2,2,2'},
+        'scope_break': {'width': 1, 'color': '#a6a6a6', 'dash': '3,3'},
     }
 
     style = line_styles.get(line_type, line_styles['process'])
@@ -450,20 +467,22 @@ def create_pipe_with_spec(points: list, pipe_spec: str, line_type: str = 'proces
     # Add specification label if provided
     if pipe_spec and len(points) >= 2:
         # Calculate midpoint of the first segment for simplicity, or the entire path
+        # For long pipes, you might want to place the label near a bend or a specific point.
+        # This currently places it at the midpoint of the first segment.
         mid_x = (points[0][0] + points[1][0]) / 2
         mid_y = (points[0][1] + points[1][1]) / 2
 
         # Label background
         # Estimate text width; this is a simplification and may not be accurate for all fonts/sizes
-        estimated_char_width = 7 # pixels per char for font-size 10 Arial
+        estimated_char_width = 6 # pixels per char for font-size 10 Arial
         text_width_estimate = len(pipe_spec) * estimated_char_width + 10 # Add some padding
-        text_height = 20 # Fixed height for background rectangle
+        text_height = 18 # Fixed height for background rectangle, slightly smaller
 
         svg += f'<rect x="{mid_x - text_width_estimate/2}" y="{mid_y - text_height/2}" '
         svg += f'width="{text_width_estimate}" height="{text_height}" fill="white" stroke="black" stroke-width="0.5"/>' # Added thin border for clarity
 
         # Label text
-        svg += f'<text x="{mid_x}" y="{mid_y}" text-anchor="middle" dominant-baseline="middle" '
+        svg += f'<text x="{mid_x}" y="{mid_y + 3}" text-anchor="middle" dominant-baseline="middle" ' # Adjust y slightly
         svg += f'font-size="10" font-family="Arial, sans-serif" fill="black">{pipe_spec}</text>'
 
     svg += '</g>'
