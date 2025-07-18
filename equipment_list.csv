@@ -1,4 +1,4 @@
-id,tag_prefix,name,type,subtype,isa_code,default_properties,default_width_px,default_height_px,port_definitions,default_layout_offset_y_px,associated_components,cost_usd,manufacturer,efficiency_pct
+component,tag_prefix,name,type,subtype,isa_code,default_properties,default_width_px,default_height_px,port_definitions,default_layout_offset_y_px,associated_components,cost_usd,manufacturer,efficiency_pct
 kdp_330_pump,P,KDP-330 Dry Pump,pump,centrifugal_pump,,"{""motor_hp"": ""Variable"", ""type"": ""Dry Pump"", ""material"": ""Cast Iron""}",120,100,"{""suction"": [10, 50], ""discharge"": [110, 50]}",70,"{""vfd"": ""true"", ""motor"": ""true"", ""control_panel"": ""true""}",12000,EPSPL,85
 suction_filter,SF,Suction Filter,filter,filter_cartridge,,"{""type"": ""Cartridge"", ""material"": ""SS316""}",80,120,"{""inlet_top"": [40, 0], ""outlet_bottom"": [40, 120]}",60,"{""drain_valve"": ""true"", ""pressure_gauge"": ""true""}",3500,EPSPL,90
 y_strainer,YS,Y Strainer,filter,y_strainer,,"{""mesh_size"": ""100"", ""material"": ""SS304""}",60,40,"{""inlet"": [0, 20], ""outlet"": [60, 20]}",30,{},800,Standard,95
