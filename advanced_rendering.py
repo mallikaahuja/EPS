@@ -1,59 +1,112 @@
 # advanced_rendering.py
 
+# Keep this import as per your existing structure
 from professional_symbols import get_component_symbol
 
 def draw_svg_symbol(component_id, width=80, height=80):
     """
-    Clean SVG for any component.
+    Retrieves SVG for component. This function will now simply pass
+    the target width and height to get_component_symbol, which will
+    handle the scaling and fallback.
     """
-    return get_component_symbol(component_id, width=width, height=height)
+    # Renamed parameters to target_width, target_height for clarity
+    # to match the drawing_engine.py calls.
+    return get_component_symbol(component_id, target_width=width, target_height=height)
 
-def render_line_with_gradient(points, pipe_style="process", arrow=True):
+def render_line_with_gradient(points, pipe_type="process", arrow=True): # Renamed pipe_style to pipe_type for consistency
     """
-    Industrial pipeline with ISA-compliant style.
+    Industrial pipeline with ISA-compliant style based on its type.
+    Incorporates detailed styling guidance.
     """
-    if pipe_style == "process":
-        color = "#000"
-        width = 9
-        dash_attr = ""
-    elif pipe_style == "utility":
-        color = "#666"
-        width = 5
-        dash_attr = ""
-    elif pipe_style == "instrument":
-        color = "#000"
-        width = 2
-        dash_attr = ' stroke-dasharray="6,5"'
-    else:
-        color = "#333"
-        width = 7
-        dash_attr = ""
+    stroke_color = "black"
+    stroke_width = 2 # Default for process pipes (changed from 9)
+    dash_array = ""
+    marker_end = ' marker-end="url(#arrowhead)"' if arrow else ""
 
-    pts_str = " ".join([f"{int(x)},{int(y)}" for (x, y) in points])
-    marker = ' marker-end="url(#arrowhead)"' if arrow and pipe_style != "instrument" else ""
-    return f'<polyline points="{pts_str}" stroke="{color}" stroke-width="{width}" fill="none"{dash_attr}{marker}/>'
+    if pipe_type == "instrument":
+        stroke_color = "#0a85ff" # Blue
+        stroke_width = 1
+        dash_array = ' stroke-dasharray="5,4"' # Dashed
+    elif pipe_type == "pneumatic":
+        stroke_color = "#33aa00" # Green
+        stroke_width = 1
+        dash_array = ' stroke-dasharray="2,4"' # Dot-dash
+    elif pipe_type == "electric":
+        stroke_color = "#ebbc33" # Yellow
+        stroke_width = 1
+        dash_array = ' stroke-dasharray="1,4"' # Dotted
+    elif pipe_type == "hydraulic":
+        stroke_color = "#b23d2a" # Red
+        stroke_width = 1
+        dash_array = ' stroke-dasharray="8,2,2,2"' # Dash-long-dash
+    elif pipe_type == "scope_break":
+        stroke_color = "#a6a6a6" # Gray
+        stroke_width = 1
+        dash_array = ' stroke-dasharray="3,3"' # Short dashed
+    elif pipe_type == "utility": # Retained from original if still needed
+        stroke_color = "#666"
+        stroke_width = 5
+        dash_array = ""
+    # "process" is the default (black, width 2, solid)
+
+    pts_str = " ".join([f"{p[0]},{p[1]}" for p in points])
+    # Using <path> for robustness, starting with M for "move to" and then L for "line to"
+    path_d = f"M {pts_str.replace(' ', ' L ')}"
+    return f'<path d="{path_d}" fill="none" stroke="{stroke_color}" stroke-width="{stroke_width}"{dash_array}{marker_end}/>'
 
 
-def render_signal_line(points):
+def render_signal_line(points, sig_type="signal"): # Added sig_type for potential future differentiation
     """
     Dashed signal line (for control/instrumentation).
+    Note: Much of this functionality might be covered by render_line_with_gradient.
+    Consider consolidating if this is redundant.
     """
-    pts_str = " ".join([f"{int(x)},{int(y)}" for (x, y) in points])
-    return f'<polyline points="{pts_str}" stroke="#000" stroke-width="2" fill="none" stroke-dasharray="6,6" marker-end="url(#arrowhead)" />'
+    stroke_color = "#000" # Default
+    dash_array = ' stroke-dasharray="6,6"'
+    if sig_type == "instrument": # If you need a specific signal_line style
+        stroke_color = "#0a85ff"
+        dash_array = ' stroke-dasharray="5,4"'
 
-def render_tag_bubble(x, y, tag, font_size=13, tag_type="circle"):
+    pts_str = " ".join([f"{int(x)},{int(y)}" for (x, y) in points])
+    return f'<polyline points="{pts_str}" stroke="{stroke_color}" stroke-width="2" fill="none"{dash_array} marker-end="url(#arrowhead)" />'
+
+def render_tag_bubble(x, y, tag, font_size=11, tag_type="circle"): # Adjusted default font_size to 11
     """
     Draw ISA-style tag bubble (circle or rectangle) at (x, y) with label.
+    Splits tags like "PI-101" into primary ("PI") and secondary ("101").
     """
+    parts = tag.split('-')
+    main_tag_content = parts[0]
+    secondary_tag_content = parts[1] if len(parts) > 1 else ""
+
+    bubble_radius = font_size * 1.5 # Base radius, will be adjusted for two lines
+    
     if tag_type == "circle":
-        r = 16
-        svg = f'<circle cx="{x}" cy="{y}" r="{r}" fill="#fff" stroke="#111" stroke-width="2"/>'
-        svg += f'<text x="{x}" y="{y+5}" font-size="{font_size}" font-family="Arial" font-weight="bold" text-anchor="middle">{tag}</text>'
-    else:
+        # Adjust radius if secondary tag exists to give more space
+        if secondary_tag_content:
+            bubble_radius = font_size * 2 # Increase radius for better two-line fit
+        
+        svg = f'<circle cx="{x}" cy="{y}" r="{bubble_radius}" fill="white" stroke="black" stroke-width="2"/>'
+        
+        # Position for main tag (e.g., PI)
+        # Shift up slightly if there's a secondary tag, otherwise center
+        main_text_y_offset = (font_size * 0.3) - (font_size * 0.5 if secondary_tag_content else 0)
+        
+        svg += (f'<text x="{x}" y="{y + main_text_y_offset}" font-size="{font_size}" '
+                f'font-family="Arial" font-weight="bold" text-anchor="middle" fill="#333">{main_tag_content}</text>')
+
+        # Position for secondary tag (e.g., 101)
+        if secondary_tag_content:
+            secondary_font_size = font_size * 0.7 # Smaller font for number
+            secondary_text_y_offset = (font_size * 0.3) + (font_size * 0.7) # Position below main tag
+            svg += (f'<text x="{x}" y="{y + secondary_text_y_offset}" font-size="{secondary_font_size}" '
+                    f'font-family="Arial" text-anchor="middle" fill="#318">{secondary_tag_content}</text>')
+    else: # Original rectangle logic for other tag_types
         w, h = 36, 24
         svg = f'<rect x="{x-w//2}" y="{y-h//2}" width="{w}" height="{h}" rx="4" fill="#fff" stroke="#111" stroke-width="2"/>'
         svg += f'<text x="{x}" y="{y+7}" font-size="{font_size}" font-family="Arial" font-weight="bold" text-anchor="middle">{tag}</text>'
     return svg
+
 
 def render_grid(width=2000, height=1100, spacing=100):
     """
@@ -113,7 +166,10 @@ def render_bom_block(equipment_df, x0=40, y0=930, width=700, row_h=28):
     # Rows
     y = y0 + row_h + 20
     for idx, row in enumerate(equipment_df.itertuples(), 1):
-        desc = str(getattr(row, "Description", ""))[:65]  # truncate for fit
+        # Truncate description more aggressively if it overflows
+        desc = str(getattr(row, "Description", ""))
+        if len(desc) > 60: # Adjusted truncation length
+            desc = desc[:57] + "..."
         svg += f'<text x="{x0+25}" y="{y+idx*row_h}" font-size="13">{idx}</text>'
         svg += f'<text x="{x0+90}" y="{y+idx*row_h}" font-size="13">{desc}</text>'
     svg += '</g>'
@@ -133,20 +189,10 @@ def render_legend_block(equipment_df, x0=750, y0=930, width=750, row_h=28):
     y = y0 + row_h + 20
     for idx, row in enumerate(equipment_df.itertuples()):
         tag = str(getattr(row, "ID", ""))[:16]
-        desc = str(getattr(row, "Description", ""))[:55]
+        desc = str(getattr(row, "Description", ""))
+        if len(desc) > 50: # Adjusted truncation length
+            desc = desc[:47] + "..."
         svg += f'<text x="{x0+25}" y="{y+idx*row_h}" font-size="13">{tag}</text>'
         svg += f'<text x="{x0+155}" y="{y+idx*row_h}" font-size="13">{desc}</text>'
     svg += '</g>'
     return svg
-
-# USAGE (in your drawing_engine.py's render_svg function):
-# svg = (
-#     '<svg width="2000" height="1100" viewBox="0 0 2000 1100" xmlns="http://www.w3.org/2000/svg">'
-#     + render_grid()
-#     + render_border()
-#     + render_title_block(...)
-#     + render_bom_block(equipment_df)
-#     + render_legend_block(equipment_df)
-#     + ... # other SVG layers: pipes, equipment, tags, etc.
-#     + '</svg>'
-# )
