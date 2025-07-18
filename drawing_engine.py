@@ -54,7 +54,7 @@ def render_svg(equipment_df, pipeline_df, inline_df, positions, pipelines, inlin
             mid_y = (pts[0][1] + pts[1][1]) / 2
 
             # Create label background and text
-            label_width = len(line_number) * 7 + 10
+            label_width = len(str(line_number)) * 7 + 10
             svg_layers.append(f'<rect x="{mid_x - label_width/2}" y="{mid_y - 9}" width="{label_width}" height="18" fill="white" stroke="black" stroke-width="0.5"/>')
             svg_layers.append(f'<text x="{mid_x}" y="{mid_y + 4}" font-size="10" text-anchor="middle" font-family="Arial">{line_number}</text>')
 
