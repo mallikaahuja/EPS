@@ -1,0 +1,11 @@
+Pipe No.,From Component,From Port,To Component,To Port,"Polyline Points (x, y)",Label,pipe_type
+1,SF-001,outlet_bottom,P-001,suction,"(290, 440) → (400, 440) → (400, 400)",P-001 - Filter to Pump,PROCESS_VACUUM_50NB
+2,P-001,discharge,C-001,process_in,"(520, 400) → (540, 400) → (540, 230) → (560, 230)",P-002 - Pump to Condenser,PROCESS_VACUUM_50NB
+3,C-001,process_out,CPT-001,inlet,"(690, 270) → (720, 270) → (720, 160) → (480, 160) → (480, 180)",P-003 - Condenser to Catch Pot,PROCESS_VACUUM_40NB
+4,CPT-001,outlet,SCR-001,gas_inlet,"(480, 260) → (480, 300) → (750, 300) → (750, 250) → (800, 250)",P-004 - Catch Pot to Scrubber,PROCESS_VACUUM_40NB
+5,SCR-001,gas_outlet,FA-001,inlet,"(800, 400) → (820, 400) → (820, 300)",P-005 - Scrubber to Flame Arrestor,PROCESS_VACUUM_40NB
+6,FA-001,outlet,SIL-001,inlet,"(890, 300) → (900, 300) → (900, 330)",P-006 - Flame Arrestor to Silencer,PROCESS_VACUUM_40NB
+7,YS-001,outlet,GV-001,left,"(210, 390) → (200, 390) → (200, 400)",CW-001 - Strainer to Gate Valve,COOLING_WATER_25NB
+8,GV-001,right,C-001,cooling_in,"(250, 400) → (625, 400) → (625, 200)",CW-002 - Gate Valve to Condenser,COOLING_WATER_25NB
+9,PR-001,outlet,RM-001,inlet,"(160, 230) → (180, 230) → (180, 360) → (145, 360)",N2-001 - Regulator to Rotameter,NITROGEN_PURGE
+10,CPT-001,drain,DP-001,inlet,"(450, 250) → (400, 250) → (400, 500)",DR-001 - Catch Pot Drain,DRAIN_LINE_25NB

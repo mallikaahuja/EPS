@@ -12,14 +12,11 @@ psycopg2-binary>=2.9.0
 
 openai>=1.0.0
 
-stability-sdk
-
 # Drawing and export
 
 cairosvg>=2.7.0
 ezdxf>=1.0.0
 Pillow>=10.0.0
-kaleido>=0.20
 
 # Advanced features
 

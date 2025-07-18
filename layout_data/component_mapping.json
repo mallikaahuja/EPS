@@ -1,0 +1,200 @@
+[
+  {
+    "Component": "kdp_330_pump",
+    "Port Name": "suction",
+    "dx": 10,
+    "dy": 50
+  },
+  {
+    "Component": "kdp_330_pump",
+    "Port Name": "discharge",
+    "dx": 110,
+    "dy": 50
+  },
+  {
+    "Component": "suction_filter",
+    "Port Name": "inlet_top",
+    "dx": 40,
+    "dy": 0
+  },
+  {
+    "Component": "suction_filter",
+    "Port Name": "outlet_bottom",
+    "dx": 40,
+    "dy": 120
+  },
+  {
+    "Component": "y_strainer",
+    "Port Name": "inlet",
+    "dx": 0,
+    "dy": 20
+  },
+  {
+    "Component": "y_strainer",
+    "Port Name": "outlet",
+    "dx": 60,
+    "dy": 20
+  },
+  {
+    "Component": "condenser",
+    "Port Name": "process_in",
+    "dx": 10,
+    "dy": 30
+  },
+  {
+    "Component": "condenser",
+    "Port Name": "process_out",
+    "dx": 140,
+    "dy": 70
+  },
+  {
+    "Component": "condenser",
+    "Port Name": "cooling_in",
+    "dx": 75,
+    "dy": 0
+  },
+  {
+    "Component": "condenser",
+    "Port Name": "cooling_out",
+    "dx": 75,
+    "dy": 100
+  },
+  {
+    "Component": "catch_pot",
+    "Port Name": "inlet",
+    "dx": 30,
+    "dy": 0
+  },
+  {
+    "Component": "catch_pot",
+    "Port Name": "outlet",
+    "dx": 30,
+    "dy": 80
+  },
+  {
+    "Component": "catch_pot",
+    "Port Name": "drain",
+    "dx": 0,
+    "dy": 70
+  },
+  {
+    "Component": "scrubber",
+    "Port Name": "gas_inlet",
+    "dx": 50,
+    "dy": 0
+  },
+  {
+    "Component": "scrubber",
+    "Port Name": "gas_outlet",
+    "dx": 50,
+    "dy": 150
+  },
+  {
+    "Component": "scrubber",
+    "Port Name": "liquid_inlet",
+    "dx": 20,
+    "dy": 30
+  },
+  {
+    "Component": "scrubber",
+    "Port Name": "drain",
+    "dx": 80,
+    "dy": 140
+  },
+  {
+    "Component": "exhaust_silencer",
+    "Port Name": "inlet",
+    "dx": 0,
+    "dy": 30
+  },
+  {
+    "Component": "exhaust_silencer",
+    "Port Name": "outlet",
+    "dx": 80,
+    "dy": 30
+  },
+  {
+    "Component": "gate_valve",
+    "Port Name": "left",
+    "dx": 0,
+    "dy": 25
+  },
+  {
+    "Component": "gate_valve",
+    "Port Name": "right",
+    "dx": 50,
+    "dy": 25
+  },
+  {
+    "Component": "pressure_regulator",
+    "Port Name": "inlet",
+    "dx": 0,
+    "dy": 30
+  },
+  {
+    "Component": "pressure_regulator",
+    "Port Name": "outlet",
+    "dx": 60,
+    "dy": 30
+  },
+  {
+    "Component": "rotameter",
+    "Port Name": "inlet",
+    "dx": 25,
+    "dy": 80
+  },
+  {
+    "Component": "rotameter",
+    "Port Name": "outlet",
+    "dx": 25,
+    "dy": 0
+  },
+  {
+    "Component": "flame_arrestor",
+    "Port Name": "inlet",
+    "dx": 0,
+    "dy": 25
+  },
+  {
+    "Component": "flame_arrestor",
+    "Port Name": "outlet",
+    "dx": 70,
+    "dy": 25
+  },
+  {
+    "Component": "temperature_transmitter",
+    "Port Name": "process_connection",
+    "dx": 5,
+    "dy": 25
+  },
+  {
+    "Component": "pressure_transmitter",
+    "Port Name": "process_connection",
+    "dx": 5,
+    "dy": 25
+  },
+  {
+    "Component": "level_switch",
+    "Port Name": "process_connection",
+    "dx": 5,
+    "dy": 25
+  },
+  {
+    "Component": "flow_switch",
+    "Port Name": "process_connection",
+    "dx": 25,
+    "dy": 0
+  },
+  {
+    "Component": "temperature_control_valve",
+    "Port Name": "left",
+    "dx": 0,
+    "dy": 30
+  },
+  {
+    "Component": "temperature_control_valve",
+    "Port Name": "right",
+    "dx": 60,
+    "dy": 30
+  }
+]

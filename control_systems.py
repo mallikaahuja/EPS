@@ -821,27 +821,3 @@ def render_validation_overlay(validation_results, components):
 
     svg += '</g>'
     return svg
-
-def add_control_logic_block(svg: str, booster_config: dict) -> str:
-    """Append a control logic block (PLC, VFD, Interlocks) to the SVG diagram."""
-    block_x, block_y = 1200, 100  # Adjust position
-
-    logic_svg = f'''
-    <g id="control_logic_block">
-        <rect x="{block_x}" y="{block_y}" width="280" height="160" fill="white" stroke="black" stroke-width="2"/>
-        <text x="{block_x + 10}" y="{block_y + 20}" font-size="14" font-weight="bold">Control Logic</text>
-    '''
-
-    if booster_config.get("automation_ready"):
-        logic_svg += f'<text x="{block_x + 10}" y="{block_y + 50}" font-size="12">🟢 PLC Enabled</text>'
-    if booster_config.get("requires_vfd"):
-        logic_svg += f'<text x="{block_x + 10}" y="{block_y + 70}" font-size="12">⚙️ VFD Controlled</text>'
-    if booster_config.get("requires_bypass"):
-        logic_svg += f'<text x="{block_x + 10}" y="{block_y + 90}" font-size="12">🔁 Bypass Valve Installed</text>'
-    if booster_config.get("requires_purge"):
-        logic_svg += f'<text x="{block_x + 10}" y="{block_y + 110}" font-size="12">💨 Purge Interlock</text>'
-    if booster_config.get("requires_cooling"):
-        logic_svg += f'<text x="{block_x + 10}" y="{block_y + 130}" font-size="12">❄️ Cooling Loop Enabled</text>'
-
-    logic_svg += '</g>'
-    return svg.replace("</svg>", logic_svg + "</svg>")
