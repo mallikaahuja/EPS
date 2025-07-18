@@ -1,434 +1,470 @@
 import streamlit as st
 import pandas as pd
-import os
 import json
-import datetime
-import re
-import math
-from io import BytesIO
-import ezdxf
-from cairosvg import svg2png
+import os
+from PIL import Image
+import io
+import base64
+from professional_symbols import PROFESSIONAL_ISA_SYMBOLS, ARROW_MARKERS
+from reference_exact_symbols import REFERENCE_EXACT_SYMBOLS
+from advanced_rendering import ProfessionalRenderer
+from control_systems import ControlSystemAnalyzer, PipeRouter, PnIDValidator
 
-# — CONFIGURATION —
+# — CONFIG —
 
-st.set_page_config(
-    layout="wide",
-    page_title="EPS Professional P&ID Generator",
-    page_icon="🏭",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title=“EPS P&ID Suite”, layout=“wide”, initial_sidebar_state=“expanded”)
 
-# Custom CSS
+# Initialize session state
 
-st.markdown("""
-<style>
-    .main { padding: 1rem; }
-    .stButton > button {
-        background-color: #0066cc;
-        color: white;
-        border: none;
-        padding: 0.5rem 1rem;
-        border-radius: 4px;
-        font-weight: 500;
-    }
-    .pnid-container {
-        background-color: white;
-        border: 2px solid #000;
-        padding: 0;
-        margin: 1rem 0;
-        overflow: auto;
-    }
-</style>
-""", unsafe_allow_html=True)
+if ‘components’ not in st.session_state:
+st.session_state.components = {}
+if ‘pipes’ not in st.session_state:
+st.session_state.pipes = []
+if ‘selected_component’ not in st.session_state:
+st.session_state.selected_component = None
+if ‘drawing_mode’ not in st.session_state:
+st.session_state.drawing_mode = ‘select’
 
-# Sidebar
+# — LOAD DATA —
 
-st.sidebar.title("🏭 EPS P&ID Suite")
-st.sidebar.markdown("—")
-st.sidebar.markdown("### 📐 Drawing Standards")
-drawing_standard = st.sidebar.selectbox("Standard", ["ISA", "DIN", "ISO", "JIS"])
-drawing_size = st.sidebar.selectbox("Size", ["A3", "A2", "A1", "A0"])
+@st.cache_data
+def load_equipment_data():
+return pd.read_csv(“equipment_list.csv”)
 
-st.sidebar.markdown("### 🎨 Visual Controls")
-GRID_VISIBLE = st.sidebar.checkbox("Show Grid", True)
-LEGEND_VISIBLE = st.sidebar.checkbox("Show Legend", True)
-BOM_VISIBLE = st.sidebar.checkbox("Show BOM", True)
+@st.cache_data
+def load_pipeline_data():
+return pd.read_csv(“pipeline_list.csv”)
 
-GRID_SPACING = st.sidebar.slider("Grid Spacing (mm)", 10, 50, 25, 5)
-SYMBOL_SCALE = st.sidebar.slider("Symbol Scale", 0.5, 2.0, 1.0, 0.1)
+@st.cache_data
+def load_inline_data():
+return pd.read_csv(“inline_component_list.csv”)
 
-st.sidebar.markdown("### 📏 Line Weights")
-line_weights = {
-    "Major Process": st.sidebar.slider("Major Process", 2.0, 5.0, 3.0, 0.5),
-    "Minor Process": st.sidebar.slider("Minor Process", 1.5, 3.0, 2.0, 0.5),
-    "Instrument Signal": st.sidebar.slider("Instrument Signal", 0.5, 1.5, 0.7, 0.1),
-}
+@st.cache_data
+def load_component_layout():
+return pd.read_csv(“enhanced_equipment_layout.csv”)
 
-# — COMPLETE ISA SYMBOLS INLINE —
+@st.cache_data
+def load_pipe_connections():
+return pd.read_csv(“pipes_connections.csv”)
 
-# Define all symbols directly in the code to ensure they render
+# Professional component class
 
-ISA_SYMBOLS = {
-    'filter': '''
-<path d="M 20,20 L 80,20 L 70,70 L 65,90 L 35,90 L 30,70 Z" fill="white" stroke="black" stroke-width="2.5"/>
-<line x1="25" y1="30" x2="75" y2="30" stroke="black" stroke-width="2"/>
-<line x1="27" y1="35" x2="73" y2="35" stroke="black" stroke-width="2"/>
-<line x1="29" y1="40" x2="71" y2="40" stroke="black" stroke-width="2"/>
-<line x1="31" y1="45" x2="69" y2="45" stroke="black" stroke-width="2"/>
-<path d="M 30,30 L 40,40 M 35,30 L 45,40 M 40,30 L 50,40 M 45,30 L 55,40 M 50,30 L 60,40 M 55,30 L 65,40 M 60,30 L 70,40" stroke="black" stroke-width="0.5"/>
-<rect x="35" y="10" width="30" height="10" fill="white" stroke="black" stroke-width="2.5"/>
-<rect x="35" y="90" width="30" height="10" fill="white" stroke="black" stroke-width="2.5"/>
-''',
-    'pump': '''
-    <circle cx="50" cy="50" r="35" fill="white" stroke="black" stroke-width="3"/>
-    <path d="M 50,15 L 50,85 M 15,50 L 85,50" stroke="black" stroke-width="2.5"/>
-    <rect x="0" y="45" width="15" height="10" fill="white" stroke="black" stroke-width="2.5"/>
-    <rect x="45" y="0" width="10" height="15" fill="white" stroke="black" stroke-width="2.5"/>
-''',
-    'valve_gate': '''
-    <rect x="20" y="35" width="60" height="30" fill="white" stroke="black" stroke-width="2.5"/>
-    <rect x="45" y="40" width="10" height="20" fill="white" stroke="black" stroke-width="2"/>
-    <rect x="48" y="15" width="4" height="25" fill="black"/>
-    <circle cx="50" cy="15" r="8" fill="none" stroke="black" stroke-width="2"/>
-    <line x1="42" y1="15" x2="58" y2="15" stroke="black" stroke-width="2"/>
-    <rect x="5" y="45" width="15" height="10" fill="white" stroke="black" stroke-width="2"/>
-    <rect x="80" y="45" width="15" height="10" fill="white" stroke="black" stroke-width="2"/>
-''',
-    'strainer_y': '''
-    <path d="M 50,20 L 50,50 L 70,70 L 70,80 L 60,80 L 40,60 L 40,50 L 40,20" fill="white" stroke="black" stroke-width="2.5"/>
-    <path d="M 35,20 L 65,20" stroke="black" stroke-width="2.5"/>
-    <path d="M 45,55 L 65,75" stroke="black" stroke-width="1.5"/>
-    <path d="M 45,60 L 60,75" stroke="black" stroke-width="1.5"/>
-    <path d="M 45,65 L 55,75" stroke="black" stroke-width="1.5"/>
-    <rect x="40" y="10" width="20" height="10" fill="white" stroke="black" stroke-width="2.5"/>
-    <rect x="55" y="75" width="20" height="10" fill="white" stroke="black" stroke-width="2.5"/>
-''',
-    'expansion_bellows': '''
-    <path d="M 20,30 Q 25,25 30,30 Q 35,35 40,30 Q 45,25 50,30 Q 55,35 60,30 Q 65,25 70,30 Q 75,35 80,30" fill="none" stroke="black" stroke-width="2.5"/>
-    <path d="M 20,50 Q 25,55 30,50 Q 35,45 40,50 Q 45,55 50,50 Q 55,45 60,50 Q 65,55 70,50 Q 75,45 80,50" fill="none" stroke="black" stroke-width="2.5"/>
-    <line x1="20" y1="30" x2="20" y2="50" stroke="black" stroke-width="2.5"/>
-    <line x1="80" y1="30" x2="80" y2="50" stroke="black" stroke-width="2.5"/>
-    <rect x="5" y="35" width="15" height="10" fill="white" stroke="black" stroke-width="2.5"/>
-    <rect x="80" y="35" width="15" height="10" fill="white" stroke="black" stroke-width="2.5"/>
-''',
-    'pressure_regulator': '''
-    <rect x="25" y="45" width="50" height="30" rx="5" fill="white" stroke="black" stroke-width="2.5"/>
-    <rect x="35" y="20" width="30" height="25" fill="white" stroke="black" stroke-width="2.5"/>
-    <path d="M 45,25 Q 50,30 45,35 Q 55,30 50,35 Q 45,40 50,45" stroke="black" stroke-width="2" fill="none"/>
-    <rect x="48" y="10" width="4" height="10" fill="black"/>
-    <circle cx="50" cy="10" r="5" fill="none" stroke="black" stroke-width="2"/>
-    <rect x="5" y="55" width="20" height="10" fill="white" stroke="black" stroke-width="2.5"/>
-    <rect x="75" y="55" width="20" height="10" fill="white" stroke="black" stroke-width="2.5"/>
-''',
-    'catch_pot': '''
-    <rect x="30" y="40" width="40" height="50" rx="5" fill="white" stroke="black" stroke-width="2.5"/>
-    <ellipse cx="50" cy="40" rx="20" ry="10" fill="white" stroke="black" stroke-width="2.5"/>
-    <ellipse cx="50" cy="90" rx="20" ry="10" fill="white" stroke="black" stroke-width="2.5"/>
-    <line x1="35" y1="65" x2="65" y2="65" stroke="black" stroke-width="1" stroke-dasharray="3,2"/>
-    <rect x="45" y="25" width="10" height="15" fill="white" stroke="black" stroke-width="2"/>
-    <rect x="70" y="60" width="15" height="10" fill="white" stroke="black" stroke-width="2"/>
-    <rect x="45" y="90" width="10" height="15" fill="white" stroke="black" stroke-width="2"/>
-''',
-    'control_panel': '''
-    <rect x="10" y="10" width="180" height="230" rx="5" fill="white" stroke="black" stroke-width="3"/>
-    <rect x="20" y="20" width="160" height="210" fill="none" stroke="black" stroke-width="2"/>
-    <rect x="30" y="30" width="140" height="30" fill="white" stroke="black" stroke-width="1.5"/>
-    <text x="100" y="50" text-anchor="middle" font-size="12" font-weight="bold">CONTROL PANEL</text>
-    <rect x="40" y="70" width="60" height="45" fill="#e0e0e0" stroke="black" stroke-width="2"/>
-    <text x="70" y="95" text-anchor="middle" font-size="10">HMI</text>
-    <rect x="110" y="70" width="60" height="45" fill="#e0e0e0" stroke="black" stroke-width="2"/>
-    <text x="140" y="95" text-anchor="middle" font-size="10">VFD</text>
-    <circle cx="50" cy="130" r="8" fill="none" stroke="black" stroke-width="2"/>
-    <circle cx="75" cy="130" r="8" fill="none" stroke="black" stroke-width="2"/>
-    <circle cx="100" cy="130" r="8" fill="none" stroke="black" stroke-width="2"/>
-    <circle cx="125" cy="130" r="8" fill="none" stroke="black" stroke-width="2"/>
-    <circle cx="150" cy="130" r="8" fill="none" stroke="black" stroke-width="2"/>
-''',
-    'valve_drain': '''
-    <rect x="30" y="35" width="40" height="30" fill="white" stroke="black" stroke-width="2"/>
-    <line x1="50" y1="35" x2="50" y2="20" stroke="black" stroke-width="2"/>
-    <circle cx="50" cy="20" r="5" fill="none" stroke="black" stroke-width="1.5"/>
-    <rect x="48" y="65" width="4" height="15" fill="white" stroke="black" stroke-width="2"/>
-''',
-    'solenoid_valve': '''
-    <rect x="30" y="45" width="40" height="20" fill="white" stroke="black" stroke-width="2.5"/>
-    <rect x="40" y="25" width="20" height="20" rx="3" fill="white" stroke="black" stroke-width="2"/>
-    <line x1="45" y1="30" x2="55" y2="30" stroke="black" stroke-width="1"/>
-    <line x1="45" y1="35" x2="55" y2="35" stroke="black" stroke-width="1"/>
-    <line x1="45" y1="40" x2="55" y1="40" stroke="black" stroke-width="1"/>
-    <circle cx="50" cy="20" r="3" fill="black"/>
-    <line x1="50" y1="20" x2="50" y2="25" stroke="black" stroke-width="2"/>
-    <rect x="15" y="50" width="15" height="10" fill="white" stroke="black" stroke-width="2"/>
-    <rect x="70" y="50" width="15" height="10" fill="white" stroke="black" stroke-width="2"/>
-''',
-    'psv': '''
-    <path d="M 30,60 L 30,70 L 70,70 L 70,60 Z" fill="white" stroke="black" stroke-width="2.5"/>
-    <path d="M 50,60 L 50,40 L 40,30 L 60,30 L 50,40" stroke="black" stroke-width="2.5" fill="white"/>
-    <path d="M 50,30 L 50,20" stroke="black" stroke-width="2.5"/>
-    <circle cx="50" cy="15" r="5" fill="none" stroke="black" stroke-width="2"/>
-'''
-}
+class ProfessionalPnidComponent:
+def **init**(self, comp_id, tag, component_type, x, y, width, height, description=””):
+self.id = comp_id
+self.tag = tag
+self.component_type = component_type
+self.x = x
+self.y = y
+self.width = width
+self.height = height
+self.description = description
+self.is_instrument = any(inst in tag for inst in [‘PT’, ‘TT’, ‘FT’, ‘LT’, ‘FIC’, ‘PIC’, ‘TIC’, ‘LIC’])
+self.ports = self._define_ports()
 
-# Project info
+```
+def _define_ports(self):
+    """Define connection ports based on component type"""
+    ports = {}
+    if 'pump' in self.component_type:
+        ports = {'suction': (self.x, self.y + self.height/2),
+                'discharge': (self.x + self.width, self.y + self.height/2)}
+    elif 'valve' in self.component_type:
+        ports = {'inlet': (self.x, self.y + self.height/2),
+                'outlet': (self.x + self.width, self.y + self.height/2)}
+    elif 'vessel' in self.component_type:
+        ports = {'top': (self.x + self.width/2, self.y),
+                'bottom': (self.x + self.width/2, self.y + self.height),
+                'side_top': (self.x + self.width, self.y + self.height/3),
+                'side_bottom': (self.x + self.width, self.y + 2*self.height/3)}
+    elif 'heat_exchanger' in self.component_type:
+        ports = {'inlet': (self.x, self.y + self.height/3),
+                'outlet': (self.x + self.width, self.y + 2*self.height/3),
+                'cooling_in': (self.x + self.width/3, self.y),
+                'cooling_out': (self.x + 2*self.width/3, self.y + self.height)}
+    return ports
 
-if 'project_info' not in st.session_state:
-    st.session_state.project_info = {
-        'client': 'EPS Pvt. Ltd.',
-        'project': 'SUCTION FILTER + KDP-330',
-        'drawing_no': 'EPSPL-V2526-TP-01',
-        'drawn_by': 'ABC',
-        'checked_by': 'XYZ',
-        'approved_by': 'PQR',
-        'revision': '0',
-        'date': datetime.datetime.now().strftime("%Y-%m-%d")
-    }
+def get_svg(self):
+    """Get SVG representation using professional symbols"""
+    # Try reference exact symbols first
+    if self.component_type in REFERENCE_EXACT_SYMBOLS:
+        symbol_svg = REFERENCE_EXACT_SYMBOLS[self.component_type]
+    elif self.component_type in PROFESSIONAL_ISA_SYMBOLS:
+        symbol_svg = PROFESSIONAL_ISA_SYMBOLS[self.component_type]
+    else:
+        # Fallback to basic rectangle
+        symbol_svg = f'''<rect x="0" y="0" width="{self.width}" height="{self.height}" 
+                       fill="white" stroke="black" stroke-width="2.5"/>
+                       <text x="{self.width/2}" y="{self.height/2}" text-anchor="middle" 
+                       font-size="10">{self.tag}</text>'''
+    
+    # Wrap in group with transform
+    return f'''<g transform="translate({self.x},{self.y})">
+                {symbol_svg}
+                <text x="{self.width/2}" y="{self.height + 15}" text-anchor="middle" 
+                font-size="12" font-weight="bold">{self.tag}</text>
+               </g>'''
+```
 
-# — EXACT REFERENCE DATA —
+class ProfessionalPipe:
+def **init**(self, from_comp, from_port, to_comp, to_port, label=””, line_type=“process”):
+self.from_comp = from_comp
+self.from_port = from_port
+self.to_comp = to_comp
+self.to_port = to_port
+self.label = label
+self.line_type = line_type
+self.waypoints = []
 
-# Equipment matching the reference P&ID
-
-REFERENCE_EQUIPMENT = pd.DataFrame([
-    # Main flow path equipment
-    {'id': 'EB-001', 'tag': 'EXPANSION BELLOWS', 'type': 'expansion_bellows', 'x': 150, 'y': 340, 'width': 100, 'height': 80},
-    {'id': 'Y-001', 'tag': 'Y-STRAINER', 'type': 'strainer_y', 'x': 280, 'y': 320, 'width': 100, 'height': 100},
-    {'id': 'V-001', 'tag': 'CW-001', 'type': 'valve_gate', 'x': 420, 'y': 330, 'width': 100, 'height': 100},
-    {'id': 'F-001', 'tag': 'FILTER', 'type': 'filter', 'x': 560, 'y': 280, 'width': 100, 'height': 150},
-    {'id': 'V-002', 'tag': 'CW-002', 'type': 'valve_gate', 'x': 720, 'y': 340, 'width': 100, 'height': 100},
-    {'id': 'P-001', 'tag': 'KDP-330', 'type': 'pump', 'x': 880, 'y': 320, 'width': 120, 'height': 120},
-    {'id': 'CT-001', 'tag': 'CATCH POT', 'type': 'catch_pot', 'x': 1080, 'y': 380, 'width': 100, 'height': 120},
-    # Auxiliary equipment
-    {'id': 'PR-001', 'tag': 'N2-001 REGULATOR', 'type': 'pressure_regulator', 'x': 560, 'y': 480, 'width': 100, 'height': 80},
-    {'id': 'PSV-001', 'tag': 'PRESSURE REGULATOR', 'type': 'psv', 'x': 660, 'y': 200, 'width': 100, 'height': 100},
-    {'id': 'V-003', 'tag': 'DRAIN VALVE', 'type': 'valve_drain', 'x': 560, 'y': 560, 'width': 100, 'height': 80},
-    {'id': 'SV-001', 'tag': 'SR-001', 'type': 'solenoid_valve', 'x': 560, 'y': 680, 'width': 100, 'height': 80},
-    # Control Panel
-    {'id': 'CP-001', 'tag': 'CONTROL PANEL', 'type': 'control_panel', 'x': 1300, 'y': 200, 'width': 200, 'height': 250},
-    # Instruments
-    {'id': 'PI-001', 'tag': 'PI-001', 'type': 'instrument', 'x': 480, 'y': 280, 'width': 44, 'height': 44},
-    {'id': 'PI-002', 'tag': 'PI-002', 'type': 'instrument', 'x': 820, 'y': 370, 'width': 44, 'height': 44},
-    {'id': 'PT-001', 'tag': 'PT-001', 'type': 'instrument', 'x': 940, 'y': 420, 'width': 44, 'height': 44},
-    {'id': 'TI-001', 'tag': 'TI-001', 'type': 'instrument', 'x': 940, 'y': 260, 'width': 44, 'height': 44},
-    {'id': 'FI-001', 'tag': 'FI-001', 'type': 'instrument', 'x': 1140, 'y': 320, 'width': 44, 'height': 44},
-])
-
-# Piping data
-
-REFERENCE_PIPING = pd.DataFrame([
-    # Main process flow
-    {'id': 'L-001', 'from': 'INLET', 'to': 'EB-001', 'label': '10”-PG-001-CS', 'type': 'process'},
-    {'id': 'L-002', 'from': 'EB-001', 'to': 'Y-001', 'label': '10”-PG-002-CS', 'type': 'process'},
-    {'id': 'L-003', 'from': 'Y-001', 'to': 'V-001', 'label': '10”-PG-003-CS', 'type': 'process'},
-    {'id': 'L-004', 'from': 'V-001', 'to': 'F-001', 'label': '10”-PG-004-CS', 'type': 'process'},
-    {'id': 'L-005', 'from': 'F-001', 'to': 'V-002', 'label': '10”-PS-005-CS', 'type': 'process'},
-    {'id': 'L-006', 'from': 'V-002', 'to': 'P-001', 'label': '10”-PS-006-CS', 'type': 'process'},
-    {'id': 'L-007', 'from': 'P-001', 'to': 'CT-001', 'label': '8”-PD-007-CS', 'type': 'process'},
-    {'id': 'L-008', 'from': 'CT-001', 'to': 'OUTLET', 'label': '8”-PD-008-CS', 'type': 'process'},
-    # Auxiliary lines
-    {'id': 'L-009', 'from': 'F-001', 'to': 'PSV-001', 'label': '2"-PR-009-CS', 'type': 'process_small'},
-    {'id': 'L-010', 'from': 'F-001', 'to': 'V-003', 'label': '2"-DR-010-CS', 'type': 'process_small'},
-    {'id': 'L-011', 'from': 'V-003', 'to': 'SV-001', 'label': '2"-DR-011-CS', 'type': 'process_small'},
-    # Instrument connections
-    {'id': 'IS-001', 'from': 'PI-001', 'to': 'CP-001', 'label': '', 'type': 'instrument'},
-    {'id': 'IS-002', 'from': 'PT-001', 'to': 'CP-001', 'label': '', 'type': 'instrument'},
-])
-
-# — MAIN RENDERING FUNCTION —
-
-def render_professional_pnid():
-    """Render the complete P&ID with legend and BOM"""
-
-    # Drawing dimensions
-    width = 1800
-    height = 1000
-
-    svg_parts = []
-    svg_parts.append(f'''<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" 
-                     xmlns="http://www.w3.org/2000/svg" style="background-color: white;">''')
-
-    # Definitions
-    svg_parts.append('<defs>')
-    svg_parts.append('''
-        <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
-            <polygon points="0,0 10,5 0,10" fill="black"/>
-        </marker>
-    ''')
-    svg_parts.append('</defs>')
-
-    # Border
-    svg_parts.append(f'<rect x="10" y="10" width="{width-20}" height="{height-20}" fill="none" stroke="black" stroke-width="3"/>')
-    svg_parts.append(f'<rect x="15" y="15" width="{width-30}" height="{height-30}" fill="none" stroke="black" stroke-width="1"/>')
-
-    # Grid
-    if GRID_VISIBLE:
-        svg_parts.append('<g opacity="0.2">')
-        for x in range(0, width, GRID_SPACING * 4):
-            svg_parts.append(f'<line x1="{x}" y1="0" x2="{x}" y2="{height}" stroke="#cccccc" stroke-width="0.5"/>')
-        for y in range(0, height, GRID_SPACING * 4):
-            svg_parts.append(f'<line x1="0" y1="{y}" x2="{width}" y2="{y}" stroke="#cccccc" stroke-width="0.5"/>')
-        svg_parts.append('</g>')
-
-    # Equipment
-    for _, equip in REFERENCE_EQUIPMENT.iterrows():
-        if equip['type'] == 'instrument':
-            # Instrument bubble
-            cx = equip['x'] + equip['width']/2
-            cy = equip['y'] + equip['height']/2
-            svg_parts.append(f'<circle cx="{cx}" cy="{cy}" r="22" fill="white" stroke="black" stroke-width="2.5"/>')
-            svg_parts.append(f'<text x="{cx}" y="{cy+5}" text-anchor="middle" font-size="12" font-weight="bold">{equip["tag"]}</text>')
-        else:
-            # Equipment symbol
-            svg_parts.append(f'<g transform="translate({equip["x"]},{equip["y"]})">')
-            if equip['type'] in ISA_SYMBOLS:
-                svg_parts.append(ISA_SYMBOLS[equip['type']])
-            svg_parts.append(f'<text x="{equip["width"]/2}" y="{equip["height"]+15}" text-anchor="middle" font-size="11">{equip["tag"]}</text>')
-            svg_parts.append('</g>')
-
-    # Piping (simplified)
-    for _, pipe in REFERENCE_PIPING.iterrows():
-        # This is simplified - you'd need proper routing logic
-        if pipe['type'] == 'process':
-            stroke_width = line_weights['Major Process']
-        elif pipe['type'] == 'process_small':
-            stroke_width = line_weights['Minor Process']
-        else:
-            stroke_width = line_weights['Instrument Signal']
+```
+def get_svg(self):
+    """Get SVG representation of pipe with proper routing"""
+    if not self.from_comp or not self.to_comp:
+        return ""
+    
+    # Get port positions
+    from_pos = self.from_comp.ports.get(self.from_port, (self.from_comp.x, self.from_comp.y))
+    to_pos = self.to_comp.ports.get(self.to_port, (self.to_comp.x, self.to_comp.y))
+    
+    # Create orthogonal path
+    path_points = self._create_orthogonal_path(from_pos, to_pos)
+    
+    # Build SVG path
+    path_d = f"M {path_points[0][0]},{path_points[0][1]}"
+    for point in path_points[1:]:
+        path_d += f" L {point[0]},{point[1]}"
+    
+    # Line style based on type
+    if self.line_type == "instrument_signal":
+        stroke_width = "1"
+        stroke_dasharray = 'stroke-dasharray="5,3"'
+    else:
+        stroke_width = "3"
+        stroke_dasharray = ""
+    
+    svg = f'<path d="{path_d}" fill="none" stroke="black" stroke-width="{stroke_width}" {stroke_dasharray}/>'
+    
+    # Add flow arrow for process lines
+    if self.line_type == "process" and len(path_points) >= 2:
+        # Calculate arrow position and angle
+        p1, p2 = path_points[-2], path_points[-1]
+        angle = self._calculate_angle(p1, p2)
+        arrow_x = p2[0] - 20 * (p2[0] - p1[0]) / self._distance(p1, p2)
+        arrow_y = p2[1] - 20 * (p2[1] - p1[1]) / self._distance(p1, p2)
         
-        # Example connection lines (would need proper routing)
-        # Add actual pipe paths based on equipment positions
+        svg += f'''<polygon points="-5,-5 5,0 -5,5" fill="black" 
+                  transform="translate({arrow_x},{arrow_y}) rotate({angle})"/>'''
+    
+    # Add label
+    if self.label and len(path_points) >= 2:
+        mid_idx = len(path_points) // 2
+        label_x = (path_points[mid_idx-1][0] + path_points[mid_idx][0]) / 2
+        label_y = (path_points[mid_idx-1][1] + path_points[mid_idx][1]) / 2
         
-    # Legend
-    if LEGEND_VISIBLE:
-        legend_x = 1550
-        legend_y = 50
-        svg_parts.append(f'<g transform="translate({legend_x},{legend_y})">')
-        svg_parts.append('<rect x="0" y="0" width="230" height="400" fill="white" stroke="black" stroke-width="2"/>')
-        svg_parts.append('<text x="115" y="25" text-anchor="middle" font-size="14" font-weight="bold">LEGEND</text>')
-        
-        # Legend entries
-        legend_items = [
-            ('EXPANSION BELLOWS', 'expansion_bellows'),
-            ('Y-STRAINER', 'strainer_y'),
-            ('GATE VALVE', 'valve_gate'),
-            ('FILTER', 'filter'),
-            ('PUMP', 'pump'),
-            ('CATCH POT', 'catch_pot'),
-            ('CONTROL PANEL', 'control_panel'),
-        ]
-        
-        y_pos = 50
-        for name, symbol_type in legend_items:
-            svg_parts.append(f'<text x="10" y="{y_pos}" font-size="11">{name}</text>')
-            y_pos += 25
-        
-        svg_parts.append('</g>')
+        svg += f'''<rect x="{label_x - 40}" y="{label_y - 10}" width="80" height="20" 
+                  fill="white" stroke="none"/>
+                  <text x="{label_x}" y="{label_y + 3}" text-anchor="middle" 
+                  font-size="10" font-family="Arial">{self.label}</text>'''
+    
+    return svg
 
-    # Title block
-    tb_x = width - 600
-    tb_y = height - 200
-    svg_parts.append(f'<g transform="translate({tb_x},{tb_y})">')
-    svg_parts.append('<rect x="0" y="0" width="580" height="180" fill="white" stroke="black" stroke-width="2"/>')
-    svg_parts.append(f'<text x="290" y="30" text-anchor="middle" font-size="16" font-weight="bold">{st.session_state.project_info["client"]}</text>')
-    svg_parts.append('<text x="290" y="60" text-anchor="middle" font-size="14">PIPING AND INSTRUMENTATION DIAGRAM</text>')
-    svg_parts.append(f'<text x="290" y="85" text-anchor="middle" font-size="12">{st.session_state.project_info["project"]}</text>')
-    svg_parts.append(f'<text x="50" y="120" font-size="10">DWG NO: {st.session_state.project_info["drawing_no"]}</text>')
-    svg_parts.append(f'<text x="50" y="140" font-size="10">DATE: {st.session_state.project_info["date"]}</text>')
-    svg_parts.append(f'<text x="300" y="120" font-size="10">DRAWN: {st.session_state.project_info["drawn_by"]}</text>')
-    svg_parts.append(f'<text x="300" y="140" font-size="10">CHECKED: {st.session_state.project_info["checked_by"]}</text>')
-    svg_parts.append(f'<text x="450" y="120" font-size="10">REV: {st.session_state.project_info["revision"]}</text>')
+def _create_orthogonal_path(self, start, end):
+    """Create orthogonal (right-angle) path between two points"""
+    # Simple orthogonal routing - can be enhanced with A* algorithm
+    if abs(start[0] - end[0]) > abs(start[1] - end[1]):
+        # Horizontal first
+        mid_x = (start[0] + end[0]) / 2
+        return [start, (mid_x, start[1]), (mid_x, end[1]), end]
+    else:
+        # Vertical first
+        mid_y = (start[1] + end[1]) / 2
+        return [start, (start[0], mid_y), (end[0], mid_y), end]
+
+def _distance(self, p1, p2):
+    """Calculate distance between two points"""
+    return ((p2[0] - p1[0])**2 + (p2[1] - p1[1])**2)**0.5
+
+def _calculate_angle(self, p1, p2):
+    """Calculate angle for arrow rotation"""
+    import math
+    return math.degrees(math.atan2(p2[1] - p1[1], p2[0] - p1[0]))
+```
+
+def create_professional_pnid():
+“”“Create a professional P&ID from loaded data”””
+# Load layout and connections
+layout_df = load_component_layout()
+connections_df = load_pipe_connections()
+
+```
+components = {}
+pipes = []
+
+# Create components from layout
+for _, row in layout_df.iterrows():
+    comp = ProfessionalPnidComponent(
+        comp_id=row['id'],
+        tag=row['tag'],
+        component_type=row['Component'],
+        x=float(row['x']),
+        y=float(row['y']),
+        width=float(row['Width']),
+        height=float(row['Height']),
+        description=row.get('description', '')
+    )
+    components[comp.id] = comp
+
+# Create pipes from connections
+for _, row in connections_df.iterrows():
+    if row['from_component'] in components and row['to_component'] in components:
+        pipe = ProfessionalPipe(
+            from_comp=components[row['from_component']],
+            from_port=row['from_port'],
+            to_comp=components[row['to_component']],
+            to_port=row['to_port'],
+            label=row.get('line_number', ''),
+            line_type=row.get('line_type', 'process')
+        )
+        pipes.append(pipe)
+
+return components, pipes
+```
+
+def render_professional_svg(components, pipes, width=1600, height=1200):
+“”“Render complete P&ID as SVG”””
+svg_parts = []
+
+```
+# SVG header with professional styling
+svg_parts.append(f'''<?xml version="1.0" encoding="UTF-8"?>
+<svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" 
+     xmlns="http://www.w3.org/2000/svg" version="1.1"
+     style="font-family: Arial, sans-serif; background-color: white">''')
+
+# Add arrow markers
+svg_parts.append(ARROW_MARKERS)
+
+# Draw border and title block
+svg_parts.append(f'''
+<g id="drawing-frame">
+    <rect x="10" y="10" width="{width-20}" height="{height-20}" 
+          fill="none" stroke="black" stroke-width="2"/>
+    <rect x="10" y="{height-100}" width="{width-20}" height="90" 
+          fill="none" stroke="black" stroke-width="2"/>
+    <text x="30" y="{height-70}" font-size="16" font-weight="bold">
+        TENTATIVE P&ID DRAWING FOR SUCTION FILTER + KDP-330
+    </text>
+    <text x="30" y="{height-50}" font-size="12">EPS Process Solutions Pvt. Ltd.</text>
+    <text x="30" y="{height-30}" font-size="10">Drawing No: EPSPL/V2526-TP/01</text>
+    <text x="{width-200}" y="{height-30}" font-size="10">Rev: 00</text>
+</g>''')
+
+# Draw grid (optional)
+if st.session_state.get('show_grid', False):
+    svg_parts.append('<g id="grid" opacity="0.3">')
+    for x in range(0, width, 50):
+        svg_parts.append(f'<line x1="{x}" y1="0" x2="{x}" y2="{height}" stroke="gray" stroke-width="0.5"/>')
+    for y in range(0, height, 50):
+        svg_parts.append(f'<line x1="0" y1="{y}" x2="{width}" y2="{y}" stroke="gray" stroke-width="0.5"/>')
     svg_parts.append('</g>')
 
-    # BOM Table
-    if BOM_VISIBLE:
-        bom_x = 50
-        bom_y = height - 300
-        svg_parts.append(f'<g transform="translate({bom_x},{bom_y})">')
-        svg_parts.append('<rect x="0" y="0" width="700" height="250" fill="white" stroke="black" stroke-width="2"/>')
-        svg_parts.append('<text x="350" y="25" text-anchor="middle" font-size="14" font-weight="bold">BILL OF MATERIALS</text>')
-        
-        # Table headers
-        svg_parts.append('<line x1="0" y1="40" x2="700" y2="40" stroke="black" stroke-width="1"/>')
-        svg_parts.append('<text x="20" y="35" font-size="10" font-weight="bold">ITEM</text>')
-        svg_parts.append('<text x="80" y="35" font-size="10" font-weight="bold">TAG</text>')
-        svg_parts.append('<text x="200" y="35" font-size="10" font-weight="bold">DESCRIPTION</text>')
-        svg_parts.append('<text x="400" y="35" font-size="10" font-weight="bold">SIZE</text>')
-        svg_parts.append('<text x="500" y="35" font-size="10" font-weight="bold">MATERIAL</text>')
-        svg_parts.append('<text x="600" y="35" font-size="10" font-weight="bold">QTY</text>')
-        
-        # BOM entries
-        bom_items = [
-            ('1', 'EB-001', 'EXPANSION BELLOWS', '10"', 'CS', '1'),
-            ('2', 'Y-001', 'Y-STRAINER', '10"', 'CS', '1'),
-            ('3', 'V-001/002', 'GATE VALVE', '10"', 'CS', '2'),
-            ('4', 'F-001', 'SUCTION FILTER', '10"', 'CS', '1'),
-            ('5', 'P-001', 'CENTRIFUGAL PUMP', 'KDP-330', 'CS', '1'),
-            ('6', 'CT-001', 'CATCH POT', '8"', 'CS', '1'),
-        ]
-        
-        y_pos = 60
-        for item in bom_items:
-            svg_parts.append(f'<text x="20" y="{y_pos}" font-size="10">{item[0]}</text>')
-            svg_parts.append(f'<text x="80" y="{y_pos}" font-size="10">{item[1]}</text>')
-            svg_parts.append(f'<text x="200" y="{y_pos}" font-size="10">{item[2]}</text>')
-            svg_parts.append(f'<text x="400" y="{y_pos}" font-size="10">{item[3]}</text>')
-            svg_parts.append(f'<text x="500" y="{y_pos}" font-size="10">{item[4]}</text>')
-            svg_parts.append(f'<text x="600" y="{y_pos}" font-size="10">{item[5]}</text>')
-            y_pos += 20
-        
-        svg_parts.append('</g>')
+# Draw pipes first (behind components)
+svg_parts.append('<g id="pipes">')
+for pipe in pipes:
+    svg_parts.append(pipe.get_svg())
+svg_parts.append('</g>')
 
-    svg_parts.append('</svg>')
-    return ''.join(svg_parts)
+# Draw components
+svg_parts.append('<g id="components">')
+for comp in components.values():
+    svg_parts.append(comp.get_svg())
+svg_parts.append('</g>')
 
-# — MAIN APP —
+# Add legend
+if st.session_state.get('show_legend', True):
+    svg_parts.append(render_legend(width - 300, 50))
 
-st.title("🏭 EPS Professional P&ID Generator")
+# Add BOM table
+if st.session_state.get('show_bom', True):
+    svg_parts.append(render_bom_table(components, width - 500, height - 400))
 
-# Header
+svg_parts.append('</svg>')
+return '\n'.join(svg_parts)
+```
 
-col1, col2, col3 = st.columns([3, 1, 1])
+def render_legend(x, y):
+“”“Render symbol legend”””
+legend_svg = f’’’<g id="legend" transform="translate({x},{y})">
+<rect x="0" y="0" width="280" height="400" fill="white" stroke="black" stroke-width="1"/>
+<text x="140" y="20" text-anchor="middle" font-size="14" font-weight="bold">SYMBOL LEGEND</text>’’’
+
+```
+# Add common symbols
+symbols = [
+    ("pump_centrifugal", "CENTRIFUGAL PUMP", 40),
+    ("valve_gate", "GATE VALVE", 100),
+    ("filter", "FILTER", 160),
+    ("vessel_vertical", "VESSEL", 220),
+    ("control_valve", "CONTROL VALVE", 280),
+]
+
+for symbol_type, description, y_pos in symbols:
+    if symbol_type in PROFESSIONAL_ISA_SYMBOLS:
+        legend_svg += f'''<g transform="translate(30,{y_pos}) scale(0.5)">
+            {PROFESSIONAL_ISA_SYMBOLS[symbol_type]}
+            </g>
+            <text x="100" y="{y_pos + 20}" font-size="10">{description}</text>'''
+
+legend_svg += '</g>'
+return legend_svg
+```
+
+def render_bom_table(components, x, y):
+“”“Render Bill of Materials table”””
+bom_svg = f’’’<g id="bom" transform="translate({x},{y})">
+<rect x="0" y="0" width="480" height="300" fill="white" stroke="black" stroke-width="1"/>
+<text x="240" y="20" text-anchor="middle" font-size="14" font-weight="bold">BILL OF MATERIALS</text>
+<line x1="0" y1="30" x2="480" y2="30" stroke="black"/>’’’
+
+```
+# Table headers
+headers = ["SR NO.", "TAG", "DESCRIPTION", "SIZE", "QTY"]
+col_widths = [50, 80, 200, 80, 70]
+x_pos = 0
+for i, header in enumerate(headers):
+    bom_svg += f'<text x="{x_pos + col_widths[i]/2}" y="45" text-anchor="middle" font-size="10" font-weight="bold">{header}</text>'
+    x_pos += col_widths[i]
+
+bom_svg += '<line x1="0" y1="50" x2="480" y2="50" stroke="black"/>'
+
+# Table rows
+y_pos = 65
+for i, (comp_id, comp) in enumerate(components.items()):
+    if i < 10:  # Limit to first 10 items
+        x_pos = 0
+        row_data = [str(i+1), comp.tag, comp.description[:30], "-", "1"]
+        for j, data in enumerate(row_data):
+            bom_svg += f'<text x="{x_pos + col_widths[j]/2}" y="{y_pos}" text-anchor="middle" font-size="9">{data}</text>'
+            x_pos += col_widths[j]
+        y_pos += 15
+
+bom_svg += '</g>'
+return bom_svg
+```
+
+# — STREAMLIT UI —
+
+st.title(“🏭 EPS P&ID Suite”)
+
+# Sidebar controls
+
+with st.sidebar:
+st.header(“📐 Drawing Standards”)
+
+```
+drawing_standard = st.selectbox("Standard", ["ISA", "ISO", "DIN", "JIS"])
+drawing_size = st.selectbox("Size", ["A3", "A2", "A1", "A0"])
+
+st.header("🎨 Visual Controls")
+st.session_state.show_grid = st.checkbox("Show Grid", value=False)
+st.session_state.show_legend = st.checkbox("Show Legend", value=True)
+st.session_state.show_bom = st.checkbox("Show BOM", value=True)
+
+grid_spacing = st.slider("Grid Spacing (mm)", 10, 50, 25)
+symbol_scale = st.slider("Symbol Scale", 0.5, 2.0, 1.0, 0.1)
+```
+
+# Main drawing area
+
+col1, col2 = st.columns([3, 1])
+
 with col1:
-    st.markdown(f"**Project:** {st.session_state.project_info['project']}")
+# Create P&ID
+components, pipes = create_professional_pnid()
+
+```
+# Render SVG
+svg_content = render_professional_svg(components, pipes)
+
+# Display SVG
+st.markdown("### P&ID Drawing")
+st.components.v1.html(f'''
+    <div style="background: white; border: 2px solid #333; overflow: auto; height: 800px;">
+        {svg_content}
+    </div>
+''', height=820)
+```
+
 with col2:
-    st.markdown(f"**Drawing:** {st.session_state.project_info['drawing_no']}")
+st.markdown(”### Component Library”)
+
+```
+# Component categories
+category = st.selectbox("Category", ["Pumps", "Valves", "Vessels", "Instruments", "Piping"])
+
+# Show component thumbnails
+if category == "Pumps":
+    st.write("🔄 Centrifugal Pump")
+    st.write("🔄 Vacuum Pump")
+    st.write("🔄 Positive Displacement")
+elif category == "Valves":
+    st.write("🔧 Gate Valve")
+    st.write("🔧 Globe Valve")
+    st.write("🔧 Control Valve")
+
+# Component properties
+if st.session_state.selected_component:
+    st.markdown("### Properties")
+    comp = components.get(st.session_state.selected_component)
+    if comp:
+        st.text_input("Tag", comp.tag)
+        st.text_area("Description", comp.description)
+        st.number_input("X Position", value=comp.x)
+        st.number_input("Y Position", value=comp.y)
+```
+
+# Bottom toolbar
+
+col3, col4, col5, col6 = st.columns(4)
+
 with col3:
-    st.markdown(f"**Rev:** {st.session_state.project_info['revision']}")
+if st.button(“🔍 Validate P&ID”):
+validator = PnIDValidator(components, pipes)
+results = validator.validate_all()
 
-# Main P&ID display
+```
+    if results['is_valid']:
+        st.success("✅ P&ID validation passed!")
+    else:
+        st.error(f"❌ Found {len(results['errors'])} errors")
+        for error in results['errors'][:5]:
+            st.error(error)
+    
+    if results['warnings']:
+        st.warning(f"⚠️ {len(results['warnings'])} warnings")
+        for warning in results['warnings'][:3]:
+            st.warning(warning)
+```
 
-st.markdown('<div class="pnid-container">', unsafe_allow_html=True)
-svg_output = render_professional_pnid()
-st.components.v1.html(svg_output, height=1000, scrolling=True)
-st.markdown('</div>', unsafe_allow_html=True)
+with col4:
+if st.button(“🤖 Analyze Control Loops”):
+analyzer = ControlSystemAnalyzer(components, pipes)
+st.info(f”Found {len(analyzer.control_loops)} control loops”)
+for loop in analyzer.control_loops:
+st.write(f”- {loop.loop_type.value}: {loop.loop_id}”)
 
-# Export options
+with col5:
+if st.button(“💾 Export SVG”):
+# Create download link
+b64 = base64.b64encode(svg_content.encode()).decode()
+href = f’<a href="data:image/svg+xml;base64,{b64}" download="pnid_drawing.svg">Download SVG File</a>’
+st.markdown(href, unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.download_button(
-        "📥 Download SVG",
-        svg_output,
-        "EPSPL-V2526-TP-01.svg",
-        "image/svg+xml"
-    )
-with col2:
-    if st.button("📥 Generate PNG"):
-        try:
-            png_data = svg2png(bytestring=svg_output.encode('utf-8'), output_width=3000)
-            st.download_button(
-                "Download PNG",
-                png_data,
-                "EPSPL-V2526-TP-01.png",
-                "image/png"
-            )
-        except Exception as e:
-            st.error(f"PNG generation error: {e}")
+with col6:
+if st.button(“🖨️ Export PDF”):
+st.info(“PDF export requires additional libraries (cairosvg)”)
 
 # Footer
 
-st.markdown("—")
-st.markdown(
-    """<div style="text-align: center; color: #666;">
-    EPS Professional P&ID Generator | © 2024 EPS Pvt. Ltd.
-    </div>""",
-    unsafe_allow_html=True
-)
+st.markdown(”—”)
+st.markdown(“EPS Process Solutions Pvt. Ltd. - P&ID Automation Platform v2.0”)
