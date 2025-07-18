@@ -390,6 +390,9 @@ PROFESSIONAL_ISA_SYMBOLS = {
         <text x="40" y="35" text-anchor="middle" font-size="10" font-family="Arial">LS</text>
         <text x="40" y="50" text-anchor="middle" font-size="8" font-family="Arial">PURGE</text>
         </symbol>''',
+}
+
+
 
 def get_component_symbol(component_id, width=None, height=None):
     """
@@ -400,13 +403,11 @@ def get_component_symbol(component_id, width=None, height=None):
     if svg is None:
         return f'<!-- Unknown symbol: {component_id} -->'
     # Wrap the raw SVG in an <svg> tag with width/height if given
-    if width and height:
-        # Try to detect if the SVG already has a viewBox or set one
-        viewbox = "0 0 80 80"  # Default, adjust as needed
+    if width is not None and height is not None:
+        viewbox = "0 0 80 80"  # Adjust if your SVGs are a different base size
         return f'<svg width="{width}" height="{height}" viewBox="{viewbox}" xmlns="http://www.w3.org/2000/svg">{svg}</svg>'
     else:
         return svg
-}
 
 # Arrow marker definitions for flow direction
 
