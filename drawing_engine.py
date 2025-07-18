@@ -1,53 +1,89 @@
-from professional_symbols import get_component_symbol
-from advanced_rendering import draw_svg_symbol, render_line_with_gradient
-from control_systems import render_pid_loops, render_signal_lines, render_instrument_bubbles
+from advanced_rendering import (
+    draw_svg_symbol,
+    render_line_with_gradient,
+    render_signal_line,
+    render_tag_bubble,
+    render_grid,
+    render_border,
+    render_title_block,
+    render_bom_block,
+    render_legend_block,
+)
 import cairosvg
 from io import BytesIO
 
 def render_svg(equipment_df, pipeline_df, inline_df, positions, pipelines, inlines):
-    symbol_size = 80
-    # --- Equipment ---
-    svg_equip = ""
+    width, height = 2000, 1100
+
+    # --- Draw grid and border (background) ---
+    svg_layers = [
+        render_grid(width, height, spacing=100),
+        render_border(width, height)
+    ]
+
+    # --- Title Block, BOM, Legend (footer blocks) ---
+    svg_layers.append(render_title_block(
+        title="TENTATIVE P&ID DRAWING FOR SUCTION FILTER + KDP-330",
+        project="EPSPL_V2526-TP",
+        rev="00",
+        scale="1:50",
+        date="2025-07-18",
+        company="Economy Process Solutions Pvt. Ltd.",
+        sheet="1 of 1"
+    ))
+    svg_layers.append(render_bom_block(equipment_df))
+    svg_layers.append(render_legend_block(equipment_df))
+
+    # --- Draw pipelines (with type detection) ---
+    for pipe in pipelines:
+        pts = pipe["points"]
+        style = "process"
+        src = pipe.get("src", "").lower()
+        dst = pipe.get("dst", "").lower()
+        # Detect by src/dst or a 'Type' key in your pipe dict
+        if "utility" in src or "utility" in dst:
+            style = "utility"
+        if "instrument" in src or "instrument" in dst:
+            style = "instrument"
+        svg_layers.append(render_line_with_gradient(pts, pipe_style=style, arrow=True))
+
+    # --- Equipment symbols & tag bubbles ---
     for _, row in equipment_df.iterrows():
         comp_id = row["ID"]
         x, y = positions[comp_id]
-        # Use advanced rendering for SVG symbol
-        symbol_svg = draw_svg_symbol(comp_id, width=symbol_size, height=symbol_size)
-        svg_equip += f'<g id="{comp_id}"><g transform="translate({x},{y})">{symbol_svg}</g>'
-        svg_equip += f'<text x="{x + symbol_size/2 - 15}" y="{y + symbol_size + 20}" font-size="13">{comp_id}</text></g>'
+        svg_layers.append(
+            f'<g id="{comp_id}"><g transform="translate({x},{y})">{draw_svg_symbol(comp_id, width=80, height=80)}</g></g>'
+        )
+        # Tag bubble under each equipment
+        svg_layers.append(render_tag_bubble(x+40, y+110, tag=comp_id, font_size=13, tag_type="circle"))
 
-    # --- Pipes ---
-    svg_pipes = ""
-    for pipe in pipelines:
-        pts = pipe["points"]
-        # Use advanced rendering for lines (can use gradient/lineweight)
-        svg_pipes += render_line_with_gradient(pts, pipe_style="process" if "process" in pipe["src"].lower() else "utility")
-
-    # --- Inline components (valves/meters) ---
-    svg_inline = ""
+    # --- Inline components (valves, meters) & tag bubbles ---
     for inline in inlines:
         comp_id = inline["ID"]
         x, y = inline["pos"]
-        symbol_svg = draw_svg_symbol(comp_id, width=48, height=48)
-        svg_inline += f'<g transform="translate({x},{y})">{symbol_svg}</g>'
+        svg_layers.append(
+            f'<g transform="translate({x},{y})">{draw_svg_symbol(comp_id, width=48, height=48)}</g>'
+        )
+        # Inline tag bubble (slightly offset below)
+        svg_layers.append(render_tag_bubble(x+24, y+60, tag=comp_id, font_size=11, tag_type="circle"))
 
-    # --- Control systems & signals ---
-    svg_controls = render_pid_loops(equipment_df, positions)
-    svg_signals = render_signal_lines(equipment_df, positions)
-    svg_instruments = render_instrument_bubbles(equipment_df, positions)
+    # --- Optionally draw signal/instrument lines (if you have them in your process data) ---
+    # Example (if you build a 'signals' list in your control/logic engine):
+    # for sig in signals:
+    #     svg_layers.append(render_signal_line(sig["points"]))
 
-    # --- Equipment List / Legend ---
-    svg_legend = render_equipment_list_svg(equipment_df)
+    # --- Compose SVG ---
+    svg_header = (
+        '<svg width="{w}" height="{h}" viewBox="0 0 {w} {h}" xmlns="http://www.w3.org/2000/svg">'
+        '<defs>'
+        '<marker id="arrowhead" markerWidth="14" markerHeight="12" refX="14" refY="6" orient="auto" markerUnits="strokeWidth">'
+        '<polygon points="2,2 14,6 2,10" fill="#222" />'
+        '</marker>'
+        '</defs>'
+    ).format(w=width, h=height)
 
-    svg_header = """
-    <svg width="2000" height="1100" viewBox="0 0 2000 1100" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <marker id="arrowhead" markerWidth="14" markerHeight="12" refX="14" refY="6" orient="auto" markerUnits="strokeWidth">
-          <polygon points="2,2 14,6 2,10" fill="#222" />
-        </marker>
-      </defs>
-    """
-    return svg_header + svg_legend + svg_pipes + svg_equip + svg_inline + svg_controls + svg_signals + svg_instruments + "</svg>"
+    svg = svg_header + "".join(svg_layers) + "</svg>"
+    return svg
 
 def svg_to_png(svg_string, scale=1.5):
     return cairosvg.svg2png(bytestring=svg_string.encode('utf-8'), scale=scale)
@@ -63,22 +99,3 @@ def export_dxf(positions, pipelines):
     out = BytesIO()
     doc.write(out)
     return out.getvalue()
-
-def render_equipment_list_svg(equipment_df):
-    # Add legend block (could add symbol previews if wanted)
-    header = ["Tag", "Description", "Spec"]
-    x0, y0, row_h, col_w = 30, 40, 22, [60, 170, 120]
-    svg = f'<g id="equipment-list"><text x="{x0}" y="{y0}" font-size="18" font-weight="bold">EQUIPMENT LIST</text>'
-    y = y0 + 24
-    svg += f'<rect x="{x0-8}" y="{y0+5}" width="{sum(col_w)}" height="{row_h}" fill="#eee" stroke="#222"/>'
-    for c, head in enumerate(header):
-        svg += f'<text x="{x0 + sum(col_w[:c]) + 5}" y="{y}" font-size="12" font-weight="bold">{head}</text>'
-    y += row_h
-    for _, row in equipment_df.iterrows():
-        svg += f'<rect x="{x0-8}" y="{y-row_h+5}" width="{sum(col_w)}" height="{row_h}" fill="#fff" stroke="#bbb"/>'
-        for c, key in enumerate(["ID", "Description", "Specs"]):
-            val = str(row[key]) if key in row else ""
-            svg += f'<text x="{x0 + sum(col_w[:c]) + 5}" y="{y}" font-size="12">{val}</text>'
-        y += row_h
-    svg += '</g>'
-    return svg
