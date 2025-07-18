@@ -395,17 +395,40 @@ PROFESSIONAL_ISA_SYMBOLS = {
 def get_component_symbol(component_id, width=None, height=None):
     """
     Returns the SVG string for the requested ISA symbol.
-    If width and height are given, wraps in an SVG with those dimensions.
+    If width and height are given, wraps the symbol reference in an SVG with those dimensions.
     """
-    svg = PROFESSIONAL_ISA_SYMBOLS.get(component_id)
-    if svg is None:
-        return f'<!-- Unknown symbol: {component_id} -->'
-    # Wrap the raw SVG in an <svg> tag with width/height if given
+    svg_symbol_content = PROFESSIONAL_ISA_SYMBOLS.get(component_id)
+    if svg_symbol_content is None:
+        return f''
+
+    # If width and height are provided, we want to create an <svg> tag that references
+    # the symbol using <use>, instead of nesting symbols.
     if width is not None and height is not None:
-        viewbox = "0 0 80 80"  # Adjust if your SVGs are a different base size
-        return f'<svg width="{width}" height="{height}" viewBox="{viewbox}" xmlns="http://www.w3.org/2000/svg">{svg}</svg>'
+        # Extract the viewBox from the original symbol string
+        import re
+        viewbox_match = re.search(r'viewBox="([^"]*)"', svg_symbol_content)
+        viewbox = viewbox_match.group(1) if viewbox_match else "0 0 100 100" # Default or extract
+
+        # Extract the id from the original symbol string
+        id_match = re.search(r'id="([^"]*)"', svg_symbol_content)
+        symbol_id_in_content = id_match.group(1) if id_match else component_id
+
+        # We also need to include the actual symbol definition in the defs section
+        # or ensure it's loaded elsewhere in the SVG document.
+        # For simplicity in this function, we'll return an <svg> that contains both
+        # the definition and its use.
+        # A more robust solution for a full app would manage symbol definitions centrally.
+
+        return (
+            f'<svg width="{width}" height="{height}" viewBox="{viewbox}" xmlns="http://www.w3.org/2000/svg">'
+            f'<defs>{svg_symbol_content}</defs>'  # Define the symbol
+            f'<use href="#{symbol_id_in_content}" x="0" y="0" width="{width}" height="{height}"/>' # Use the symbol
+            f'</svg>'
+        )
     else:
-        return svg
+        # If no width/height, return the raw symbol definition string
+        return svg_symbol_content
+
         
 # Arrow marker definitions for flow direction
 
