@@ -13,60 +13,141 @@ for item in ports:
     PORT_MAP[comp][item["Port Name"]] = (item["dx"], item["dy"])
 
 def compute_positions_and_routing(equipment_df, pipeline_df, inline_df):
-    process_order = auto_sequence(equipment_df, pipeline_df)
+    # Try to use enhanced layout first
+    positions = {}
     try:
         enhanced_layout = pd.read_csv('enhanced_equipment_layout.csv')
-        equipment_df = merge_layout_hints(equipment_df, enhanced_layout)
-    except Exception:
-        pass
-    x0, y0, x_gap = 180, 320, 300
-    positions = {}
-    for i, eq_id in enumerate(process_order):
-        eq_row = equipment_df[equipment_df["ID"] == eq_id]
-        if not eq_row.empty:
-            y_hint = eq_row.iloc[0].get("Y_hint", y0)
-            positions[eq_id] = (x0 + i * x_gap, y_hint if pd.notnull(y_hint) else y0)
+        for _, row in enhanced_layout.iterrows():
+            eq_id = row.get('id') or row.get('ID')
+            x = row.get('x', 0)
+            y = row.get('y', 0)
+            if eq_id and pd.notna(x) and pd.notna(y):
+                positions[eq_id] = (float(x), float(y))
+    except Exception as e:
+        print(f"Could not load enhanced layout: {e}")
+
+    # Fallback to auto-sequencing for any missing positions
+    if not positions:
+        process_order = auto_sequence(equipment_df, pipeline_df)
+        x0, y0, x_gap = 180, 320, 200
+        for i, eq_id in enumerate(process_order):
+            if eq_id not in positions:
+                positions[eq_id] = (x0 + i * x_gap, y0)
+
+    # Ensure all equipment has positions
     for _, row in equipment_df.iterrows():
         if row["ID"] not in positions:
-            positions[row["ID"]] = (x0 + (len(positions) * x_gap), y0)
+            # Place unpositioned items at the bottom
+            positions[row["ID"]] = (100 + len(positions) * 50, 500)
+
+    # Create pipelines from connections
     pipelines = []
     try:
+        # First try to use pipes_connections.csv if it exists
         pipes_connections = pd.read_csv('pipes_connections.csv')
         for _, row in pipes_connections.iterrows():
-            src, dst = get_src_dst(row)
-            if not src or not dst:
-                continue
-            src_port = row.get("Source Port", "discharge")
-            dst_port = row.get("Destination Port", "suction")
-            src_xy = tuple(map(sum, zip(positions.get(src, (0, 0)), PORT_MAP.get(src, {}).get(src_port, (0, 0)))))
-            dst_xy = tuple(map(sum, zip(positions.get(dst, (0, 0)), PORT_MAP.get(dst, {}).get(dst_port, (0, 0)))))
-            points = [(row.get("X1", src_xy[0]), row.get("Y1", src_xy[1])), (row.get("X2", dst_xy[0]), row.get("Y2", dst_xy[1]))] if "X1" in row and "Y1" in row else [src_xy, dst_xy]
-            pipelines.append({"src": src, "dst": dst, "points": points})
-    except Exception:
+            src = row.get('from_component', '')
+            dst = row.get('to_component', '')
+            src_port = row.get('from_port', 'outlet')
+            dst_port = row.get('to_port', 'inlet')
+
+            if src in positions and dst in positions:
+                # Get port offsets
+                src_offset = PORT_MAP.get(src, {}).get(src_port, (0, 0))
+                dst_offset = PORT_MAP.get(dst, {}).get(dst_port, (0, 0))
+
+                # Calculate actual connection points
+                src_xy = (positions[src][0] + src_offset[0], positions[src][1] + src_offset[1])
+                dst_xy = (positions[dst][0] + dst_offset[0], positions[dst][1] + dst_offset[1])
+
+                # Check for waypoints
+                waypoints = row.get('waypoints', '[]')
+                if isinstance(waypoints, str) and waypoints != '[]':
+                    try:
+                        import json
+                        waypoints_list = json.loads(waypoints)
+                        points = [src_xy] + waypoints_list + [dst_xy]
+                    except:
+                        points = elbow_path(src_xy, dst_xy)
+                else:
+                    points = elbow_path(src_xy, dst_xy)
+
+                pipelines.append({
+                    "src": src,
+                    "dst": dst,
+                    "points": points,
+                    "line_type": row.get('line_type', 'process'),
+                    "line_number": row.get('line_number', '')
+                })
+    except FileNotFoundError:
+        # Fallback to pipeline_df if pipes_connections.csv doesn't exist
         for _, row in pipeline_df.iterrows():
             src, dst = get_src_dst(row)
-            if not src or not dst:
+            if not src or not dst or src not in positions or dst not in positions:
                 continue
+
             src_port = row.get("Source Port", "discharge")
             dst_port = row.get("Destination Port", "suction")
-            src_xy = tuple(map(sum, zip(positions.get(src, (0, 0)), PORT_MAP.get(src, {}).get(src_port, (0, 0)))))
-            dst_xy = tuple(map(sum, zip(positions.get(dst, (0, 0)), PORT_MAP.get(dst, {}).get(dst_port, (0, 0)))))
+
+            # Get port offsets
+            src_offset = PORT_MAP.get(src, {}).get(src_port, (0, 0))
+            dst_offset = PORT_MAP.get(dst, {}).get(dst_port, (0, 0))
+
+            # Calculate actual connection points
+            src_xy = (positions[src][0] + src_offset[0], positions[src][1] + src_offset[1])
+            dst_xy = (positions[dst][0] + dst_offset[0], positions[dst][1] + dst_offset[1])
+
             points = elbow_path(src_xy, dst_xy)
-            pipelines.append({"src": src, "dst": dst, "points": points})
+            pipelines.append({
+                "src": src,
+                "dst": dst,
+                "points": points,
+                "line_type": "process"
+            })
+
+    # Position inline components on their pipelines
     inlines = []
     for _, row in inline_df.iterrows():
+        inline_id = row["ID"]
+        pipeline_name = row.get("Pipeline", "")
+
+        # Find the pipeline this inline component belongs to
+        target_pipe = None
         for pipe in pipelines:
-            if row.get("Pipeline") == pipe["src"] or row.get("Pipeline") == pipe["dst"]:
-                pts = pipe["points"]
-                idx = len(pts) // 2
-                pos = pts[idx]
-                inlines.append({"ID": row["ID"], "pos": pos})
+            # Check if the inline component is on this pipeline by matching pipeline ID or by src/dst
+            if (pipeline_name and
+                (pipeline_name == f"{pipe['src']}_{pipe['dst']}" or
+                 pipeline_name in [pipe.get('line_number', ''), pipe['src'], pipe['dst']])):
+                target_pipe = pipe
                 break
+
+        if target_pipe and len(target_pipe["points"]) >= 2:
+            # Place at midpoint of pipeline
+            pts = target_pipe["points"]
+            if len(pts) == 2:
+                # Simple line - place at midpoint
+                pos = ((pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2)
+            else:
+                # Multi-segment line - place on middle segment
+                mid_idx = len(pts) // 2
+                pos = ((pts[mid_idx-1][0] + pts[mid_idx][0]) / 2,
+                       (pts[mid_idx-1][1] + pts[mid_idx][1]) / 2)
+
+            inlines.append({
+                "ID": inline_id,
+                "pos": pos,
+                "type": row.get("type", "valve"),
+                "description": row.get("Description", "")
+            })
         else:
-            if pipelines:
-                pts = pipelines[0]["points"]
-                pos = pts[len(pts) // 2]
-                inlines.append({"ID": row["ID"], "pos": pos})
+            # Fallback positioning if pipeline not found
+            inlines.append({
+                "ID": inline_id,
+                "pos": (300 + len(inlines) * 100, 400),
+                "type": row.get("type", "valve"),
+                "description": row.get("Description", "")
+            })
+
     return positions, pipelines, inlines
 
 def elbow_path(src, dst):
