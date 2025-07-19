@@ -207,7 +207,7 @@ with tab1:
                     height=diagram_height,
                     show_grid=show_grid,
                     show_legend=show_legend,
-                    show_title=show_title
+                    show_title=show_title,
                 )
             
             # Display with zoom
