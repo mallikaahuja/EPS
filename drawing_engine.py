@@ -4,7 +4,8 @@ from io import BytesIO
 
 # Assuming advanced_rendering and professional_isa_symbols are in the same directory
 # Or adjust imports based on your project structure
-from .advanced_rendering import ( # Assuming relative import if in a package
+from advanced_rendering import ( # Assuming all modules are in the same directory or on PYTHONPATH
+
     draw_svg_symbol,
     render_line_with_gradient,
     render_signal_line,
