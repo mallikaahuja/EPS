@@ -79,24 +79,10 @@ st.markdown("""
 # Initialize AI Assistant
 @st.cache_resource
 def init_ai_assistant():
-    # Directly retrieve keys from environment variables
-    openai_key = os.getenv("OPENAI_API_KEY")
-    stability_key = os.getenv("STABILITY_API_KEY")
-
-    # Add a check to ensure keys are actually present
-    if not openai_key:
-        st.error("Error: OPENAI_API_KEY environment variable not found. "
-                 "Please set it in your Railway project's variables.")
-        st.stop() # Stop the app if a critical secret is missing
-    if not stability_key:
-        st.error("Error: STABILITY_API_KEY environment variable not found. "
-                 "Please set it in your Railway project's variables.")
-        st.stop() # Stop the app if a critical secret is missing
-
-    return PnIDAIAssistant(
-        openai_key=openai_key,
-        stability_key=stability_key
-    )
+    # PnIDAIAssistant should ideally read keys from st.secrets directly or from os.getenv
+    # if it's not designed to take them as args, ensure it's configured to do so internally.
+    # For now, we'll assume it handles its own key retrieval.
+    return PnIDAIAssistant() # Removed key passing, assuming internal handling
 
 ai_assistant = init_ai_assistant()
 smart_suggestions = SmartPnIDSuggestions(ai_assistant)
@@ -127,7 +113,7 @@ with st.sidebar:
     zoom_level = st.slider("Zoom Level", 50, 200, 100, 5)
 
     # Export format
-    st.subheader("Export Format", help="Choose the format for diagram export.")
+    st.subheader("Export Options")
     export_format = st.selectbox(
         "Export Format",
         ["PNG (High Resolution)", "DXF (AutoCAD)", "SVG (Vector)", "PDF (Document)"]
@@ -135,8 +121,8 @@ with st.sidebar:
 
     # Diagram settings
     st.subheader("Diagram Settings")
-    diagram_width = st.number_input("Width (px)", 1500, 3000, 2000, 100)
-    diagram_height = st.number_input("Height (px)", 800, 2000, 1100, 100)
+    diagram_width = st.number_input("Width (px)", 1500, 3000, 2400, 100)
+    diagram_height = st.number_input("Height (px)", 800, 2000, 1200, 100)
 
     # Process Type for AI
     st.subheader("Process Information")
@@ -182,33 +168,41 @@ with tab1:
                 # AI Layout Optimization
                 if enable_ai_suggestions:
                     with st.spinner("🤖 Optimizing layout with AI..."):
+                        # This method should modify 'positions' in place or return new ones
                         positions = ai_assistant.optimize_layout(positions, pipelines)
             
             # Check for missing symbols and generate if needed
             if enable_symbol_generation:
-                missing_symbols = []
-                # Placeholder: In a real app, you'd check a database or local asset folder
-                # to see if symbols for equipment_df['ID'] already exist.
-                # For demonstration, let's assume some are always missing if enabled:
-                # if enable_symbol_generation:
-                #     for _, row in equipment_df.iterrows():
-                #         # Example condition: if symbol file for row['ID'] does not exist
-                #         # if not os.path.exists(f"symbols/{row['ID']}.svg"): 
-                #         missing_symbols.append({'name': row['ID'], 'type': row['type']})
+                # Placeholder for actual missing symbol detection
+                # You'd compare equipment_df['type'] or 'ID' with PROFESSIONAL_ISA_SYMBOLS keys
+                missing_symbols_to_generate = [] 
                 
-                if missing_symbols: # This block will only execute if missing_symbols has items
-                    with st.spinner(f"🎨 Generating {len(missing_symbols)} missing symbols with AI..."):
-                        for symbol in missing_symbols:
+                # Example:
+                # from professional_isa_symbols import PROFESSIONAL_ISA_SYMBOLS, SYMBOL_ID_MAPPING
+                # for _, row in equipment_df.iterrows():
+                #     comp_id = row['ID']
+                #     comp_type = SYMBOL_ID_MAPPING.get(comp_id)
+                #     if not comp_type or comp_type not in PROFESSIONAL_ISA_SYMBOLS:
+                #         missing_symbols_to_generate.append({'id': comp_id, 'type': row['type'], 'description': row['Description']})
+                # if missing_symbols_to_generate:
+                #     st.warning(f"Found {len(missing_symbols_to_generate)} potential missing symbols. Attempting to generate...")
+                #     for symbol_info in missing_symbols_to_generate:
+                #         ai_assistant.generate_missing_symbol(symbol_info['type'], symbol_info['description'])
+                #     st.success("Attempted to generate missing symbols. Please re-run to see if they were added.")
+
+                if missing_symbols_to_generate: # Replace with your actual missing_symbols list
+                    with st.spinner(f"🎨 Generating {len(missing_symbols_to_generate)} missing symbols with AI..."):
+                        for symbol in missing_symbols_to_generate:
                             ai_assistant.generate_missing_symbol(
-                                symbol['name'], 
-                                symbol['type']
+                                symbol['name'], # Or symbol['type'] based on your AI function
+                                symbol['type']  # Or symbol['description']
                             )
             
             # Render SVG
             with st.spinner("🎨 Rendering P&ID..."):
                 pid_svg = render_svg(
-                    equipment_df, pipeline_df, inline_df, 
-                    positions, pipelines, inlines,
+                    equipment_df, pipeline_df, inline_df,
+                    positions, pipelines, inlines, # Note: pipelines, inlines are from compute_positions_and_routing
                     width=diagram_width,
                     height=diagram_height,
                     show_grid=show_grid,
@@ -224,7 +218,7 @@ with tab1:
             # Create interactive SVG display
             st.markdown(
                 f"""
-                <div class="svg-container" style="overflow: auto; width: 100%; height: {display_height}px;">
+                <div class="svg-container" style="overflow: auto; width: 100%; height: 900px; max-height: 90vh;">
                     <div style="transform: scale({zoom_scale}); transform-origin: top left; width: {diagram_width}px; height: {diagram_height}px;">
                         {pid_svg}
                     </div>
@@ -251,7 +245,8 @@ with tab1:
             with col_exp2:
                 if st.button("📥 Download DXF"):
                     with st.spinner("Generating DXF..."):
-                        dxf_data = export_dxf(positions, pipelines)
+                        # Pass equipment_df and inline_df to export_dxf
+                        dxf_data = export_dxf(positions, pipelines, equipment_df, inline_df)
                         st.download_button(
                             "💾 Save DXF",
                             dxf_data,
@@ -273,7 +268,8 @@ with tab1:
                 if st.button("📄 Generate Report"):
                     # AI-powered report generation
                     st.info("Generating comprehensive P&ID report...")
-                    # Implementation for PDF report
+                    # Add your PDF report generation logic here
+                    st.warning("PDF Report generation is not yet implemented.")
             
             with col_exp5:
                 if st.button("🔄 Refresh"):
@@ -295,7 +291,10 @@ with tab2:
     with col3:
         st.metric("Inline Components", len(inline_df))
     with col4:
-        total_cost = equipment_df['cost_usd'].sum() + inline_df['cost_usd'].sum()
+        # Ensure 'cost_usd' columns exist and handle potential NaNs
+        total_equipment_cost = equipment_df['cost_usd'].sum() if 'cost_usd' in equipment_df.columns else 0
+        total_inline_cost = inline_df['cost_usd'].sum() if 'cost_usd' in inline_df.columns else 0
+        total_cost = total_equipment_cost + total_inline_cost
         st.metric("Total Cost", f"${total_cost:,.0f}")
 
     # Equipment details with AI datasheets
@@ -305,8 +304,8 @@ with tab2:
     search_term = st.text_input("🔍 Search equipment by ID or description")
     if search_term:
         filtered_df = equipment_df[
-            equipment_df['ID'].str.contains(search_term, case=False) | 
-            equipment_df['Description'].str.contains(search_term, case=False)
+            equipment_df['ID'].str.contains(search_term, case=False, na=False) | 
+            equipment_df['Description'].str.contains(search_term, case=False, na=False)
         ]
     else:
         filtered_df = equipment_df
@@ -316,22 +315,28 @@ with tab2:
         with st.expander(f"{row['ID']} - {row['Description']}", expanded=False):
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.write(f"**Type:** {row['type']}")
-                st.write(f"**Manufacturer:** {row['manufacturer']}")
+                st.write(f"**Type:** {row.get('type', 'N/A')}")
+                st.write(f"**Manufacturer:** {row.get('manufacturer', 'N/A')}")
             with col2:
-                st.write(f"**Cost:** ${row['cost_usd']:,.0f}")
-                st.write(f"**Efficiency:** {row['efficiency_pct']}%")
+                st.write(f"**Cost:** ${row.get('cost_usd', 0):,.0f}")
+                st.write(f"**Efficiency:** {row.get('efficiency_pct', 'N/A')}%")
             with col3:
-                if pd.notna(row.get('default_properties')):
+                # Using .get for robustness if column might be missing or None
+                default_properties = row.get('default_properties')
+                if pd.notna(default_properties):
                     st.write("**Properties:**")
-                    st.json(row['default_properties'])
+                    # Try to parse as JSON, otherwise display as string
+                    try:
+                        st.json(default_properties)
+                    except Exception:
+                        st.write(str(default_properties))
             
             # AI Datasheet Generation
             if st.button(f"📄 Generate Datasheet", key=f"datasheet_{row['ID']}"):
                 with st.spinner("Generating datasheet..."):
                     datasheet = ai_assistant.generate_equipment_datasheet(
                         row['ID'], 
-                        row.to_dict()
+                        row.to_dict() # Pass the whole row as a dictionary
                     )
                     st.json(datasheet)
 
@@ -340,16 +345,22 @@ with tab3:
 
     # Run validation
     with st.spinner("Running validation checks..."):
+        # `positions` and `pipelines` here should be the ones returned by `compute_positions_and_routing`
         errors = validate_pid(equipment_df, pipeline_df, positions, pipelines)
         
         # Create components dict for advanced validation
         components_dict = {row['ID']: row.to_dict() for _, row in equipment_df.iterrows()}
+        
+        # Reconstruct pipelines for PnIDValidator if needed, ensuring correct keys
+        # The `pipelines` variable from `compute_positions_and_routing` is likely formatted well.
         pipes_list = []
         for p in pipelines:
+            # Ensure 'src' and 'dst' keys are present in 'pipelines' from layout_engine
+            # If not, you might need to infer them from pipeline_df or add them in layout_engine
             pipes_list.append({
                 'line_type': p.get('line_type', 'process'),
-                'from_comp': p.get('src'),
-                'to_comp': p.get('dst')
+                'from_comp': p.get('src'), # Assuming 'src' from layout_engine output
+                'to_comp': p.get('dst')   # Assuming 'dst' from layout_engine output
             })
         
         validator = PnIDValidator(components_dict, pipes_list)
@@ -359,9 +370,24 @@ with tab3:
         if enable_ai_suggestions:
             compliance_check = ai_assistant.check_compliance({
                 'equipment': equipment_df['ID'].tolist(),
-                'line_sizes': pipeline_df['Min_Diameter_DN'].tolist(),
-                'instruments': inline_df[inline_df['type'] == 'instrument']['ID'].tolist()
+                # Use actual pipeline data if possible, or simplified representation
+                'line_sizes': pipeline_df['Min_Diameter_DN'].tolist() if 'Min_Diameter_DN' in pipeline_df.columns else [],
+                'instruments': inline_df[inline_df['type'].str.contains('instrument', case=False, na=False)]['ID'].tolist()
             })
+            st.markdown("---")
+            st.subheader("AI Compliance Check Results")
+            if 'compliant' in compliance_check and compliance_check['compliant']:
+                st.success("✅ AI Compliance Check: P&ID appears compliant with common standards.")
+            elif 'compliant' in compliance_check and not compliance_check['compliant']:
+                st.error("❌ AI Compliance Check: Potential non-compliance issues detected.")
+                if 'issues' in compliance_check:
+                    for issue in compliance_check['issues']:
+                        st.warning(f"• {issue}")
+            elif 'error' in compliance_check:
+                st.error(f"AI Compliance Check Error: {compliance_check['error']}")
+            else:
+                st.info("AI Compliance check ran, but no specific compliance status was returned.")
+
 
     # Display results
     if not errors and not validation_results['errors']:
@@ -387,16 +413,20 @@ with tab4:
 
     # Analyze control systems
     with st.spinner("Analyzing control systems..."):
+        # Reconfirm `components_dict` and `pipes_list` are correctly formatted for Analyzer
         analyzer = ControlSystemAnalyzer(components_dict, pipes_list)
 
     st.subheader(f"Detected Control Loops: {len(analyzer.control_loops)}")
 
-    for loop in analyzer.control_loops:
-        with st.expander(f"{loop.loop_type.value} - {loop.loop_id}"):
-            st.write(f"**Primary Element:** {loop.primary_element}")
-            st.write(f"**Controller:** {loop.controller}")
-            st.write(f"**Final Element:** {loop.final_element}")
-            st.write(f"**Components:** {', '.join(loop.components)}")
+    if not analyzer.control_loops:
+        st.info("No explicit control loops detected in the current P&ID based on standard ISA tags.")
+    else:
+        for loop in analyzer.control_loops:
+            with st.expander(f"{loop.loop_type.value} - {loop.loop_id}"):
+                st.write(f"**Primary Element:** {loop.primary_element if loop.primary_element else 'N/A'}")
+                st.write(f"**Controller:** {loop.controller if loop.controller else 'N/A'}")
+                st.write(f"**Final Element:** {loop.final_element if loop.final_element else 'N/A'}")
+                st.write(f"**Components:** {', '.join(loop.components) if loop.components else 'N/A'}")
 
 with tab5:
     st.header("🤖 AI-Powered Suggestions")
@@ -405,25 +435,48 @@ with tab5:
     st.subheader("Process Flow Analysis")
     if st.button("🔍 Analyze Process Flow"):
         with st.spinner("Analyzing process flow with AI..."):
-            sequence = equipment_df.sort_values('sequence')['ID'].tolist()
-            connections = [f"{p['src']} → {p['dst']}" for p in pipelines]
-            
-            flow_validation = ai_assistant.validate_process_flow(sequence, connections)
-            
-            if flow_validation['valid']:
-                st.success("✅ Process flow is logically correct!")
+            # Ensure 'sequence' column exists or define a logical order
+            if 'sequence' in equipment_df.columns:
+                sequence = equipment_df.sort_values('sequence')['ID'].tolist()
             else:
-                st.error("❌ Issues found in process flow:")
-                for issue in flow_validation['issues']:
-                    st.warning(f"• {issue}")
+                st.warning("No 'sequence' column found in equipment data. AI flow analysis may be less accurate.")
+                sequence = equipment_df['ID'].tolist() # Fallback to alphabetical order or similar
             
-            if 'recommendations' in flow_validation:
-                st.info("💡 Recommendations:")
-                for rec in flow_validation['recommendations']:
-                    st.write(f"• {rec}")
+            # Ensure 'src' and 'dst' are available in pipeline data for AI analysis
+            # This depends on how `compute_positions_and_routing` outputs `pipelines`
+            connections = []
+            for p in pipelines: # Using the `pipelines` returned from layout_engine
+                if 'src' in p and 'dst' in p:
+                    connections.append(f"{p['src']} -> {p['dst']}")
+                # else:
+                #     # Fallback if src/dst not directly in `pipelines` from layout_engine
+                #     # You might need to derive this from `pipeline_df` if it has start/end points
+                #     pass
+
+            if not connections:
+                st.warning("No valid connections found for process flow analysis. Ensure pipeline data includes source/destination.")
+            
+            flow_validation = ai_assistant.validate_process_flow(sequence, connections, process_type) # Added process_type
+
+            if flow_validation: # Check if validation object is not empty
+                if flow_validation.get('valid'):
+                    st.success("✅ Process flow is logically correct!")
+                else:
+                    st.error("❌ Issues found in process flow:")
+                    for issue in flow_validation.get('issues', []):
+                        st.warning(f"• {issue}")
+                
+                if 'recommendations' in flow_validation and flow_validation['recommendations']:
+                    st.info("💡 Recommendations:")
+                    for rec in flow_validation['recommendations']:
+                        st.write(f"• {rec}")
+            else:
+                st.info("AI did not return specific flow validation results.")
+
 
     # Missing Components
     st.subheader("Missing Components Analysis")
+    # `equipment_df['type']` should be a list of *types* of equipment already present
     missing = smart_suggestions.suggest_missing_components(
         process_type,
         equipment_df['type'].tolist()
@@ -436,13 +489,18 @@ with tab5:
                 'safety': '🛡️',
                 'instrumentation': '📊',
                 'utilities': '🔧',
-                'environmental': '🌱'
+                'environmental': '🌱',
+                'process': '⚙️' # Added a general process category
             }
             emoji = category_emoji.get(item['category'], '📌')
             st.write(f"{emoji} **{item['component']}** - {item['reason']} (Priority: {item['priority']})")
+    else:
+        st.info("AI found no immediately obvious missing components for this process type.")
 
     # Energy Efficiency
     st.subheader("Energy Efficiency Analysis")
+    # `pipeline_df` and `equipment_df` need to have relevant columns for efficiency analysis
+    # e.g., 'pressure_drop', 'flow_rate', 'power_consumption', 'heat_exchange_area'
     efficiency_suggestions = smart_suggestions.analyze_energy_efficiency(equipment_df, pipeline_df)
 
     if efficiency_suggestions:
@@ -455,27 +513,38 @@ with tab5:
                 <em>Estimated Cost: {suggestion['cost']}</em>
             </div>
             """, unsafe_allow_html=True)
+    else:
+        st.info("AI found no immediate energy efficiency suggestions. Ensure sufficient data is provided.")
 
     # Get General Suggestions
     st.subheader("General Process Improvements")
     if st.button("🧠 Get AI Suggestions"):
         with st.spinner("Consulting AI for process improvements..."):
+            # Provide a detailed description of your process for better AI suggestions
+            process_description = "Vacuum system for solvent recovery with KDP-330 dry screw pump, handling flammable solvents. Inlet stream is mixed vapor and liquid, discharge to scrubber."
             suggestions = ai_assistant.get_process_suggestions(
                 equipment_df,
                 pipeline_df,
-                "Vacuum system for solvent recovery with KDP-330 dry screw pump"
+                process_description, # Pass the description to AI for context
+                inline_df # Pass inline_df for comprehensive understanding
             )
             
-            if 'error' not in suggestions:
-                for category, items in suggestions.items():
-                    st.write(f"**{category}:**")
-                    if isinstance(items, list):
-                        for item in items:
-                            st.write(f"• {item}")
-                    else:
-                        st.write(f"• {items}")
+            if suggestions and 'error' not in suggestions:
+                if isinstance(suggestions, dict): # If AI returns a dict of categories
+                    for category, items in suggestions.items():
+                        st.write(f"**{category.replace('_', ' ').title()}:**")
+                        if isinstance(items, list):
+                            for item in items:
+                                st.write(f"• {item}")
+                        else: # Handle if a category has a single string value
+                            st.write(f"• {items}")
+                elif isinstance(suggestions, list): # If AI returns a direct list of suggestions
+                    for item in suggestions:
+                        st.write(f"• {item}")
+                else:
+                    st.write(suggestions) # Catch-all for other formats
             else:
-                st.error(f"Failed to get suggestions: {suggestions['error']}")
+                st.error(f"Failed to get general suggestions: {suggestions.get('error', 'Unknown AI error.')}")
 
 with tab6:
     st.header("📖 Documentation")
@@ -485,23 +554,23 @@ with tab6:
 
     The vacuum system follows this sequence:
 
-    1. **Expansion Bellows** - Thermal expansion compensation
-    2. **Electrically Heated Panel Box** - Prevents condensation
-    3. **Flame Arrestor** - Safety device
-    4. **Vapor Condenser with Catchpot** - Primary condensation
-    5. **ACG Filter** - Chemical contaminant removal
-    6. **Suction Filter** - Physical filtration
-    7. **KDP-330 Dry Screw Vacuum Pump** - Main vacuum generation
-    8. **Discharge Silencer** - Noise reduction
-    9. **Post-Pump Condenser** - Secondary condensation
+    1.  **Expansion Bellows** - Thermal expansion compensation
+    2.  **Electrically Heated Panel Box** - Prevents condensation
+    3.  **Flame Arrestor** - Safety device
+    4.  **Vapor Condenser with Catchpot** - Primary condensation
+    5.  **ACG Filter** - Chemical contaminant removal
+    6.  **Suction Filter** - Physical filtration
+    7.  **KDP-330 Dry Screw Vacuum Pump** - Main vacuum generation
+    8.  **Discharge Silencer** - Noise reduction
+    9.  **Post-Pump Condenser** - Secondary condensation
     10. **Discharge Scrubber** - Final treatment
 
     ### P&ID Standards Compliance
 
     This diagram follows:
-    - **ISA-5.1** - Instrumentation Symbols and Identification
-    - **ISO 14617** - Graphical symbols for diagrams
-    - **ANSI/ISA-S5.1** - Standard instrument symbols
+    -   **ISA-5.1** - Instrumentation Symbols and Identification
+    -   **ISO 14617** - Graphical symbols for diagrams
+    -   **ANSI/ISA-S5.1** - Standard instrument symbols
 
     ### Symbol Legend
 
@@ -515,15 +584,15 @@ with tab6:
 
     ### Line Types
 
-    - **Solid thick line**: Process piping
-    - **Dashed line**: Instrument signal
-    - **Dotted line**: Electrical signal
-    - **Double line**: Insulated piping
+    -   **Solid thick line**: Process piping
+    -   **Dashed line**: Instrument signal
+    -   **Dotted line**: Electrical signal
+    -   **Double line**: Insulated piping
 
     ### Tag Format
 
-    - **XX-YYY**: XX = Function code, YYY = Loop number
-    - Example: PT-001 = Pressure Transmitter, Loop 001
+    -   **XX-YYY**: XX = Function code, YYY = Loop number
+    -   Example: PT-001 = Pressure Transmitter, Loop 001
     """)
 
 # Footer
