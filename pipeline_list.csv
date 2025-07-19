@@ -1,16 +1,24 @@
 ID,Name,Service,Min_Diameter_DN,Max_Diameter_DN,Material,Design_Pressure_bar,Design_Temperature_C,Line_Weight,Stroke_Dasharray,Flow_Arrow_Required,Default_Layout_Offset,Source,Destination,Source Port,Destination Port
-PROCESS_LINE_1,Process Line to Y-Strainer,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,EB-001,YS-001,right,inlet
-PROCESS_LINE_2,Y-Strainer to Suction Filter,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,YS-001,SF-001,outlet,inlet_top
-PROCESS_LINE_3,Suction Filter to Pump,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,SF-001,P-001,outlet_bottom,suction
-PROCESS_LINE_4,Pump Discharge to Catch Pot,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,P-001,CPT-001,discharge,inlet
-PROCESS_LINE_5,Catch Pot to Scrubber,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,CPT-001,SCR-001,outlet,gas_inlet
-PROCESS_LINE_6,Scrubber to Condenser,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,SCR-001,C-001,gas_outlet,process_in
-PROCESS_LINE_7,Condenser to Catch Pot 2,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,C-001,CPT-002,process_out,inlet
-PROCESS_LINE_8,Catch Pot 2 to Flame Arrestor,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,CPT-002,FA-001,outlet,inlet
-PROCESS_LINE_9,Flame Arrestor to Silencer,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,FA-001,SIL-001,outlet,inlet
-COOLING_WATER_IN,Cooling Water Supply,Cooling Water,25,25,Carbon Steel,6,40,1.5,,True,0,UTILITY_IN,C-001,inlet,cooling_in
-COOLING_WATER_OUT,Cooling Water Return,Cooling Water,25,25,Carbon Steel,6,40,1.5,,True,0,C-001,UTILITY_OUT,cooling_out,outlet
-NITROGEN_PURGE,Nitrogen Purge Line,Nitrogen Purge,15,25,Stainless Steel 304,7,30,1.0,5 5,False,0,N2_SUPPLY,YS-001,outlet,purge_port
-DRAIN_LINE_1,Catch Pot Drain,Drain,25,25,Carbon Steel,2,60,1.0,,False,0,CPT-001,DP-001,drain,inlet
-DRAIN_LINE_2,Scrubber Drain,Drain,25,25,Carbon Steel,2,60,1.0,,False,0,SCR-001,DP-001,drain,inlet
-INSTRUMENT_SIGNAL_1,Pressure Control,Instrument Signal,6,6,Copper,7,30,0.5,3 3,False,0,PT-001,CP-001,signal,input
+PROCESS_LINE_1,Process Inlet to Expansion Bellows,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,INLET,EB-001,outlet,inlet
+PROCESS_LINE_2,Expansion Bellows to Heated Panel,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,EB-001,EPB-001,outlet,inlet
+PROCESS_LINE_3,Heated Panel to Flame Arrestor,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,EPB-001,FA-001,outlet,inlet
+PROCESS_LINE_4,Flame Arrestor to Vapor Condenser,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,FA-001,C-001,outlet,process_in
+PROCESS_LINE_5,Vapor Condenser to ACG Filter,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,C-001,ACG-001,process_out,inlet
+PROCESS_LINE_6,ACG Filter to Suction Filter,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,ACG-001,SF-001,outlet,inlet_top
+PROCESS_LINE_7,Suction Filter to KDP-330 Pump,Process Vacuum,100,100,Stainless Steel 316,Full Vacuum,80,3.0,,True,0,SF-001,P-001,outlet_bottom,suction
+PROCESS_LINE_8,Pump Discharge to Silencer,Process,50,50,Stainless Steel 316,1,120,2.0,,True,0,P-001,SIL-001,discharge,inlet
+PROCESS_LINE_9,Silencer to Post-Pump Condenser,Process,50,50,Stainless Steel 316,1,120,2.0,,True,0,SIL-001,C-002,outlet,process_in
+PROCESS_LINE_10,Post-Pump Condenser to Scrubber,Process,50,50,Stainless Steel 316,1,100,2.0,,True,0,C-002,SCR-001,process_out,gas_inlet
+PROCESS_LINE_11,Scrubber to Atmosphere,Process,50,50,Stainless Steel 316,1,80,2.0,,True,0,SCR-001,OUTLET,gas_outlet,inlet
+COOLING_WATER_IN_1,Cooling Water to Pre-Pump Condenser,Cooling Water,25,25,Carbon Steel,6,40,1.5,,True,0,CT-001,C-001,cold_water_out,cooling_in
+COOLING_WATER_OUT_1,Pre-Pump Condenser Return,Cooling Water,25,25,Carbon Steel,6,60,1.5,,True,0,C-001,CT-001,cooling_out,hot_water_in
+COOLING_WATER_IN_2,Cooling Water to Post-Pump Condenser,Cooling Water,25,25,Carbon Steel,6,40,1.5,,True,0,CT-001,C-002,cold_water_out,cooling_in
+COOLING_WATER_OUT_2,Post-Pump Condenser Return,Cooling Water,25,25,Carbon Steel,6,60,1.5,,True,0,C-002,CT-001,cooling_out,hot_water_in
+COOLING_WATER_PUMP,Cooling Water Pump Line,Cooling Water,50,50,Carbon Steel,6,40,2.0,,True,0,WP-001,CT-001,discharge,makeup
+DRAIN_LINE_1,Condenser 1 Drain,Drain,25,25,Carbon Steel,2,60,1.0,,False,0,C-001,DP-001,drain,inlet
+DRAIN_LINE_2,Condenser 2 Drain,Drain,25,25,Carbon Steel,2,60,1.0,,False,0,C-002,DP-001,drain,inlet
+DRAIN_LINE_3,Scrubber Drain,Drain,25,25,Carbon Steel,2,60,1.0,,False,0,SCR-001,DP-001,drain,inlet
+INSTRUMENT_SIGNAL_1,Pressure Control Loop,Instrument Signal,6,6,Copper,7,30,0.5,"3 3",False,0,PT-001,CP-001,signal,input
+INSTRUMENT_SIGNAL_2,Temperature Control Loop,Instrument Signal,6,6,Copper,7,30,0.5,"3 3",False,0,TT-001,CP-001,signal,input
+INSTRUMENT_SIGNAL_3,Flow Control Loop,Instrument Signal,6,6,Copper,7,30,0.5,"3 3",False,0,FT-001,CP-001,signal,input
+INSTRUMENT_SIGNAL_4,Level Control Loop,Instrument Signal,6,6,Copper,7,30,0.5,"3 3",False,0,LS-001,CP-001,signal,input
