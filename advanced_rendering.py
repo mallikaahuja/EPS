@@ -2,6 +2,22 @@
 
 # Keep this import as per your existing structure
 from professional_symbols import get_component_symbol
+import json # Added this import to handle JSON strings in dataframes later if needed
+import pandas as pd # Assuming equipment_df is a pandas DataFrame
+
+# Add this __all__ at the top, after imports
+__all__ = [
+    'draw_svg_symbol',
+    'render_line_with_gradient',
+    'render_signal_line',
+    'render_tag_bubble',
+    'render_grid',
+    'render_border',
+    'render_title_block',
+    'render_bom_block',
+    'render_legend_block',
+    'render_scope_boundary'
+]
 
 def draw_svg_symbol(component_id, width=80, height=80):
     """
@@ -13,7 +29,7 @@ def draw_svg_symbol(component_id, width=80, height=80):
     # to match the drawing_engine.py calls.
     return get_component_symbol(component_id, target_width=width, target_height=height)
 
-def render_line_with_gradient(points, pipe_type="process", arrow=True): # Renamed pipe_style to pipe_type for consistency
+def render_line_with_gradient(points, pipe_type="process", arrow=True):
     """
     Industrial pipeline with ISA-compliant style based on its type.
     Incorporates detailed styling guidance.
@@ -55,6 +71,7 @@ def render_line_with_gradient(points, pipe_type="process", arrow=True): # Rename
     path_d = f"M {pts_str.replace(' ', ' L ')}"
     return f'<path d="{path_d}" fill="none" stroke="{stroke_color}" stroke-width="{stroke_width}"{dash_array}{marker_end}/>'
 
+
 def render_signal_line(points, sig_type="signal"): # Added sig_type for potential future differentiation
     """
     Dashed signal line (for control/instrumentation).
@@ -72,10 +89,11 @@ def render_signal_line(points, sig_type="signal"): # Added sig_type for potentia
     pts_str = " ".join([f"{int(x)},{int(y)}" for (x, y) in points])
     return f'<polyline points="{pts_str}" stroke="{stroke_color}" stroke-width="2" fill="none"{dash_array}{marker} />'
 
+
 def render_tag_bubble(x, y, tag, font_size=11, tag_type="circle"): # Adjusted default font_size to 11
     """
     Draw ISA-style tag bubble (circle or rectangle) at (x, y) with label.
-    Splits tags like "PI-101" into primary ("PI") and secondary ("101").
+    Splits tags like “PI-101” into primary (“PI”) and secondary (“101”).
     """
     parts = tag.split('-')
     main_tag_content = parts[0]
@@ -109,6 +127,7 @@ def render_tag_bubble(x, y, tag, font_size=11, tag_type="circle"): # Adjusted de
         svg += f'<text x="{x}" y="{y+7}" font-size="{font_size}" font-family="Arial" font-weight="bold" text-anchor="middle">{tag}</text>'
     return svg
 
+
 def render_grid(width=2000, height=1100, spacing=100):
     """
     Faint engineering grid.
@@ -120,11 +139,13 @@ def render_grid(width=2000, height=1100, spacing=100):
         lines += f'<line x1="0" y1="{y}" x2="{width}" y2="{y}" stroke="#eee" stroke-width="1"/>'
     return f'<g id="grid">{lines}</g>'
 
+
 def render_border(width=2000, height=1100):
     """
     Thick border, just like your reference.
     """
     return f'<rect x="6" y="6" width="{width-12}" height="{height-12}" fill="none" stroke="#222" stroke-width="3"/>'
+
 
 def render_title_block(
     title="TENTATIVE P&ID DRAWING FOR SUCTION FILTER + KDP-330",
@@ -138,62 +159,144 @@ def render_title_block(
     """
     Bottom-right title block, like a real P&ID.
     """
-    x0, y0 = 1580, 990
-    svg = f"""
+    x0, y0 = 1650, 1050
+    svg = f'''
 <g id="titleblock">
-<rect x="{x0}" y="{y0}" width="400" height="90" fill="#fff" stroke="#111" stroke-width="2"/>
-<text x="{x0+20}" y="{y0+30}" font-size="19" font-family="Arial" font-weight="bold">{title}</text>
-<text x="{x0+20}" y="{y0+52}" font-size="14" font-family="Arial">Project: {project}</text>
-<text x="{x0+20}" y="{y0+70}" font-size="14" font-family="Arial">Rev: {rev}   Scale: {scale}   Date: {date}</text>
-<text x="{x0+260}" y="{y0+52}" font-size="12" font-family="Arial" text-anchor="end">{company}</text>
-<text x="{x0+380}" y="{y0+82}" font-size="11" font-family="Arial" text-anchor="end">Sheet: {sheet}</text>
+    <rect x="{x0}" y="{y0}" width="700" height="120" fill="#fff" stroke="#111" stroke-width="2"/>
+    <line x1="{x0}" y1="{y0+30}" x2="{x0+700}" y2="{y0+30}" stroke="#111" stroke-width="1"/>
+    <line x1="{x0+500}" y1="{y0+30}" x2="{x0+500}" y2="{y0+120}" stroke="#111" stroke-width="1"/>
+    <text x="{x0+20}" y="{y0+20}" font-size="16" font-family="Arial" font-weight="bold">{title}</text>
+    <text x="{x0+20}" y="{y0+50}" font-size="12" font-family="Arial">Project: {project}</text>
+    <text x="{x0+20}" y="{y0+70}" font-size="12" font-family="Arial">Rev: {rev}</text>
+    <text x="{x0+20}" y="{y0+90}" font-size="12" font-family="Arial">Scale: {scale}</text>
+    <text x="{x0+20}" y="{y0+110}" font-size="12" font-family="Arial">Date: {date}</text>
+    <text x="{x0+250}" y="{y0+70}" font-size="12" font-family="Arial">{company}</text>
+    <text x="{x0+520}" y="{y0+60}" font-size="11" font-family="Arial">ISSUED FOR APPROVAL</text>
+    <text x="{x0+520}" y="{y0+80}" font-size="11" font-family="Arial">PSP</text>
+    <text x="{x0+600}" y="{y0+80}" font-size="11" font-family="Arial">PP</text>
+    <text x="{x0+650}" y="{y0+80}" font-size="11" font-family="Arial">PP</text>
+    <text x="{x0+520}" y="{y0+100}" font-size="11" font-family="Arial">REV NO: {rev}</text>
+    <text x="{x0+620}" y="{y0+110}" font-size="11" font-family="Arial" text-anchor="end">Sheet: {sheet}</text>
 </g>
-"""
+'''
     return svg
 
-def render_bom_block(equipment_df, x0=40, y0=930, width=700, row_h=28):
+
+def render_scope_boundary(x, y, width, height, label="CUSTOMER SCOPE"):
     """
-    Lower-left Bill of Materials block, matching your reference.
+    Render scope boundary box with label
     """
-    # Header
-    svg = f'<g id="bomblock">'
-    svg += f'<rect x="{x0}" y="{y0}" width="{width}" height="{row_h}" fill="#eee" stroke="#111" stroke-width="2"/>'
-    svg += f'<text x="{x0+15}" y="{y0+20}" font-size="15" font-family="Arial" font-weight="bold">BILL OF MATERIAL</text>'
-    # Columns
-    cols = ["SR NO", "DESCRIPTION"]
-    col_widths = [70, width-70]
-    for i, col in enumerate(cols):
-        svg += f'<text x="{x0+sum(col_widths[:i])+12}" y="{y0+45}" font-size="13" font-weight="bold">{col}</text>'
-    # Rows
-    y = y0 + row_h + 20
-    for idx, row in enumerate(equipment_df.itertuples(), 1):
-        # Truncate description more aggressively if it overflows
-        desc = str(getattr(row, "Description", ""))
-        if len(desc) > 60: # Adjusted truncation length
-            desc = desc[:57] + "..."
-        svg += f'<text x="{x0+25}" y="{y+idx*row_h}" font-size="13">{idx}</text>'
-        svg += f'<text x="{x0+90}" y="{y+idx*row_h}" font-size="13">{desc}</text>'
+    svg = f'<g class="scope-boundary">'
+    svg += f'<rect x="{x}" y="{y}" width="{width}" height="{height}" fill="none" stroke="#666" stroke-width="2" stroke-dasharray="10,5"/>'
+    svg += f'<rect x="{x}" y="{y-25}" width="{len(label)*8+10}" height="20" fill="white" stroke="#666" stroke-width="1"/>'
+    svg += f'<text x="{x+5}" y="{y-10}" font-size="12" font-family="Arial" fill="#666">{label}</text>'
     svg += '</g>'
     return svg
 
-def render_legend_block(equipment_df, x0=750, y0=930, width=750, row_h=28):
+
+def render_bom_block(equipment_df, x0=40, y0=850, width=900, row_h=20):
     """
-    Lower-center legend block with all tags/descriptions.
+    Lower-left Bill of Materials block, matching your reference.
     """
-    svg = f'<g id="legendblock">'
-    svg += f'<rect x="{x0}" y="{y0}" width="{width}" height="{row_h}" fill="#eee" stroke="#111" stroke-width="2"/>'
-    svg += f'<text x="{x0+15}" y="{y0+20}" font-size="15" font-family="Arial" font-weight="bold">LEGEND</text>'
-    cols = ["TAG", "DESCRIPTION"]
-    col_widths = [120, width-120]
+    # Filter for main equipment only (not valves or instruments)
+    main_equipment = equipment_df[
+        ~equipment_df['type'].isin(['valve', 'instrument']) &
+        ~equipment_df['ID'].str.contains('V-|PT-|TT-|FT-|LS-|PG-|TG-')
+    ]
+
+    # Header
+    svg = f'<g id="bomblock">'
+    svg += f'<rect x="{x0}" y="{y0}" width="{width}" height="{row_h+5}" fill="#eee" stroke="#111" stroke-width="2"/>'
+    svg += f'<text x="{x0+15}" y="{y0+18}" font-size="14" font-family="Arial" font-weight="bold">BILL OF MATERIAL</text>'
+
+    # Column headers
+    cols = ["ITEM", "DESCRIPTION", "TAG", "QTY"]
+    col_widths = [60, 600, 100, 60]
+    col_x = x0
+    y_header = y0 + row_h + 5
+    svg += f'<rect x="{x0}" y="{y_header}" width="{width}" height="{row_h}" fill="#f5f5f5" stroke="#111" stroke-width="1"/>'
+
     for i, col in enumerate(cols):
-        svg += f'<text x="{x0+sum(col_widths[:i])+12}" y="{y0+45}" font-size="13" font-weight="bold">{col}</text>'
-    y = y0 + row_h + 20
-    for idx, row in enumerate(equipment_df.itertuples()):
-        tag = str(getattr(row, "ID", ""))[:16]
+        svg += f'<text x="{col_x + 10}" y="{y_header + 15}" font-size="11" font-weight="bold" font-family="Arial">{col}</text>'
+        col_x += col_widths[i]
+
+    # Rows
+    y = y_header + row_h
+    for idx, row in enumerate(main_equipment.itertuples(), 1):
+        svg += f'<rect x="{x0}" y="{y}" width="{width}" height="{row_h}" fill="white" stroke="#ccc" stroke-width="0.5"/>'
+
+        col_x = x0
+        # Item number
+        svg += f'<text x="{col_x + 10}" y="{y + 15}" font-size="10" font-family="Arial">{idx}</text>'
+        col_x += col_widths[0]
+
+        # Description
         desc = str(getattr(row, "Description", ""))
-        if len(desc) > 50: # Adjusted truncation length
-            desc = desc[:47] + "..."
-        svg += f'<text x="{x0+25}" y="{y+idx*row_h}" font-size="13">{tag}</text>'
-        svg += f'<text x="{x0+155}" y="{y+idx*row_h}" font-size="13">{desc}</text>'
+        if len(desc) > 80:
+            desc = desc[:77] + "..."
+        svg += f'<text x="{col_x + 10}" y="{y + 15}" font-size="10" font-family="Arial">{desc}</text>'
+        col_x += col_widths[1]
+
+        # Tag
+        tag = str(getattr(row, "ID", ""))
+        svg += f'<text x="{col_x + 10}" y="{y + 15}" font-size="10" font-family="Arial">{tag}</text>'
+        col_x += col_widths[2]
+
+        # Quantity (always 1 for equipment)
+        svg += f'<text x="{col_x + 10}" y="{y + 15}" font-size="10" font-family="Arial">1</text>'
+
+        y += row_h
+
+    # Border around entire BOM
+    total_height = y - y0
+    svg += f'<rect x="{x0}" y="{y0}" width="{width}" height="{total_height}" fill="none" stroke="#111" stroke-width="2"/>'
+
+    svg += '</g>'
+    return svg
+
+
+def render_legend_block(equipment_df, x0=1000, y0=850, width=600, row_h=20):
+    """
+    Lower-right legend block with all tags/descriptions.
+    """
+    # Include all items for legend
+    svg = f'<g id="legendblock">'
+    svg += f'<rect x="{x0}" y="{y0}" width="{width}" height="{row_h+5}" fill="#eee" stroke="#111" stroke-width="2"/>'
+    svg += f'<text x="{x0+15}" y="{y0+18}" font-size="14" font-family="Arial" font-weight="bold">LEGEND</text>'
+
+    # Column headers
+    cols = ["TAG", "DESCRIPTION"]
+    col_widths = [100, width-100]
+    col_x = x0
+    y_header = y0 + row_h + 5
+    svg += f'<rect x="{x0}" y="{y_header}" width="{width}" height="{row_h}" fill="#f5f5f5" stroke="#111" stroke-width="1"/>'
+
+    for i, col in enumerate(cols):
+        svg += f'<text x="{col_x + 10}" y="{y_header + 15}" font-size="11" font-weight="bold" font-family="Arial">{col}</text>'
+        col_x += col_widths[i]
+
+    # Rows - sorted by tag
+    sorted_df = equipment_df.sort_values('ID')
+    y = y_header + row_h
+
+    for idx, row in enumerate(sorted_df.itertuples()):
+        svg += f'<rect x="{x0}" y="{y}" width="{width}" height="{row_h}" fill="white" stroke="#ccc" stroke-width="0.5"/>'
+
+        # Tag
+        tag = str(getattr(row, "ID", ""))[:16]
+        svg += f'<text x="{x0 + 10}" y="{y + 15}" font-size="10" font-family="Arial">{tag}</text>'
+
+        # Description
+        desc = str(getattr(row, "Description", ""))
+        if len(desc) > 65:
+            desc = desc[:62] + "..."
+        svg += f'<text x="{x0 + 110}" y="{y + 15}" font-size="10" font-family="Arial">{desc}</text>'
+
+        y += row_h
+
+    # Border around entire legend
+    total_height = y - y0
+    svg += f'<rect x="{x0}" y="{y0}" width="{width}" height="{total_height}" fill="none" stroke="#111" stroke-width="2"/>'
+
     svg += '</g>'
     return svg
