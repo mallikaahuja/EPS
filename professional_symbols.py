@@ -1,5 +1,3 @@
-I can definitely help you with that! It looks like you have a mix of smart quotes (“”, ’’) and some indentation issues, especially with the multi-line SVG strings. Python requires standard straight double quotes (") or single quotes (') for string literals, and """ or ''' for multiline strings (docstrings and other multi-line content).
-Here's the corrected code with all quotes standardized to " or ''' and consistent indentation.
 """
 Professional ISA Symbol Library - Fixed Version
 Includes all symbols for the vacuum system P&ID
