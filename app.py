@@ -40,7 +40,7 @@ st.markdown("""
         padding: 10px;
         border-radius: 5px;
         margin: 5px 0;
-        border-left: 4_px solid #0066cc;
+        border-left: 4px solid #0066cc;
     }
     .validation-success {
         background-color: #d4edda;
@@ -68,7 +68,7 @@ st.markdown("""
     }
     .ai-suggestion {
         background-color: #e7f3ff;
-        border-left: 4_px solid #2196F3;
+        border-left: 4px solid #2196F3;
         padding: 10px;
         margin: 10px 0;
         border-radius: 5px;
@@ -79,9 +79,23 @@ st.markdown("""
 # Initialize AI Assistant
 @st.cache_resource
 def init_ai_assistant():
+    # Directly retrieve keys from environment variables
+    openai_key = os.getenv("OPENAI_API_KEY")
+    stability_key = os.getenv("STABILITY_API_KEY")
+
+    # Add a check to ensure keys are actually present
+    if not openai_key:
+        st.error("Error: OPENAI_API_KEY environment variable not found. "
+                 "Please set it in your Railway project's variables.")
+        st.stop() # Stop the app if a critical secret is missing
+    if not stability_key:
+        st.error("Error: STABILITY_API_KEY environment variable not found. "
+                 "Please set it in your Railway project's variables.")
+        st.stop() # Stop the app if a critical secret is missing
+
     return PnIDAIAssistant(
-        openai_key=st.secrets.get("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY")),
-        stability_key=st.secrets.get("STABILITY_API_KEY", os.getenv("STABILITY_API_KEY"))
+        openai_key=openai_key,
+        stability_key=stability_key
     )
 
 ai_assistant = init_ai_assistant()
@@ -113,7 +127,7 @@ with st.sidebar:
     zoom_level = st.slider("Zoom Level", 50, 200, 100, 5)
 
     # Export format
-    st.subheader("Export Options")
+    st.subheader("Export Format", help="Choose the format for diagram export.")
     export_format = st.selectbox(
         "Export Format",
         ["PNG (High Resolution)", "DXF (AutoCAD)", "SVG (Vector)", "PDF (Document)"]
@@ -173,12 +187,16 @@ with tab1:
             # Check for missing symbols and generate if needed
             if enable_symbol_generation:
                 missing_symbols = []
-                for _, row in equipment_df.iterrows():
-                    symbol_id = row['ID']
-                    # Check if symbol exists (you'd implement this check)
-                    # For now, assuming we check in professional_symbols
-                    
-                if missing_symbols:
+                # Placeholder: In a real app, you'd check a database or local asset folder
+                # to see if symbols for equipment_df['ID'] already exist.
+                # For demonstration, let's assume some are always missing if enabled:
+                # if enable_symbol_generation:
+                #     for _, row in equipment_df.iterrows():
+                #         # Example condition: if symbol file for row['ID'] does not exist
+                #         # if not os.path.exists(f"symbols/{row['ID']}.svg"): 
+                #         missing_symbols.append({'name': row['ID'], 'type': row['type']})
+                
+                if missing_symbols: # This block will only execute if missing_symbols has items
                     with st.spinner(f"🎨 Generating {len(missing_symbols)} missing symbols with AI..."):
                         for symbol in missing_symbols:
                             ai_assistant.generate_missing_symbol(
