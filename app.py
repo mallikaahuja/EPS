@@ -202,7 +202,7 @@ with tab1:
             with st.spinner("🎨 Rendering P&ID..."):
                 pid_svg = render_svg(
                     equipment_df, pipeline_df, inline_df,
-                    positions, pipelines, inlines, # Note: pipelines, inlines are from compute_positions_and_routing
+                    positions,inlines, # Note: pipelines, inlines are from compute_positions_and_routing
                     width=diagram_width,
                     height=diagram_height,
                     show_grid=show_grid,
