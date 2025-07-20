@@ -20,7 +20,7 @@ from advanced_rendering import ( # Assuming all modules are in the same director
 # Make sure cairosvg is installed (pip install cairosvg)
 import cairosvg 
 
-def render_svg(equipment_df, pipeline_df, inline_df, positions, inlines,
+def render_svg(equipment_df, pipeline_df, inline_df, positions, pipelines, inlines,
                width=2000, height=1100, show_grid=True, show_legend=True, show_title=True):
     """
     Renders a complete P&ID SVG string based on provided dataframes and layout.
