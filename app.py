@@ -209,9 +209,9 @@ with tab1:
                     inlines,
                     diagram_width, # <--- Pass diagram_width as a positional argument here
                     diagram_height, # <--- Pass diagram_height as a positional argument here
-                    show_grid=show_grid,
-                    show_legend=show_legend,
-                    show_title=show_title,
+                    show_grid,
+                    show_legend,
+                    show_title,
                 )
 
             # Display with zoom
