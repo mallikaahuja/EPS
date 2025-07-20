@@ -79,18 +79,29 @@ def render_svg(equipment_df, pipeline_df, inline_df, positions, pipelines, inlin
         
         # Render the line with appropriate style
         svg_layers.append(render_line_with_gradient(pts, pipe_type=pipe_type, arrow=True))
-        
-        # Add line number label if present
+                # Add line number label if present
         line_number = pipe.get("line_number", "")
-        if line_number and len(pts) >= 2:
+        # Safely convert to string if not empty and not NaN/None
+        try:
+            from math import isnan
+        except ImportError:
+            def isnan(x): return False
+
+        # Treat as empty string if None, NaN, or blank
+        if line_number is None or (isinstance(line_number, float) and (line_number != line_number or isnan(line_number))) or line_number == "":
+            line_number_str = ""
+        else:
+            line_number_str = str(line_number)
+
+        if line_number_str and len(pts) >= 2:
             # Place label at midpoint of first segment
             mid_x = (pts[0][0] + pts[1][0]) / 2
             mid_y = (pts[0][1] + pts[1][1]) / 2
-            
+
             # Create label background and text
-            label_width = len(line_number) * 7 + 10
+            label_width = len(line_number_str) * 7 + 10
             svg_layers.append(f'<rect x="{mid_x - label_width/2}" y="{mid_y - 9}" width="{label_width}" height="18" fill="white" stroke="black" stroke-width="0.5"/>')
-            svg_layers.append(f'<text x="{mid_x}" y="{mid_y + 4}" font-size="10" text-anchor="middle" font-family="Arial">{line_number}</text>')
+            svg_layers.append(f'<text x="{mid_x}" y="{mid_y + 4}" font-size="10" text-anchor="middle" font-family="Arial">{line_number_str}</text>')
 
     # --- Equipment symbols & tag bubbles ---
     for _, row in equipment_df.iterrows():
