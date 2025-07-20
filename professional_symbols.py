@@ -1,501 +1,613 @@
+# professional_symbols_fixed.py
+
 """
-Professional ISA Symbol Library - Complete Working Version
-All symbols properly defined for the vacuum system P&ID
+Professional P&ID Symbols - Using Industry Standard Libraries
+Part 1: Core Infrastructure and Basic Symbols
+Uses schemdraw + plotly for professional quality output
 """
+import schemdraw
+import schemdraw.elements as elm
+import plotly.graph_objects as go
+import plotly.express as px
+from plotly.subplots import make_subplots
+import numpy as np
+import pandas as pd
+import json
+from typing import Dict, List, Tuple, Optional
 
-import re
-import os # Added for path handling
-
-# Ensure 'symbols' directory exists for generated symbols
-symbols_dir = "symbols"
-os.makedirs(symbols_dir, exist_ok=True)
-
-# Symbol mapping by ID and type
-SYMBOL_ID_MAPPING = {
-    'EB-001': 'expansion_bellows',
-    'EPB-001': 'electrical_panel_box',
-    'FA-001': 'flame_arrestor',
-    'C-001': 'vapor_condenser',
-    'ACG-001': 'acg_filter',
-    'SF-001': 'suction_filter',
-    'P-001': 'kdp_pump',
-    'SIL-001': 'silencer',
-    'C-002': 'condenser_discharge',
-    'SCR-001': 'scrubber',
-    'CP-001': 'control_panel',
-    'WP-001': 'water_pump',
-    'CT-001': 'cooling_tower',
-    'MV-001': 'motor',
-    'DP-001': 'drain_point',
-    'V-001': 'gate_valve',
-    'V-002': 'gate_valve',
-    'V-003': 'gate_valve',
-    'V-004': 'gate_valve',
-    'NRV-001': 'check_valve',
-    'SV-001': 'solenoid_valve',
-    'PT-001': 'pressure_transmitter',
-    'TT-001': 'temperature_transmitter',
-    'FT-001': 'flow_transmitter',
-    'LS-001': 'level_switch',
-    'PG-001': 'pressure_gauge',
-    'PG-002': 'pressure_gauge',
-    'TG-001': 'temperature_gauge',
-    'PSV-001': 'pressure_relief_valve',
-    'PR-001': 'pressure_regulator',
-    'RM-001': 'rotameter'
-}
-
-PROFESSIONAL_ISA_SYMBOLS = {
-    # EXPANSION BELLOWS - Wavy flexible connector
-    'expansion_bellows': '''
-        <rect x="10" y="35" width="60" height="10" fill="none" stroke="black" stroke-width="2"/>
-        <path d="M 15,30 Q 20,25 25,30 Q 30,35 35,30 Q 40,25 45,30 Q 50,35 55,30 Q 60,25 65,30" 
-        fill="none" stroke="black" stroke-width="2"/>
-        <path d="M 15,50 Q 20,55 25,50 Q 30,45 35,50 Q 40,55 45,50 Q 50,45 55,50 Q 60,55 65,50" 
-        fill="none" stroke="black" stroke-width="2"/>
-        <line x1="15" y1="30" x2="15" y2="50" stroke="black" stroke-width="2"/>
-        <line x1="65" y1="30" x2="65" y2="50" stroke="black" stroke-width="2"/>
-    ''',
-
-    # ELECTRICAL PANEL BOX - Box with FLP/NFLP marking
-    'electrical_panel_box': '''
-        <rect x="10" y="10" width="60" height="60" rx="3" fill="white" stroke="black" stroke-width="2.5"/>
-        <rect x="15" y="15" width="50" height="50" fill="none" stroke="black" stroke-width="1"/>
-        <text x="40" y="28" font-size="10" text-anchor="middle" font-family="Arial" font-weight="bold">FLP</text>
-        <line x1="15" y1="35" x2="65" y2="35" stroke="black" stroke-width="1"/>
-        <text x="40" y="48" font-size="10" text-anchor="middle" font-family="Arial" font-weight="bold">NFLP</text>
-        <circle cx="25" cy="58" r="2" fill="black"/>
-        <circle cx="40" cy="58" r="2" fill="black"/>
-        <circle cx="55" cy="58" r="2" fill="black"/>
-    ''',
-
-    # FLAME ARRESTOR - Grid pattern in box
-    'flame_arrestor': '''
-        <rect x="20" y="30" width="40" height="20" fill="white" stroke="black" stroke-width="2.5"/>
-        <line x1="30" y1="30" x2="30" y2="50" stroke="black" stroke-width="1.5"/>
-        <line x1="35" y1="30" x2="35" y2="50" stroke="black" stroke-width="1.5"/>
-        <line x1="40" y1="30" x2="40" y2="50" stroke="black" stroke-width="1.5"/>
-        <line x1="45" y1="30" x2="45" y2="50" stroke="black" stroke-width="1.5"/>
-        <line x1="50" y1="30" x2="50" y2="50" stroke="black" stroke-width="1.5"/>
-        <line x1="10" y1="40" x2="20" y2="40" stroke="black" stroke-width="2"/>
-        <line x1="60" y1="40" x2="70" y2="40" stroke="black" stroke-width="2"/>
-    ''',
-
-    # VAPOR CONDENSER WITH INTEGRATED CATCHPOT
-    'vapor_condenser': '''
-        <rect x="20" y="15" width="40" height="35" stroke="black" stroke-width="2" fill="white"/>
-        <path d="M 25,20 L 35,30 L 25,40" stroke="black" stroke-width="2" fill="none"/>
-        <path d="M 55,20 L 45,30 L 55,40" stroke="black" stroke-width="2" fill="none"/>
-        <ellipse cx="40" cy="55" rx="20" ry="5" stroke="black" stroke-width="2" fill="white"/>
-        <rect x="20" y="55" width="40" height="15" stroke="black" stroke-width="2" fill="white"/>
-        <ellipse cx="40" cy="70" rx="20" ry="5" stroke="black" stroke-width="2" fill="white"/>
-        <line x1="10" y1="30" x2="20" y2="30" stroke="black" stroke-width="2"/>
-        <line x1="60" y1="30" x2="70" y2="30" stroke="black" stroke-width="2"/>
-        <line x1="40" y1="70" x2="40" y2="75" stroke="black" stroke-width="2"/>
-    ''',
-
-    # ACG (ACTIVATED CARBON) FILTER
-    'acg_filter': '''
-        <rect x="25" y="10" width="30" height="60" rx="15" stroke="black" stroke-width="2.5" fill="white"/>
-        <circle cx="40" cy="25" r="1.5" fill="black"/>
-        <circle cx="35" cy="30" r="1.5" fill="black"/>
-        <circle cx="45" cy="30" r="1.5" fill="black"/>
-        <circle cx="40" cy="35" r="1.5" fill="black"/>
-        <circle cx="35" cy="40" r="1.5" fill="black"/>
-        <circle cx="45" cy="40" r="1.5" fill="black"/>
-        <circle cx="40" cy="45" r="1.5" fill="black"/>
-        <circle cx="35" cy="50" r="1.5" fill="black"/>
-        <circle cx="45" cy="50" r="1.5" fill="black"/>
-        <circle cx="40" cy="55" r="1.5" fill="black"/>
-        <line x1="40" y1="0" x2="40" y2="10" stroke="black" stroke-width="2"/>
-        <line x1="40" y1="70" x2="40" y2="80" stroke="black" stroke-width="2"/>
-    ''',
-
-    # SUCTION FILTER - Conical with mesh
-    'suction_filter': '''
-        <path d="M 25,15 L 55,15 L 50,50 L 48,65 L 32,65 L 30,50 Z" 
-              fill="white" stroke="black" stroke-width="2.5"/>
-        <line x1="28" y1="20" x2="52" y2="20" stroke="black" stroke-width="1.5"/>
-        <line x1="29" y1="25" x2="51" y2="25" stroke="black" stroke-width="1.5"/>
-        <line x1="30" y1="30" x2="50" y2="30" stroke="black" stroke-width="1.5"/>
-        <line x1="31" y1="35" x2="49" y2="35" stroke="black" stroke-width="1.5"/>
-        <line x1="32" y1="40" x2="48" y2="40" stroke="black" stroke-width="1.5"/>
-        <path d="M 30,20 L 35,25 M 35,20 L 40,25 M 40,20 L 45,25 M 45,20 L 50,25" 
-              stroke="black" stroke-width="0.5"/>
-        <line x1="40" y1="5" x2="40" y2="15" stroke="black" stroke-width="2"/>
-        <line x1="40" y1="65" x2="40" y2="75" stroke="black" stroke-width="2"/>
-    ''',
-
-    # KDP-330 DRY SCREW VACUUM PUMP
-    'kdp_pump': '''
-        <circle cx="40" cy="40" r="30" fill="white" stroke="black" stroke-width="3"/>
-        <path d="M 40,10 Q 60,25 60,40 Q 60,55 40,70 Q 20,55 20,40 Q 20,25 40,10" 
-              fill="none" stroke="black" stroke-width="2.5"/>
-        <circle cx="40" cy="40" r="5" fill="black"/>
-        <text x="40" y="45" font-size="10" text-anchor="middle" font-family="Arial" fill="white">KDP</text>
-        <line x1="5" y1="40" x2="10" y2="40" stroke="black" stroke-width="3"/>
-        <line x1="70" y1="40" x2="75" y2="40" stroke="black" stroke-width="3"/>
-        <line x1="20" y1="70" x2="60" y2="70" stroke="black" stroke-width="2"/>
-    ''',
-
-    # SILENCER - Muffler shape
-    'silencer': '''
-        <ellipse cx="40" cy="40" rx="30" ry="15" stroke="black" stroke-width="2.5" fill="white"/>
-        <path d="M10,40 Q40,20 70,40" stroke="black" stroke-width="2" fill="none"/>
-        <circle cx="25" cy="35" r="3" fill="white" stroke="black" stroke-width="1"/>
-        <circle cx="40" cy="30" r="3" fill="white" stroke="black" stroke-width="1"/>
-        <circle cx="55" cy="35" r="3" fill="white" stroke="black" stroke-width="1"/>
-        <line x1="5" y1="40" x2="10" y2="40" stroke="black" stroke-width="2"/>
-        <line x1="70" y1="40" x2="75" y2="40" stroke="black" stroke-width="2"/>
-    ''',
-
-    # POST-PUMP CONDENSER (Similar to Vapor Condenser but conceptually different)
-    'condenser_discharge': '''
-        <rect x="20" y="15" width="40" height="35" stroke="black" stroke-width="2" fill="white"/>
-        <path d="M 25,20 L 35,30 L 25,40" stroke="black" stroke-width="2" fill="none"/>
-        <path d="M 55,20 L 45,30 L 55,40" stroke="black" stroke-width="2" fill="none"/>
-        <ellipse cx="40" cy="55" rx="20" ry="5" stroke="black" stroke-width="2" fill="white"/>
-        <rect x="20" y="55" width="40" height="15" stroke="black" stroke-width="2" fill="white"/>
-        <ellipse cx="40" cy="70" rx="20" ry="5" stroke="black" stroke-width="2" fill="white"/>
-        <line x1="10" y1="30" x2="20" y2="30" stroke="black" stroke-width="2"/>
-        <line x1="60" y1="30" x2="70" y2="30" stroke="black" stroke-width="2"/>
-        <line x1="40" y1="70" x2="40" y2="75" stroke="black" stroke-width="2"/>
-    ''',
-
-    # SCRUBBER - Vertical vessel with trays
-    'scrubber': '''
-        <rect x="25" y="10" width="30" height="60" rx="15" stroke="black" stroke-width="2.5" fill="white"/>
-        <line x1="25" y1="25" x2="55" y2="25" stroke="black" stroke-width="1.5"/>
-        <line x1="25" y1="35" x2="55" y2="35" stroke="black" stroke-width="1.5"/>
-        <line x1="25" y1="45" x2="55" y2="45" stroke="black" stroke-width="1.5"/>
-        <line x1="25" y1="55" x2="55" y2="55" stroke="black" stroke-width="1.5"/>
-        <line x1="40" y1="0" x2="40" y2="10" stroke="black" stroke-width="2"/>
-        <line x1="40" y1="70" x2="40" y2="80" stroke="black" stroke-width="2"/>
-        <line x1="15" y1="30" x2="25" y2="30" stroke="black" stroke-width="2"/>
-        <line x1="55" y1="60" x2="65" y2="60" stroke="black" stroke-width="2"/>
-    ''',
-
-    # CONTROL PANEL - Detailed panel
-    'control_panel': '''
-        <rect x="5" y="5" width="70" height="70" rx="3" fill="white" stroke="black" stroke-width="3"/>
-        <rect x="10" y="10" width="60" height="60" fill="none" stroke="black" stroke-width="1.5"/>
-        <rect x="15" y="15" width="25" height="20" fill="#ddd" stroke="black" stroke-width="1"/>
-        <text x="27" y="28" text-anchor="middle" font-size="9" font-family="Arial">HMI</text>
-        <rect x="45" y="15" width="20" height="20" fill="#ddd" stroke="black" stroke-width="1"/>
-        <text x="55" y="28" text-anchor="middle" font-size="9" font-family="Arial">VFD</text>
-        <circle cx="20" cy="45" r="3" fill="green"/>
-        <circle cx="30" cy="45" r="3" fill="yellow"/>
-        <circle cx="40" cy="45" r="3" fill="red"/>
-        <circle cx="50" cy="45" r="3" fill="green"/>
-        <circle cx="60" cy="45" r="3" fill="green"/>
-        <rect x="15" y="55" width="50" height="10" fill="none" stroke="black" stroke-width="1"/>
-        <text x="40" y="62" text-anchor="middle" font-size="7" font-family="Arial">CONTROL PANEL</text>
-    ''',
-
-    # COOLING TOWER
-    'cooling_tower': '''
-        <rect x="15" y="25" width="50" height="35" stroke="black" stroke-width="2.5" fill="white"/>
-        <path d="M 15,25 L 25,15 L 55,15 L 65,25" stroke="black" stroke-width="2.5" fill="white"/>
-        <circle cx="40" cy="20" r="10" stroke="black" stroke-width="2" fill="white"/>
-        <path d="M 33,18 L 40,20 L 33,22 M 40,18 L 47,20 L 40,22" stroke="black" stroke-width="1.5" fill="none"/>
-        <line x1="20" y1="35" x2="60" y2="35" stroke="black" stroke-width="1"/>
-        <line x1="20" y1="45" x2="60" y2="45" stroke="black" stroke-width="1"/>
-        <path d="M 25,40 L 25,55 M 35,40 L 35,55 M 45,40 L 45,55 M 55,40 L 55,55" stroke="blue" stroke-width="1.5" stroke-dasharray="2,2"/>
-        <line x1="40" y1="60" x2="40" y2="70" stroke="black" stroke-width="2"/>
-    ''',
-
-    # WATER PUMP
-    'water_pump': '''
-        <circle cx="40" cy="40" r="20" fill="white" stroke="black" stroke-width="2.5"/>
-        <path d="M 40,20 Q 50,30 50,40 Q 50,50 40,60 Q 30,50 30,40 Q 30,30 40,20" 
-              fill="none" stroke="black" stroke-width="2"/>
-        <line x1="15" y1="40" x2="20" y2="40" stroke="black" stroke-width="2"/>
-        <line x1="60" y1="40" x2="65" y2="40" stroke="black" stroke-width="2"/>
-    ''',
-
-    # MOTOR
-    'motor': '''
-        <circle cx="40" cy="40" r="25" fill="white" stroke="black" stroke-width="3"/>
-        <text x="40" y="45" font-size="16" text-anchor="middle" font-weight="bold" font-family="Arial">M</text>
-        <line x1="40" y1="65" x2="40" y2="75" stroke="black" stroke-width="2"/>
-    ''',
-
-    # GATE VALVE
-    'gate_valve': '''
-        <polygon points="30,30 50,30 50,50 30,50" fill="white" stroke="black" stroke-width="2"/>
-        <polygon points="30,30 40,40 50,30" fill="white" stroke="black" stroke-width="2"/>
-        <polygon points="30,50 40,40 50,50" fill="white" stroke="black" stroke-width="2"/>
-        <line x1="40" y1="30" x2="40" y2="20" stroke="black" stroke-width="2"/>
-        <circle cx="40" cy="18" r="3" fill="none" stroke="black" stroke-width="1.5"/>
-        <line x1="10" y1="40" x2="30" y2="40" stroke="black" stroke-width="2"/>
-        <line x1="50" y1="40" x2="70" y2="40" stroke="black" stroke-width="2"/>
-    ''',
-
-    # CHECK VALVE (NON-RETURN VALVE)
-    'check_valve': '''
-        <circle cx="40" cy="40" r="15" fill="white" stroke="black" stroke-width="2.5"/>
-        <line x1="40" y1="25" x2="40" y2="55" stroke="black" stroke-width="2.5"/>
-        <polygon points="32,35 48,40 32,45" fill="black"/>
-        <line x1="20" y1="40" x2="25" y2="40" stroke="black" stroke-width="2"/>
-        <line x1="55" y1="40" x2="60" y2="40" stroke="black" stroke-width="2"/>
-    ''',
-
-    # SOLENOID VALVE
-    'solenoid_valve': '''
-        <polygon points="30,30 50,30 50,50 30,50" fill="white" stroke="black" stroke-width="2"/>
-        <polygon points="30,30 40,40 50,30" fill="white" stroke="black" stroke-width="2"/>
-        <polygon points="30,50 40,40 50,50" fill="white" stroke="black" stroke-width="2"/>
-        <rect x="35" y="15" width="10" height="15" rx="2" fill="white" stroke="black" stroke-width="2"/>
-        <line x1="37" y1="20" x2="43" y2="20" stroke="black" stroke-width="1"/>
-        <line x1="37" y1="23" x2="43" y2="23" stroke="black" stroke-width="1"/>
-        <line x1="37" y1="26" x2="43" y2="26" stroke="black" stroke-width="1"/>
-        <line x1="40" y1="10" x2="40" y2="15" stroke="black" stroke-width="2"/>
-        <line x1="10" y1="40" x2="30" y2="40" stroke="black" stroke-width="2"/>
-        <line x1="50" y1="40" x2="70" y2="40" stroke="black" stroke-width="2"/>
-    ''',
-
-    # PRESSURE TRANSMITTER
-    'pressure_transmitter': '''
-        <circle cx="40" cy="40" r="18" stroke="black" stroke-width="2.5" fill="white"/>
-        <text x="40" y="38" font-size="12" text-anchor="middle" font-weight="bold" font-family="Arial">PT</text>
-        <text x="40" y="50" font-size="9" text-anchor="middle" font-family="Arial">001</text>
-        <rect x="38" y="58" width="4" height="12" fill="black"/>
-        <line x1="38" y1="58" x2="42" y2="58" stroke="black" stroke-width="2.5"/>
-    ''',
-
-    # TEMPERATURE TRANSMITTER
-    'temperature_transmitter': '''
-        <circle cx="40" cy="40" r="18" stroke="black" stroke-width="2.5" fill="white"/>
-        <text x="40" y="38" font-size="12" text-anchor="middle" font-weight="bold" font-family="Arial">TT</text>
-        <text x="40" y="50" font-size="9" text-anchor="middle" font-family="Arial">001</text>
-        <rect x="38" y="58" width="4" height="12" fill="black"/>
-        <line x1="38" y1="58" x2="42" y2="58" stroke="black" stroke-width="2.5"/>
-    ''',
-
-    # FLOW TRANSMITTER
-    'flow_transmitter': '''
-        <circle cx="40" cy="40" r="18" stroke="black" stroke-width="2.5" fill="white"/>
-        <text x="40" y="38" font-size="12" text-anchor="middle" font-weight="bold" font-family="Arial">FT</text>
-        <text x="40" y="50" font-size="9" text-anchor="middle" font-family="Arial">001</text>
-        <rect x="38" y="58" width="4" height="12" fill="black"/>
-        <line x1="38" y1="58" x2="42" y2="58" stroke="black" stroke-width="2.5"/>
-    ''',
-
-    # LEVEL SWITCH
-    'level_switch': '''
-        <rect x="25" y="25" width="30" height="30" fill="white" stroke="black" stroke-width="2.5"/>
-        <text x="40" y="36" font-size="11" text-anchor="middle" font-weight="bold" font-family="Arial">LS</text>
-        <text x="40" y="48" font-size="9" text-anchor="middle" font-family="Arial">001</text>
-        <line x1="40" y1="55" x2="40" y2="65" stroke="black" stroke-width="2" stroke-dasharray="3,2"/>
-    ''',
-
-    # PRESSURE GAUGE
-    'pressure_gauge': '''
-        <circle cx="40" cy="40" r="18" stroke="black" stroke-width="2.5" fill="white"/>
-        <circle cx="40" cy="40" r="15" stroke="black" stroke-width="1" fill="none"/>
-        <line x1="40" y1="40" x2="50" y2="30" stroke="black" stroke-width="2"/>
-        <circle cx="40" cy="40" r="2" fill="black"/>
-        <text x="40" y="65" font-size="8" text-anchor="middle" font-family="Arial">PG</text>
-        <line x1="40" y1="58" x2="40" y2="65" stroke="black" stroke-width="2"/>
-    ''',
-
-    # TEMPERATURE GAUGE
-    'temperature_gauge': '''
-        <circle cx="40" cy="40" r="18" stroke="black" stroke-width="2.5" fill="white"/>
-        <rect x="37" y="30" width="6" height="15" fill="none" stroke="black" stroke-width="1.5"/>
-        <circle cx="40" cy="48" r="4" fill="black"/>
-        <text x="40" y="65" font-size="8" text-anchor="middle" font-family="Arial">°C</text>
-        <line x1="40" y1="58" x2="40" y2="65" stroke="black" stroke-width="2"/>
-    ''',
-
-    # PRESSURE RELIEF VALVE
-    'pressure_relief_valve': '''
-        <polygon points="30,50 50,50 40,30" fill="white" stroke="black" stroke-width="2.5"/>
-        <line x1="40" y1="50" x2="40" y2="60" stroke="black" stroke-width="2.5"/>
-        <path d="M 35,25 Q 40,20 45,25" stroke="black" stroke-width="2" fill="none"/>
-        <line x1="40" y1="20" x2="40" y2="10" stroke="black" stroke-width="2" stroke-dasharray="3,2"/>
-    ''',
-
-    # PRESSURE REGULATOR
-    'pressure_regulator': '''
-        <ellipse cx="40" cy="40" rx="20" ry="10" stroke="black" stroke-width="2.5" fill="white"/>
-        <path d="M 30,40 Q 40,30 50,40" stroke="black" stroke-width="2" fill="none"/>
-        <polygon points="40,32 38,36 42,36" fill="black"/>
-        <circle cx="40" cy="20" r="5" fill="none" stroke="black" stroke-width="2"/>
-        <line x1="40" y1="25" x2="40" y2="30" stroke="black" stroke-width="2"/>
-        <line x1="10" y1="40" x2="20" y2="40" stroke="black" stroke-width="2"/>
-        <line x1="60" y1="40" x2="70" y2="40" stroke="black" stroke-width="2"/>
-    ''',
-
-    # ROTAMETER (FLOW INDICATOR)
-    'rotameter': '''
-        <rect x="35" y="20" width="10" height="40" stroke="black" stroke-width="2.5" fill="white"/>
-        <path d="M 35,20 L 30,15 L 50,15 L 45,20" stroke="black" stroke-width="2" fill="white"/>
-        <path d="M 35,60 L 30,65 L 50,65 L 45,60" stroke="black" stroke-width="2" fill="white"/>
-        <ellipse cx="40" cy="40" rx="4" ry="8" stroke="black" stroke-width="1.5" fill="black"/>
-        <line x1="40" y1="65" x2="40" y2="75" stroke="black" stroke-width="2"/>
-        <line x1="40" y1="5" x2="40" y2="15" stroke="black" stroke-width="2"/>
-    ''',
-
-    # DRAIN POINT
-    'drain_point': '''
-        <polygon points="40,20 55,50 25,50" fill="white" stroke="black" stroke-width="2.5"/>
-        <line x1="40" y1="50" x2="40" y2="60" stroke="black" stroke-width="2.5"/>
-        <line x1="35" y1="60" x2="45" y2="60" stroke="black" stroke-width="2.5"/>
-        <line x1="37" y1="63" x2="43" y2="63" stroke="black" stroke-width="2"/>
-        <line x1="39" y1="66" x2="41" y2="66" stroke="black" stroke-width="1.5"/>
-    ''',
-
-    # DEFAULT/FALLBACK SYMBOL
-    'default': '''
-        <rect x="20" y="20" width="40" height="40" rx="5" fill="white" stroke="red" stroke-width="2"/>
-        <text x="40" y="45" font-size="10" text-anchor="middle" font-family="Arial" fill="red">?</text>
-    '''
-}
-
-def get_component_symbol(component_id, target_width=None, target_height=None):
+class ProfessionalPIDRenderer:
     """
-    Returns a valid SVG string for the requested ISA symbol.
+    Professional P&ID renderer using industry-standard libraries
+    Integrates with your existing AI system while providing professional quality
     """
-    # First try to get the symbol type from the ID mapping
-    symbol_type = SYMBOL_ID_MAPPING.get(component_id)
+    def __init__(self):
+        self.symbols = {}
+        self.connections = []
+        self.drawing = None
+        self.plotly_fig = None
 
-    # If not found in mapping, try to determine type from ID pattern
-    if not symbol_type:
-        if '-' in component_id:
-            prefix = component_id.split('-')[0].upper()
-            type_mapping = {
-                'PT': 'pressure_transmitter',
-                'TT': 'temperature_transmitter',
-                'FT': 'flow_transmitter',
-                'LS': 'level_switch',
-                'V': 'gate_valve',
-                'SV': 'solenoid_valve',
-                'NRV': 'check_valve',
-                'PG': 'pressure_gauge',
-                'TG': 'temperature_gauge',
-                'PSV': 'pressure_relief_valve',
-                'PR': 'pressure_regulator',
-                'RM': 'rotameter',
-                'C': 'vapor_condenser', # Added C for condenser from mapping
-                'P': 'kdp_pump',       # Added P for pump from mapping
-                'EB': 'expansion_bellows', # Added EB
-                'EPB': 'electrical_panel_box', # Added EPB
-                'FA': 'flame_arrestor', # Added FA
-                'ACG': 'acg_filter',   # Added ACG
-                'SF': 'suction_filter', # Added SF
-                'SIL': 'silencer',     # Added SIL
-                'SCR': 'scrubber',     # Added SCR
-                'CP': 'control_panel', # Added CP
-                'WP': 'water_pump',    # Added WP
-                'CT': 'cooling_tower', # Added CT
-                'MV': 'motor',         # Added MV
-                'DP': 'drain_point'    # Added DP
-            }
-            symbol_type = type_mapping.get(prefix, 'default')
+        # Professional color scheme
+        self.colors = {
+            'equipment': '#000000',
+            'process_line': '#000000',
+            'signal_line': '#0066CC',
+            'utility_line': '#666666',
+            'liquid': '#4A90E2',
+            'gas': '#E8F4FD',
+            'background': '#FFFFFF'
+        }
+
+        # Load your existing mappings
+        self.load_component_mappings()
+
+    def load_component_mappings(self):
+        """Load your existing component mappings"""
+        try:
+            with open('component_mapping.json', 'r') as f:
+                self.component_mapping = json.load(f)
+        except FileNotFoundError:
+            self.component_mapping = {}
+
+    def create_professional_pid(self, equipment_data: List[Dict],
+                                connections_data: List[Dict],
+                                title: str = "Process Flow Diagram") -> go.Figure:
+        """
+        Create professional P&ID using plotly (better than matplotlib)
+        Integrates with your existing AI equipment detection
+        """
+        # Create figure with professional layout
+        fig = make_subplots(rows=1, cols=1,
+                            subplot_titles=[title],
+                            specs=[[{"secondary_y": False}]])
+
+        # Set professional styling
+        fig.update_layout(
+            width=1600,
+            height=1200,
+            plot_bgcolor=self.colors['background'],
+            paper_bgcolor=self.colors['background'],
+            font=dict(family="Arial", size=12, color=self.colors['equipment']),
+            title=dict(text=title, x=0.5, font=dict(size=16, color=self.colors['equipment'])),
+            showlegend=False,
+            margin=dict(l=50, r=50, t=80, b=50)
+        )
+
+        # Draw equipment symbols
+        for equipment in equipment_data:
+            self.add_professional_symbol(fig, equipment)
+
+        # Draw process lines
+        for connection in connections_data:
+            self.add_professional_line(fig, connection)
+
+        # Add professional border and title block
+        self.add_title_block(fig)
+        self.add_drawing_border(fig)
+
+        # Set axis properties for technical drawing
+        fig.update_xaxes(
+            showgrid=True, gridwidth=1, gridcolor='lightgray',
+            showticklabels=False, range=[0, 20], constrain='domain'
+        )
+        fig.update_yaxes(
+            showgrid=True, gridwidth=1, gridcolor='lightgray',
+            showticklabels=False, range=[0, 15], scaleanchor="x", scaleratio=1
+        )
+
+        self.plotly_fig = fig
+        return fig
+
+    def add_professional_symbol(self, fig: go.Figure, equipment: Dict):
+        """Add professional equipment symbol using plotly shapes"""
+        symbol_type = equipment.get('type', 'generic').lower()
+        x, y = equipment.get('x', 0), equipment.get('y', 0)
+        size = equipment.get('size', 1.0)
+        label = equipment.get('label', '')
+
+        if symbol_type in ['pump', 'centrifugal_pump', 'p']:
+            self.draw_pump_plotly(fig, x, y, size, label)
+        elif symbol_type in ['tank', 'storage_tank', 't']:
+            self.draw_tank_plotly(fig, x, y, size, label)
+        elif symbol_type in ['heat_exchanger', 'hx', 'he']:
+            self.draw_hx_plotly(fig, x, y, size, label)
+        elif symbol_type in ['control_valve', 'cv']:
+            self.draw_control_valve_plotly(fig, x, y, size, label)
+        elif symbol_type in ['flow_meter', 'ft']:
+            self.draw_flow_transmitter_plotly(fig, x, y, size, label)
         else:
-            symbol_type = 'default'
+            self.draw_generic_equipment_plotly(fig, x, y, size, label)
 
-    # Get the SVG content
-    svg_inner = PROFESSIONAL_ISA_SYMBOLS.get(symbol_type, PROFESSIONAL_ISA_SYMBOLS['default'])
+    def draw_pump_plotly(self, fig: go.Figure, x: float, y: float,
+                         size: float, label: str):
+        """Professional centrifugal pump using plotly shapes"""
+        radius = 0.8 * size
 
-    # Default dimensions
-    final_width = target_width if target_width is not None else 80
-    final_height = target_height if target_height is not None else 80
+        # Main pump casing (circle)
+        fig.add_shape(
+            type="circle",
+            x0=x-radius, y0=y-radius, x1=x+radius, y1=y+radius,
+            line=dict(color=self.colors['equipment'], width=3),
+            fillcolor="rgba(255,255,255,0)"
+        )
 
-    # Return complete SVG
-    svg = f'''<svg width="{final_width}" height="{final_height}" viewBox="0 0 80 80" 
-              xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
-              {svg_inner}
-              </svg>'''
+        # Suction nozzle (rectangle)
+        suction_width = 0.5 * size
+        suction_height = 0.3 * size
+        fig.add_shape(
+            type="rect",
+            x0=x-radius-suction_width, y0=y-suction_height/2,
+            x1=x-radius, y1=y+suction_height/2,
+            line=dict(color=self.colors['equipment'], width=3),
+            fillcolor="rgba(255,255,255,0)"
+        )
 
-    return svg
+        # Discharge nozzle (rectangle)
+        discharge_width = 0.25 * size
+        discharge_height = 0.5 * size
+        fig.add_shape(
+            type="rect",
+            x0=x-discharge_width/2, y0=y+radius,
+            x1=x+discharge_width/2, y1=y+radius+discharge_height,
+            line=dict(color=self.colors['equipment'], width=3),
+            fillcolor="rgba(255,255,255,0)"
+        )
 
-def get_component_symbol_from_type(component_type):
-    """
-    Returns the raw SVG content for a component type.
-    This function is intended for fetching symbols based on a generic type name
-    rather than a specific ID (like 'pump' instead of 'P-001').
-    """
-    # Normalize type name by replacing spaces and hyphens with underscores, and making lowercase
-    normalized_type = component_type.lower().replace('-', '_').replace(' ', '_')
+        # Impeller vanes (lines)
+        impeller_radius = radius * 0.6
+        angles = np.linspace(0, 2*np.pi, 7)[:-1]  # 6 vanes
 
-    # Check if exact normalized type exists
-    if normalized_type in PROFESSIONAL_ISA_SYMBOLS:
-        return PROFESSIONAL_ISA_SYMBOLS[normalized_type]
+        for angle in angles:
+            start_r = impeller_radius * 0.3
+            end_r = impeller_radius * 0.9
+            curve_angle = angle + np.pi/8
 
-    # Try to find a partial match (e.g., 'dry_screw_vacuum_pump' might match 'kdp_pump')
-    for key, svg_content in PROFESSIONAL_ISA_SYMBOLS.items():
-        if normalized_type in key or key in normalized_type:
-            return svg_content
+            start_x = x + start_r * np.cos(angle)
+            start_y = y + start_r * np.sin(angle)
+            end_x = x + end_r * np.cos(curve_angle)
+            end_y = y + end_r * np.sin(curve_angle)
 
-    # Return default if not found
-    return PROFESSIONAL_ISA_SYMBOLS['default']
+            fig.add_shape(
+                type="line",
+                x0=start_x, y0=start_y, x1=end_x, y1=end_y,
+                line=dict(color=self.colors['equipment'], width=2)
+            )
 
-def create_professional_instrument_bubble(tag, x, y, size=25):
-    """
-    Creates a professional ISA instrument bubble with standard formatting.
-    Supports field-mounted (circle with line) and locally mounted (simple circle).
-    """
-    # Parse instrument tag using regex
-    # Expected format: [Optional Location Letter][Function Letters][-][Loop Number][Optional Suffix Letter]
-    # Example: PT-001, LIC-102A, TE-301
-    match = re.match(r'^([A-Z]*)([A-Z]+)[-]?(\d+)([A-Z]?)$', tag)
+        # Center hub (small circle)
+        hub_radius = impeller_radius * 0.15
+        fig.add_shape(
+            type="circle",
+            x0=x-hub_radius, y0=y-hub_radius, x1=x+hub_radius, y1=y+hub_radius,
+            line=dict(color=self.colors['equipment'], width=2),
+            fillcolor=self.colors['equipment']
+        )
 
-    if not match:
-        # Fallback for non-standard tags: simple circle with full tag in middle
-        return f'''
-            <g class="instrument-{tag}">
-                <circle cx="{x}" cy="{y}" r="{size}" fill="white" stroke="black" stroke-width="2.5"/>
-                <text x="{x}" y="{y + size * 0.15}" text-anchor="middle" 
-                      font-size="{size * 0.5}" font-weight="bold" font-family="Arial, sans-serif">{tag}</text>
-            </g>
-        '''
+        # Equipment label
+        fig.add_annotation(
+            x=x, y=y-radius-0.6*size,
+            text=label,
+            showarrow=False,
+            font=dict(size=12, color=self.colors['equipment']),
+            bgcolor="white",
+            bordercolor=self.colors['equipment'],
+            borderwidth=1
+        )
 
-    location_or_modifier = match.group(1) # e.g., 'L' for local, 'I' for indication etc. (less common as leading)
-    function_letters = match.group(2)     # e.g., 'P', 'T', 'F', 'L', 'I', 'C'
-    loop_number = match.group(3)          # e.g., '001', '102'
-    suffix_letter = match.group(4)        # e.g., 'A', 'B'
+    def draw_tank_plotly(self, fig: go.Figure, x: float, y: float,
+                         size: float, label: str):
+        """Professional storage tank using plotly shapes"""
+        width = 2.0 * size
+        height = 3.0 * size
 
-    # Determine mounting type based on common ISA conventions
-    # Field-mounted (no line) vs. Board/Panel mounted (solid line) vs. Local (no line, usually 'L' prefix in tag)
-    # Streamlit typically focuses on displaying the symbol, not differentiating mounting from tag itself for visual style
-    # For now, let's assume if it's a "valve" type it won't have the line, otherwise it's a standard instrument circle.
-    
-    # Check if it's a valve or a generic equipment with ID that might not have a line
-    is_valve_like = any(f.lower() in function_letters.lower() for f in ['V', 'SV', 'NRV', 'RV', 'FCV'])
-    
-    # Consider "local" if the first letter of the *original* tag (before parsing) implies it
-    # This might need refinement based on strict ISA interpretation for your project.
-    # For now, let's simplify: if it's not a valve-like, it's a standard instrument circle.
-    # We'll omit the internal line for now unless specifically requested.
+        # Main tank shell (rectangle)
+        fig.add_shape(
+            type="rect",
+            x0=x-width/2, y0=y-height/2, x1=x+width/2, y1=y+height/2,
+            line=dict(color=self.colors['equipment'], width=3),
+            fillcolor="rgba(255,255,255,0)"
+        )
 
-    svg = f'<g class="instrument-{tag}">'
+        # Top elliptical head
+        head_height = 0.3 * size
+        # Approximate ellipse with path
+        theta = np.linspace(0, np.pi, 50)
+        ellipse_x = x + (width/2) * np.cos(theta)
+        ellipse_y = y + height/2 + (head_height/2) * np.sin(theta)
 
-    # Main circle
-    svg += f'<circle cx="{x}" cy="{y}" r="{size}" fill="white" stroke="black" stroke-width="2.5"/>'
+        fig.add_shape(
+            type="path",
+            path=f"M {ellipse_x[0]},{ellipse_y[0]} " +
+                  " ".join([f"L {ex},{ey}" for ex, ey in zip(ellipse_x[1:], ellipse_y[1:])]),
+            line=dict(color=self.colors['equipment'], width=3),
+            fillcolor="rgba(255,255,255,0)"
+        )
 
-    # Text positioning for two-line format
-    text_size_letters = size * 0.6
-    text_size_number = size * 0.4
+        # Bottom elliptical head
+        ellipse_y_bottom = y - height/2 - (head_height/2) * np.sin(theta)
+        fig.add_shape(
+            type="path",
+            path=f"M {ellipse_x[0]},{ellipse_y_bottom[0]} " +
+                  " ".join([f"L {ex},{ey}" for ex, ey in zip(ellipse_x[1:], ellipse_y_bottom[1:])]),
+            line=dict(color=self.colors['equipment'], width=3),
+            fillcolor="rgba(255,255,255,0)"
+        )
 
-    # Tag letters (top)
-    # Combine location/modifier and function letters if both exist
-    full_letters = function_letters
-    if location_or_modifier: # If there was a leading letter, like 'L' for local
-        full_letters = location_or_modifier + function_letters
+        # Liquid level (80% full)
+        liquid_level = y - height/2 + 0.8 * height
+        fig.add_shape(
+            type="rect",
+            x0=x-width/2+0.05, y0=y-height/2+0.1,
+            x1=x+width/2-0.05, y1=liquid_level,
+            line=dict(color=self.colors['liquid'], width=0),
+            fillcolor=f"rgba(74,144,226,0.3)"
+        )
 
-    svg += f'<text x="{x}" y="{y - size * 0.15}" text-anchor="middle" '
-    svg += f'font-size="{text_size_letters}" font-weight="bold" font-family="Arial, sans-serif">{full_letters}</text>'
+        # Liquid level indicator line
+        fig.add_shape(
+            type="line",
+            x0=x-width/2, y0=liquid_level, x1=x+width/2, y1=liquid_level,
+            line=dict(color=self.colors['liquid'], width=2, dash="dash")
+        )
 
-    # Tag number (bottom)
-    display_number = loop_number
-    if suffix_letter:
-        display_number += suffix_letter
+        # Bottom outlet nozzle
+        nozzle_width = 0.2 * size
+        fig.add_shape(
+            type="rect",
+            x0=x-nozzle_width/2, y0=y-height/2-0.4*size,
+            x1=x+nozzle_width/2, y1=y-height/2,
+            line=dict(color=self.colors['equipment'], width=2),
+            fillcolor="rgba(255,255,255,0)"
+        )
 
-    svg += f'<text x="{x}" y="{y + size * 0.35}" text-anchor="middle" '
-    svg += f'font-size="{text_size_number}" font-family="Arial, sans-serif">{display_number}</text>'
+        # Top vent nozzle
+        fig.add_shape(
+            type="rect",
+            x0=x+width/3-nozzle_width/2, y0=y+height/2,
+            x1=x+width/3+nozzle_width/2, y1=y+height/2+0.3*size,
+            line=dict(color=self.colors['equipment'], width=2),
+            fillcolor="rgba(255,255,255,0)"
+        )
 
-    svg += '</g>'
-    return svg
+        # Side inlet nozzle
+        fig.add_shape(
+            type="rect",
+            x0=x-width/2-0.3*size, y0=y+height/4-nozzle_width/2,
+            x1=x-width/2, y1=y+height/4+nozzle_width/2,
+            line=dict(color=self.colors['equipment'], width=2),
+            fillcolor="rgba(255,255,255,0)"
+        )
 
+        # Level gauge
+        gauge_x = x + width/2 + 0.15 * size
+        fig.add_shape(
+            type="line",
+            x0=gauge_x, y0=y-height/2, x1=gauge_x, y1=y+height/2,
+            line=dict(color=self.colors['equipment'], width=3)
+        )
+
+        # Equipment label
+        fig.add_annotation(
+            x=x, y=y-height/2-0.7*size,
+            text=label,
+            showarrow=False,
+            font=dict(size=12, color=self.colors['equipment']),
+            bgcolor="white",
+            bordercolor=self.colors['equipment'],
+            borderwidth=1
+        )
+
+    def draw_hx_plotly(self, fig: go.Figure, x: float, y: float,
+                       size: float, label: str):
+        """Professional shell-and-tube heat exchanger"""
+        shell_length = 4.0 * size
+        shell_diameter = 1.5 * size
+
+        # Main shell (rectangle)
+        fig.add_shape(
+            type="rect",
+            x0=x-shell_length/2, y0=y-shell_diameter/2,
+            x1=x+shell_length/2, y1=y+shell_diameter/2,
+            line=dict(color=self.colors['equipment'], width=3),
+            fillcolor="rgba(255,255,255,0)"
+        )
+
+        # Tube bundle (parallel lines)
+        tube_start_x = x - shell_length/2 + 0.3 * size
+        tube_end_x = x + shell_length/2 - 0.3 * size
+        for i in range(9):
+            tube_y = y - shell_diameter/2 + (i + 1) * shell_diameter / 10
+            fig.add_shape(
+                type="line",
+                x0=tube_start_x, y0=tube_y, x1=tube_end_x, y1=tube_y,
+                line=dict(color=self.colors['equipment'], width=1.5)
+            )
+
+        # Shell nozzles
+        nozzle_size = 0.25 * size
+
+        # Hot inlet (top)
+        fig.add_shape(
+            type="rect",
+            x0=x-shell_length/4-nozzle_size/2, y0=y+shell_diameter/2,
+            x1=x-shell_length/4+nozzle_size/2, y1=y+shell_diameter/2+0.5*size,
+            line=dict(color=self.colors['equipment'], width=2),
+            fillcolor="rgba(255,255,255,0)"
+        )
+
+        # Hot outlet (bottom)
+        fig.add_shape(
+            type="rect",
+            x0=x+shell_length/4-nozzle_size/2, y0=y-shell_diameter/2-0.5*size,
+            x1=x+shell_length/4+nozzle_size/2, y1=y-shell_diameter/2,
+            line=dict(color=self.colors['equipment'], width=2),
+            fillcolor="rgba(255,255,255,0)"
+        )
+
+        # Cold inlet (left)
+        fig.add_shape(
+            type="rect",
+            x0=x-shell_length/2-0.4*size, y0=y-nozzle_size/2,
+            x1=x-shell_length/2, y1=y+nozzle_size/2,
+            line=dict(color=self.colors['equipment'], width=2),
+            fillcolor="rgba(255,255,255,0)"
+        )
+
+        # Cold outlet (right)
+        fig.add_shape(
+            type="rect",
+            x0=x+shell_length/2, y0=y-nozzle_size/2,
+            x1=x+shell_length/2+0.4*size, y1=y+nozzle_size/2,
+            line=dict(color=self.colors['equipment'], width=2),
+            fillcolor="rgba(255,255,255,0)"
+        )
+
+        # HX designation
+        fig.add_annotation(
+            x=x, y=y,
+            text="HX",
+            showarrow=False,
+            font=dict(size=14, color=self.colors['equipment']),
+            bgcolor="white",
+            bordercolor=self.colors['equipment'],
+            borderwidth=1
+        )
+
+        # Equipment label
+        fig.add_annotation(
+            x=x, y=y-shell_diameter/2-0.8*size,
+            text=label,
+            showarrow=False,
+            font=dict(size=12, color=self.colors['equipment']),
+            bgcolor="white",
+            bordercolor=self.colors['equipment'],
+            borderwidth=1
+        )
+
+    def draw_control_valve_plotly(self, fig: go.Figure, x: float, y: float,
+                                  size: float, label: str):
+        """Professional control valve with pneumatic actuator"""
+        body_width = 0.8 * size
+        body_height = 0.6 * size
+
+        # Valve body (rounded rectangle approximated with path)
+        fig.add_shape(
+            type="rect",
+            x0=x-body_width/2, y0=y-body_height/2,
+            x1=x+body_width/2, y1=y+body_height/2,
+            line=dict(color=self.colors['equipment'], width=3),
+            fillcolor="rgba(255,255,255,0)"
+        )
+
+        # Valve seat (horizontal line)
+        fig.add_shape(
+            type="line",
+            x0=x-body_width*0.35, y0=y-body_height/4,
+            x1=x+body_width*0.35, y1=y-body_height/4,
+            line=dict(color=self.colors['equipment'], width=3)
+        )
+
+        # Valve plug (triangle approximation)
+        plug_points = [
+            [x-0.1*size, y+body_height/4],
+            [x+0.1*size, y+body_height/4],
+            [x, y-body_height/4+0.05*size],
+            [x-0.1*size, y+body_height/4]
+        ]
+        plug_x = [p[0] for p in plug_points]
+        plug_y = [p[1] for p in plug_points]
+        fig.add_shape(
+            type="path",
+            path=f"M {plug_x[0]},{plug_y[0]} " +
+                  " ".join([f"L {px},{py}" for px, py in zip(plug_x[1:], plug_y[1:])]) + " Z",
+            line=dict(color=self.colors['equipment'], width=2),
+            fillcolor=self.colors['equipment']
+        )
+
+        # Valve stem
+        stem_length = 1.0 * size
+        fig.add_shape(
+            type="line",
+            x0=x, y0=y+body_height/2, x1=x, y1=y+body_height/2+stem_length,
+            line=dict(color=self.colors['equipment'], width=4)
+        )
+
+        # Pneumatic actuator (ellipse approximated with circle)
+        actuator_radius = 0.5 * size
+        actuator_y = y + body_height/2 + stem_length
+        fig.add_shape(
+            type="circle",
+            x0=x-actuator_radius, y0=actuator_y-actuator_radius*0.5,
+            x1=x+actuator_radius, y1=actuator_y+actuator_radius*0.5,
+            line=dict(color=self.colors['equipment'], width=3),
+            fillcolor="rgba(255,255,255,0)"
+        )
+
+        # Control signal line
+        signal_x = x + actuator_radius + 0.2 * size
+        fig.add_shape(
+            type="line",
+            x0=x+actuator_radius, y0=actuator_y, x1=signal_x, y1=actuator_y,
+            line=dict(color=self.colors['signal_line'], width=2, dash="dash")
+        )
+
+        # I/P converter
+        fig.add_shape(
+            type="rect",
+            x0=signal_x, y0=actuator_y-0.15*size,
+            x1=signal_x+0.3*size, y1=actuator_y+0.15*size,
+            line=dict(color=self.colors['signal_line'], width=2),
+            fillcolor="rgba(255,255,255,0)"
+        )
+
+        # I/P label
+        fig.add_annotation(
+            x=signal_x+0.15*size, y=actuator_y,
+            text="I/P",
+            showarrow=False,
+            font=dict(size=8, color=self.colors['signal_line'])
+        )
+
+        # Fail closed indicator
+        fig.add_annotation(
+            x=x, y=actuator_y-0.2*size,
+            text="FC",
+            showarrow=False,
+            font=dict(size=10, color="black"),
+            bgcolor="yellow",
+            bordercolor="black",
+            borderwidth=1
+        )
+
+        # Equipment label
+        fig.add_annotation(
+            x=x, y=y-body_height/2-0.5*size,
+            text=label,
+            showarrow=False,
+            font=dict(size=12, color=self.colors['equipment']),
+            bgcolor="white",
+            bordercolor=self.colors['equipment'],
+            borderwidth=1
+        )
+
+    def draw_flow_transmitter_plotly(self, fig: go.Figure, x: float, y: float,
+                                     size: float, label: str):
+        """Professional flow transmitter"""
+        radius = 0.4 * size
+
+        # Instrument circle
+        fig.add_shape(
+            type="circle",
+            x0=x-radius, y0=y-radius, x1=x+radius, y1=y+radius,
+            line=dict(color=self.colors['equipment'], width=2.5),
+            fillcolor="white"
+        )
+
+        # Function letters
+        fig.add_annotation(
+            x=x, y=y,
+            text="FT",
+            showarrow=False,
+            font=dict(size=12, color=self.colors['equipment'])
+        )
+
+        # Signal line
+        fig.add_shape(
+            type="line",
+            x0=x, y0=y+radius, x1=x, y1=y+radius+0.5*size,
+            line=dict(color=self.colors['signal_line'], width=2, dash="dash")
+        )
+
+        # Instrument label
+        fig.add_annotation(
+            x=x, y=y-radius-0.3*size,
+            text=label,
+            showarrow=False,
+            font=dict(size=10, color=self.colors['equipment'])
+        )
+
+    def draw_generic_equipment_plotly(self, fig: go.Figure, x: float, y: float,
+                                      size: float, label: str):
+        """Generic equipment symbol"""
+        width = 1.0 * size
+        height = 1.0 * size
+
+        fig.add_shape(
+            type="rect",
+            x0=x-width/2, y0=y-height/2, x1=x+width/2, y1=y+height/2,
+            line=dict(color=self.colors['equipment'], width=2),
+            fillcolor="rgba(255,255,255,0)"
+        )
+        fig.add_annotation(
+            x=x, y=y,
+            text="?",
+            showarrow=False,
+            font=dict(size=14, color=self.colors['equipment'])
+        )
+        fig.add_annotation(
+            x=x, y=y-height/2-0.3*size,
+            text=label,
+            showarrow=False,
+            font=dict(size=12, color=self.colors['equipment']),
+            bgcolor="white",
+            bordercolor=self.colors['equipment'],
+            borderwidth=1
+        )
+
+    def add_professional_line(self, fig: go.Figure, connection: Dict):
+        """Add professional process lines"""
+        start = connection.get('start', (0, 0))
+        end = connection.get('end', (0, 0))
+        line_type = connection.get('type', 'process')
+        line_styles = {
+            'process': {'color': self.colors['process_line'], 'width': 3, 'dash': None},
+            'signal': {'color': self.colors['signal_line'], 'width': 2, 'dash': 'dash'},
+            'utility': {'color': self.colors['utility_line'], 'width': 2, 'dash': 'dot'}
+        }
+        style = line_styles.get(line_type, line_styles['process'])
+        fig.add_shape(
+            type="line",
+            x0=start[0], y0=start[1], x1=end[0], y1=end[1],
+            line=dict(color=style['color'], width=style['width'], dash=style['dash'])
+        )
+
+    def add_title_block(self, fig: go.Figure):
+        """Add professional title block"""
+        # Title block (bottom right)
+        fig.add_shape(
+            type="rect",
+            x0=14, y0=1, x1=19.5, y1=3.5,
+            line=dict(color="black", width=2),
+            fillcolor="white"
+        )
+        fig.add_annotation(
+            x=16.75, y=3,
+            text="PROCESS FLOW DIAGRAM",
+            showarrow=False,
+            font=dict(size=12, color="black")
+        )
+        fig.add_annotation(
+            x=16.75, y=2.2,
+            text="AI Generated P&ID",
+            showarrow=False,
+            font=dict(size=10, color="black", family="Arial")
+        )
+        fig.add_annotation(
+            x=14.2, y=1.2,
+            text="Drawing No: AI-PID-001",
+            showarrow=False,
+            font=dict(size=8, color="black")
+        )
+        fig.add_annotation(
+            x=19.3, y=1.2,
+            text="Rev: A",
+            showarrow=False,
+            font=dict(size=8, color="black")
+        )
+
+    def add_drawing_border(self, fig: go.Figure):
+        """Add professional drawing border"""
+        fig.add_shape(
+            type="rect",
+            x0=0.5, y0=0.5, x1=19.5, y1=14.5,
+            line=dict(color="black", width=3),
+            fillcolor="rgba(255,255,255,0)"
+        )
