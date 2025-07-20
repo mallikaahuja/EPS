@@ -201,18 +201,13 @@ with tab1:
           # Render SVG
             with st.spinner("🎨 Rendering P&ID..."):
                 pid_svg = render_svg(
-                    equipment_df,
-                    pipeline_df,
-                    inline_df,
-                    positions,
-                    pipelines,
-                    inlines,
-                    diagram_width, # <--- Pass diagram_width as a positional argument here
-                    diagram_height, # <--- Pass diagram_height as a positional argument here
-                    show_grid,
-                    show_legend,
-                    show_title,
-                )
+          equipment_df, pipeline_df, inline_df, positions, pipelines, inlines,
+          width=diagram_width,
+          height=diagram_height,
+          show_grid=show_grid,
+          show_legend=show_legend,    
+          show_title=show_title,
+)
 
             # Display with zoom
             zoom_scale = zoom_level / 100
