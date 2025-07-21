@@ -69,7 +69,7 @@ Format your response as a JSON object with categories as keys.
 """
         
         try:
-            response = openai.chat.completions.create( # Updated to new OpenAI API syntax
+            response = openai.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are an expert process engineer specializing in vacuum systems and P&ID design."},
@@ -89,7 +89,7 @@ Format your response as a JSON object with categories as keys.
     def validate_process_flow(self, equipment_sequence, pipeline_connections):
         """Validate the process flow logic using AI"""
         if not self._check_openai_key():
-            return {"valid": False, "issues": ["OpenAI API key not configured."]} # Changed valid to False if key is missing
+            return {"valid": False, "issues": ["OpenAI API key not configured."]}
         
         prompt = f"""
 Validate this vacuum system process flow sequence:
@@ -110,7 +110,7 @@ Return a JSON object with:
 """
         
         try:
-            response = openai.chat.completions.create( # Updated to new OpenAI API syntax
+            response = openai.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a vacuum system design expert."},
@@ -191,7 +191,6 @@ Requirements:
             # Make near-white pixels transparent (more robust)
             datas = img.getdata()
             newData = []
-            # Define a threshold for "white-ish" to make transparent
             white_threshold = 240 # Pixels with R, G, B values above this will be made transparent
             for item in datas:
                 if item[0] >= white_threshold and item[1] >= white_threshold and item[2] >= white_threshold:
@@ -205,7 +204,6 @@ Requirements:
             img = img.resize((100, 100), Image.Resampling.LANCZOS)
             
             # Save to symbols directory
-            # Using component_name for a more unique filename
             symbol_filename = f"{component_name.lower().replace(' ', '_').replace('/', '_')}.png"
             symbol_path = os.path.join(symbols_dir, symbol_filename)
             img.save(symbol_path, "PNG")
@@ -219,7 +217,7 @@ Requirements:
     def optimize_layout(self, positions, pipelines):
         """Use AI to suggest optimal equipment layout"""
         if not self._check_openai_key():
-            return positions # Return original positions if key is missing
+            return positions
         
         prompt = f"""
 Optimize this P&ID equipment layout for:
@@ -234,7 +232,7 @@ Return optimized positions as JSON maintaining the same format.
 """
         
         try:
-            response = openai.chat.completions.create( # Updated to new OpenAI API syntax
+            response = openai.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a P&ID layout optimization expert."},
@@ -247,7 +245,7 @@ Return optimized positions as JSON maintaining the same format.
             return json.loads(response.choices[0].message.content)
         except json.JSONDecodeError:
             print(f"Warning: Failed to parse AI layout optimization response as JSON. Returning original positions. AI response: {response.choices[0].message.content}")
-            return positions # Return original positions on JSON decode error
+            return positions
         except Exception as e:
             print(f"Error optimizing layout with AI: {str(e)}. Returning original positions.")
             return positions
@@ -281,14 +279,14 @@ Ensure all relevant provided data is incorporated into the datasheet.
 """
         
         try:
-            response = openai.chat.completions.create( # Updated to new OpenAI API syntax
+            response = openai.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a mechanical engineer and process equipment specialist tasked with creating detailed datasheets. Focus on providing accurate, structured technical information."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
-                max_tokens=1500 # Increased tokens for detailed datasheet
+                max_tokens=1500
             )
             
             return json.loads(response.choices[0].message.content)
@@ -325,7 +323,7 @@ Return a comprehensive compliance report as a JSON object, including:
 """
         
         try:
-            response = openai.chat.completions.create( # Updated to new OpenAI API syntax
+            response = openai.chat.completions.create(
                 model="gpt-4",
                 messages=[
                     {"role": "system", "content": "You are a P&ID standards compliance expert and process safety analyst. Provide clear, actionable feedback."},
@@ -358,7 +356,6 @@ class SmartPnIDSuggestions:
                 "utilities": ["cooling_water", "nitrogen_purge", "drain_system"],
                 "environmental": ["scrubber", "condenser", "vapor_recovery"]
             },
-            # Add other process types and their standard requirements here
             "distillation": {
                 "safety": ["relief_valve", "emergency_vent"],
                 "instrumentation": ["level_transmitter", "temperature_controller", "flow_controller"],
@@ -376,23 +373,19 @@ class SmartPnIDSuggestions:
         suggestions = []
         requirements = standard_requirements.get(process_type, {})
         
-        # Lowercase existing equipment for case-insensitive comparison
         existing_equipment_lower = [str(eq).lower() for eq in existing_equipment]
 
         for category, items in requirements.items():
             for item in items:
-                # Check if item (or a variation) exists in current equipment
-                # Using 'in' for partial matches as item names might not be exact
                 if not any(item.replace('_', ' ') in eq for eq in existing_equipment_lower):
                     suggestions.append({
                         "category": category,
-                        "component": item.replace('_', ' ').title(), # Make it readable
+                        "component": item.replace('_', ' ').title(),
                         "priority": "high" if category == "safety" else "medium",
                         "reason": f"Standard {category} requirement for a {process_type.replace('_', ' ')}."
                     })
         
-        # Use AI for more advanced suggestions based on the actual equipment list
-        if self.ai._check_openai_key() and existing_equipment: # Only call AI if key exists and there's equipment
+        if self.ai._check_openai_key() and existing_equipment:
             try:
                 ai_prompt = f"""
 Given a {process_type.replace('_', ' ')} system with the following main equipment: {', '.join(existing_equipment)}.
@@ -419,7 +412,6 @@ If no further suggestions, return an empty array [].
                 ai_suggestions_raw = ai_response.choices[0].message.content
                 ai_parsed_suggestions = json.loads(ai_suggestions_raw)
                 
-                # Filter out duplicates and integrate AI suggestions
                 for ai_sugg in ai_parsed_suggestions:
                     sugg_name_lower = ai_sugg.get('component', '').lower().replace(' ', '_')
                     if not any(sugg_name_lower in s['component'].lower().replace(' ', '_') for s in suggestions):
@@ -427,16 +419,14 @@ If no further suggestions, return an empty array [].
 
             except Exception as e:
                 print(f"Warning: AI missing component suggestion failed: {e}")
-                # Continue without AI suggestions if it fails
 
         return suggestions
 
-    def analyze_energy_efficiency(self, equipment_df, pipeline_df):
+    def analyze_energy_efficiency(self, equipment_df, pipeline_df, process_type):
         """Analyze system for energy efficiency improvements"""
         
         suggestions = []
         
-        # Check for VFD on pumps
         pumps = equipment_df[equipment_df['type'].str.contains('pump', case=False)]
         for _, pump in pumps.iterrows():
             if 'vfd' not in str(pump.get('default_properties', '')).lower() and \
@@ -448,7 +438,6 @@ If no further suggestions, return an empty array [].
                     "cost": "Typically $5,000-$15,000 per pump installation (varies by size)."
                 })
         
-        # Check for heat recovery opportunities (e.g., between condensers, or using exhaust heat)
         condensers = equipment_df[equipment_df['type'].str.contains('condenser', case=False)]
         if len(condensers) > 1:
             suggestions.append({
@@ -458,9 +447,7 @@ If no further suggestions, return an empty array [].
                 "cost": "Estimated $10,000-$25,000 (varies by system complexity)."
             })
         
-        # Check for insulation
         if not pipeline_df.empty:
-            # Simple check: if no 'insulation' mentioned in any pipeline or equipment requiring heating/cooling
             if not any('insulated' in str(row).lower() for _, row in pipeline_df.iterrows()) and \
                not any('insulation' in str(row).lower() for _, row in equipment_df[
                    equipment_df['type'].isin(['vessel', 'heat_exchanger', 'reactor'])
@@ -472,7 +459,6 @@ If no further suggestions, return an empty array [].
                     "cost": "Varies widely based on scope, from a few hundred to tens of thousands."
                 })
 
-        # Use AI for more advanced energy efficiency suggestions
         if self.ai._check_openai_key():
             try:
                 ai_prompt = f"""
@@ -500,31 +486,12 @@ If no further suggestions, return an empty array [].
                     max_tokens=500
                 )
                 ai_parsed_suggestions = json.loads(ai_response.choices[0].message.content)
-                suggestions.extend(ai_parsed_suggestions) # Add AI suggestions to existing ones
+                suggestions.extend(ai_parsed_suggestions)
 
             except Exception as e:
                 print(f"Warning: AI energy efficiency suggestion failed: {e}")
-                # Continue without AI suggestions if it fails
         
         return suggestions
-        
-        prompt = f"""You are a process design expert reviewing a {component.get('type')} with tag {component.get('tag')}.
-Category: {category}.
-Attributes: {component.get('attributes', {})}.
-Provide 2 short, practical suggestions to improve efficiency, sustainability, or connectivity."""
-
-    try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=200
-        )
-        suggestions = response['choices'][0]['message']['content'].split('\n')
-        return [{"message": s.strip("- ").strip(), "severity": "Info"} for s in suggestions if s.strip()]
-    except Exception as e:
-        return [{"message": f"AI insight unavailable: {e}", "severity": "Info"}]
-
 
 def generate_ai_safety_warnings(component):
     """
@@ -538,13 +505,13 @@ Are there any safety issues or missing elements (e.g., pressure relief, emergenc
 Respond in 2 short sentences only."""
 
     try:
-        response = openai.ChatCompletion.create(
+        response = openai.chat.completions.create(
             model="gpt-4",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=150
         )
-        msg = response['choices'][0]['message']['content'].strip()
+        msg = response.choices[0].message.content.strip()
         return [{"message": msg, "severity": "Warning"}] if msg else []
     except Exception as e:
         return [{"message": f"AI safety check unavailable: {e}", "severity": "Warning"}]
