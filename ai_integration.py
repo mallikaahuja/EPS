@@ -507,3 +507,44 @@ If no further suggestions, return an empty array [].
                 # Continue without AI suggestions if it fails
         
         return suggestions
+        
+        prompt = f"""You are a process design expert reviewing a {component.get('type')} with tag {component.get('tag')}.
+Category: {category}.
+Attributes: {component.get('attributes', {})}.
+Provide 2 short, practical suggestions to improve efficiency, sustainability, or connectivity."""
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=200
+        )
+        suggestions = response['choices'][0]['message']['content'].split('\n')
+        return [{"message": s.strip("- ").strip(), "severity": "Info"} for s in suggestions if s.strip()]
+    except Exception as e:
+        return [{"message": f"AI insight unavailable: {e}", "severity": "Info"}]
+
+
+def generate_ai_safety_warnings(component):
+    """
+    Uses OpenAI to flag safety risks in components (e.g. missing relief, hazards).
+    """
+    prompt = f"""You are a P&ID safety reviewer. Assess this component:
+Type: {component.get('type')}
+Tag: {component.get('tag')}
+Attributes: {component.get('attributes', {})}
+Are there any safety issues or missing elements (e.g., pressure relief, emergency valves)?
+Respond in 2 short sentences only."""
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            max_tokens=150
+        )
+        msg = response['choices'][0]['message']['content'].strip()
+        return [{"message": msg, "severity": "Warning"}] if msg else []
+    except Exception as e:
+        return [{"message": f"AI safety check unavailable: {e}", "severity": "Warning"}]
