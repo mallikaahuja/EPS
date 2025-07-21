@@ -50,8 +50,7 @@ pylint>=2.17.0
 pytest>=7.3.0
 
 # Environment management
-python-dotenv>=1.0.0
+python-dotenv>=0.21.0  # Compatible with Railway
 
-# Additional industry standard libraries
-iso-symbol-lib>=0.1.0  # If available
-# dexpi-python>=1.0.0  # Placeholder if released
+# Removed iso-symbol-lib (not available on PyPI)
+# iso-symbol-lib>=0.1.0
