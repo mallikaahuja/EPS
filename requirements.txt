@@ -1,43 +1,57 @@
 # Core dependencies
-
 streamlit>=1.28.0
 pandas>=2.0.0
 numpy>=1.24.0
 
-# Database
+# DSL and Data Processing
+pyyaml>=6.0
+jsonschema>=4.0.0
+lxml>=4.9.0  # For XML processing
 
-psycopg2-binary>=2.9.0
+# DEXPI Support
+xmltodict>=0.13.0
+dicttoxml>=1.7.0
 
-# OpenAI API
-
+# AI Integration
 openai>=1.0.0
+loguru>=0.7.0  # Optional: structured logging of AI suggestions
 
-stability-sdk
+# Windows-specific (for Visio integration)
+# Only install on Windows systems
+pywin32>=305; platform_system == "Windows"
+comtypes>=1.2.0; platform_system == "Windows"
 
-# Drawing and export
+# Validation and Standards
+python-dateutil>=2.8.0
+validators>=0.20.0
 
+# Drawing and export (fallback when Visio not available)
 cairosvg>=2.7.0
 ezdxf>=1.0.0
 Pillow>=10.0.0
-kaleido>=0.20
-schemdraw
 
-# Advanced features
+# Graph algorithms for layout
+networkx>=3.0
+scipy>=1.10.0
 
-networkx>=3.0  # For graph algorithms and routing
-scipy>=1.10.0  # For optimization algorithms
-shapely>=2.0.0  # For geometry operations
-matplotlib>=3.7.0  # For additional plotting capabilities
+# Optional visualization (when Visio not available)
+plotly>=5.0.0
+matplotlib>=3.7.0
 
-# Optional but recommended
-
-plotly>=5.0.0  # For interactive visualizations
-reportlab>=4.0.0  # For PDF generation
-openpyxl>=3.1.0  # For Excel export
-python-dotenv>=1.0.0  # For environment variables
+# Documentation and reporting
+reportlab>=4.0.0
+openpyxl>=3.1.0
+python-docx>=0.8.0
+svglib>=1.5.0  # For SVG to PDF conversion
 
 # Development tools (optional)
+black>=23.0.0
+pylint>=2.17.0
+pytest>=7.3.0
 
-black>=23.0.0  # Code formatting
-pylint>=2.17.0  # Code linting
-pytest>=7.3.0  # Testing
+# Environment management
+python-dotenv>=1.0.0
+
+# Additional industry standard libraries
+iso-symbol-lib>=0.1.0  # If available
+# dexpi-python>=1.0.0  # Placeholder if released
