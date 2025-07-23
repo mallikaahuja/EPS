@@ -128,6 +128,11 @@ with tab1:
         import json
         dsl_json = json.loads(dsl.to_dsl("json"))
         svg, tag_map = render_svg(dsl_json, symbol_renderer, positions, show_grid, show_legend, zoom)
+        # 👇 Debug: Check size of output and contents
+        st.text(f"🔍 SVG Length: {len(svg)} characters")
+        st.text(f"🧩 DSL Components: {len(dsl.components)}")
+        st.text(f"🔗 DSL Connections: {len(dsl.connections)}")
+        st.text(f"🗺️ Positions Sample: {list(positions.items())[:3]}")
 
         st.components.v1.html(f"""<div class='svg-container'><div style="transform: scale({zoom}); transform-origin: top left;">{svg}</div></div>""", height=700, scrolling=True)
 
