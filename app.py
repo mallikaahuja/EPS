@@ -129,10 +129,10 @@ with tab1:
         dsl_json = json.loads(dsl.to_dsl("json"))
         svg, tag_map = render_svg(dsl_json, symbol_renderer, positions, show_grid, show_legend, zoom)
         try:
-        png = svg_to_png(svg)
-        st.image(png, caption="Generated P&ID Diagram", use_column_width=True)
+            png = svg_to_png(svg)
+            st.image(png, caption="Generated P&ID Diagram", use_column_width=True)
         except Exception as e:
-        st.error(f"Could not render diagram as PNG: {e}")
+            st.error(f"Could not render diagram as PNG: {e}")
 # ─────────────────────────────────────
 # TAB 2: EQUIPMENT
 # ─────────────────────────────────────
