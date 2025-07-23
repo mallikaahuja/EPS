@@ -125,7 +125,9 @@ with tab1:
         dsl.detect_control_loops()
 
         positions, routes, inlines = compute_positions_and_routing(equipment_df, pipeline_df, inline_df)
-        svg, tag_map = render_svg(dsl.to_dsl("json"), symbol_renderer, positions, show_grid, show_legend, zoom)
+        import json
+        dsl_json = json.loads(dsl.to_dsl("json"))
+        svg, tag_map = render_svg(dsl_json, symbol_renderer, positions, show_grid, show_legend, zoom)
 
         st.components.v1.html(f"""<div class='svg-container'><div style="transform: scale({zoom}); transform-origin: top left;">{svg}</div></div>""", height=700, scrolling=True)
 
