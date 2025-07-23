@@ -13,7 +13,9 @@ class SymbolRenderer:
 
     def export_png(self, drawing) -> bytes:
         buf = io.BytesIO()
-        drawing.save(buf, format='png')  # This uses Schemdraw’s internal backend
+        drawing.draw()  # renders to current matplotlib figure
+        plt.savefig(buf, format='png', bbox_inches='tight')
+        plt.close()
         return buf.getvalue()
 
     def render_symbol(self, component_id: str, label: str = "", size: float = 1.0) -> Tuple[bytes, Dict]:
