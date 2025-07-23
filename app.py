@@ -173,7 +173,46 @@ with tab4:
 # ─────────────────────────────────────
 with tab5:
     st.subheader("🔁 Human-in-the-Loop (HITL) Validation")
-    create_hitl_ui()
+    
+    # Initialize HITLValidator and session
+    validator = None
+    session = None
+    
+    # DSL data for validation (assuming dsl.to_dsl("json") returns dict or JSON str)
+    try:
+        dsl_data = dsl.to_dsl("json")
+        # If dsl_data is a JSON string, convert to dict
+        if isinstance(dsl_data, str):
+            dsl_data = json.loads(dsl_data)
+        validator = HITLValidator()
+        session = validator.create_session(project_id="EPS", dsl_data=dsl_data)
+        
+        # Show summary info
+        st.write(f"Session ID: {session.session_id}")
+        st.write(f"Project ID: {session.project_id}")
+        st.write(f"Reviewer: {session.reviewer_name if session.reviewer_name else 'Not assigned'}")
+        st.progress(session.completion_percentage / 100)
+        st.caption(f"Completion: {session.completion_percentage:.1f}%")
+        
+        # Table of validation items
+        st.write("### Validation Items")
+        if session.validation_items:
+            item_df = pd.DataFrame([vars(i) for i in session.validation_items])
+            st.dataframe(item_df)
+        else:
+            st.success("No validation issues detected.")
+        
+        # Export report button
+        report = validator.export_validation_report()
+        st.download_button(
+            label="⬇️ Download Validation Report (JSON)",
+            data=json.dumps(report, indent=2),
+            file_name=f"{session.session_id}_validation_report.json",
+            mime="application/json"
+        )
+    except Exception as e:
+        st.error(f"❌ HITL Validation failed: {e}")
+
 
 # ─────────────────────────────────────
 # EXPORT
