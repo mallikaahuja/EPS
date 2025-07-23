@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from lxml import etree as ET
 from ai_integration import PnIDAIAssistant  # Import the class
-
+from ai_integration import SmartPnIDSuggestions
 class DEXPIConverter:
     def __init__(self):
         self.root = None
