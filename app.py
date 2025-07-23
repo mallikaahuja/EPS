@@ -7,16 +7,20 @@ import os
 import tempfile
 import platform
 from datetime import datetime
+
+# ─────────────────────────────────────
+# MODULE IMPORTS
+# ─────────────────────────────────────
 from drawing_engine import render_svg, svg_to_png, export_dxf
 from symbols import SymbolRenderer
 from layout_engine import compute_positions_and_routing
 from dsl_generator import DSLGenerator
 from dexpi_converter import DEXPIConverter
-from hitl_validation import create_hitl_ui
 from ai_integration import PnIDAIAssistant, SmartPnIDSuggestions
 from control_systems import ControlSystemAnalyzer, PnIDValidator
+from hitl_validation import HITLValidator  # Import the HITLValidator class for validation logic
 
-# Optional Visio import
+# Optional Visio import (Windows only)
 if platform.system() == "Windows":
     try:
         from visio_generator import VisioP_IDGenerator
@@ -162,7 +166,7 @@ with tab4:
         for r in recs:
             st.markdown(f"<div class='ai-suggestion'>{r}</div>", unsafe_allow_html=True)
     else:
-        st.info("AI suggestions are disabled")
+           st.info("AI suggestions are disabled")
 
 # ─────────────────────────────────────
 # HITL VALIDATION
