@@ -1,4 +1,4 @@
-# EPS Interactive P&ID Generator - Full Streamlit App
+# EPS Interactive P&ID Generator - Full Streamlit App with Dropdowns & Control Loop Fix
 
 import streamlit as st
 import pandas as pd
@@ -18,9 +18,9 @@ from dsl_generator import DSLGenerator
 from dexpi_converter import DEXPIConverter
 from ai_integration import PnIDAIAssistant, SmartPnIDSuggestions
 from control_systems import ControlSystemAnalyzer, PnIDValidator
-from hitl_validation import HITLValidator  # Import the HITLValidator class for validation logic
+from hitl_validation import HITLValidator
 
-# Optional Visio import (Windows only)
+# Optional Visio (Windows only)
 if platform.system() == "Windows":
     try:
         from visio_generator import VisioP_IDGenerator
@@ -31,34 +31,18 @@ else:
     VISIO_AVAILABLE = False
 
 # ─────────────────────────────────────
-# PAGE CONFIG & STYLING
+# PAGE CONFIG & CSS
 # ─────────────────────────────────────
-st.set_page_config(
-    page_title="EPS P&ID Generator with AI",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
+st.set_page_config(page_title="EPS P&ID Generator", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""
 <style>
-    .stTabs [data-baseweb="tab-list"] button [data-testid="stMarkdownContainer"] p {
-        font-size: 16px;
-    }
-    .main > div { padding-top: 0rem; }
-    .block-container { padding-top: 1rem; padding-bottom: 0rem; }
-    .svg-container {
-        border: 2px solid #ccc; border-radius: 8px; background: white;
-        padding: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .validation-success { background-color: #d4edda; padding: 10px; border-radius: 5px; margin: 10px 0; }
-    .validation-warning { background-color: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; }
-    .validation-error { background-color: #f8d7da; padding: 10px; border-radius: 5px; margin: 10px 0; }
+    .svg-container { border: 2px solid #ccc; border-radius: 8px; background: white; padding: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     .ai-suggestion { background-color: #e7f3ff; border-left: 4px solid #2196F3; padding: 10px; margin: 10px 0; border-radius: 5px; }
 </style>
 """, unsafe_allow_html=True)
 
 # ─────────────────────────────────────
-# INIT AI + RENDERER
+# INIT
 # ─────────────────────────────────────
 @st.cache_resource
 def init_ai():
@@ -81,7 +65,7 @@ except Exception as e:
     st.stop()
 
 # ─────────────────────────────────────
-# SIDEBAR CONFIGURATION
+# SIDEBAR CONFIG
 # ─────────────────────────────────────
 with st.sidebar:
     st.header("⚙️ Diagram Configuration")
@@ -89,25 +73,23 @@ with st.sidebar:
     show_legend = st.checkbox("Show Legend", True)
     show_control_loops = st.checkbox("Show Control Loops", True)
     show_validation = st.checkbox("Show HITL Validation", True)
-    zoom = st.slider("Zoom Level", 0.5, 3.0, 1.0, 0.1)
+    zoom = st.slider("Zoom", 0.5, 3.0, 1.0, 0.1)
     export_format = st.selectbox("Export Format", ["PNG", "SVG", "DXF", "DEXPI", "PDF"])
     process_type = st.selectbox("Process Type", ["vacuum_system", "distillation", "reaction", "utilities"])
     enable_ai = st.checkbox("Enable AI Suggestions", True)
 
+    st.markdown("### Optional Components")
+    include_condenser = st.checkbox("Vapour Condenser + Catch Pot", True)
+    include_acg = st.checkbox("ACG Filter", True)
+    include_silencer = st.checkbox("Discharge Silencer + Catch Pot", True)
+
 # ─────────────────────────────────────
 # TABS
 # ─────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "📐 Diagram",
-    "📦 Equipment",
-    "📋 Validation",
-    "🧠 AI Suggestions",
-    "🔁 HITL",
-    "📤 Export"
-])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📐 Diagram", "📦 Equipment", "📋 Validation", "🧠 AI Suggestions", "🔁 HITL", "📤 Export"])
 
 # ─────────────────────────────────────
-# DSL + DEXPI + SCHEMDRAW DIAGRAM
+# TAB 1: DIAGRAM
 # ─────────────────────────────────────
 with tab1:
     st.subheader("📐 Generated P&ID Diagram")
@@ -116,41 +98,39 @@ with tab1:
         dsl = DSLGenerator()
         dsl.set_metadata(project="EPS", drawing_number="001", revision="00", date=datetime.now().strftime("%Y-%m-%d"))
 
-        # Try loading enhanced layout
         try:
             layout_df = pd.read_csv("enhanced_equipment_layout.csv")
         except FileNotFoundError:
             layout_df = None
 
-        # Add equipment and inline components with layout info
+        optional_ids = []
+        if not include_condenser:
+            optional_ids += ["vapour_condenser", "catch_pot_1"]
+        if not include_acg:
+            optional_ids.append("acg_filter")
+        if not include_silencer:
+            optional_ids += ["discharge_silencer", "catch_pot_2"]
+
         for _, row in equipment_df.iterrows():
-            dsl.add_component_from_row(row, layout_df)
+            if row["ID"] not in optional_ids:
+                dsl.add_component_from_row(row, layout_df)
 
         for _, row in inline_df.iterrows():
-            dsl.add_component_from_row(row, layout_df)
+            if row["ID"] not in optional_ids:
+                dsl.add_component_from_row(row, layout_df)
 
-        # Add connections
         for _, row in pipeline_df.iterrows():
             dsl.add_connection_from_row(row)
 
         dsl.detect_control_loops()
 
-        # Compute positions + routes
         positions, routes, inlines = compute_positions_and_routing(equipment_df, pipeline_df, inline_df)
-
-        # Generate SVG
         svg, tag_map = render_svg(dsl.to_dsl("json"), symbol_renderer, positions, show_grid, show_legend, zoom)
 
-        st.components.v1.html(f"""
-        <div class='svg-container'>
-            <div style="transform: scale({zoom}); transform-origin: top left;">
-                {svg}
-            </div>
-        </div>
-        """, height=700, scrolling=True)
+        st.components.v1.html(f"""<div class='svg-container'><div style="transform: scale({zoom}); transform-origin: top left;">{svg}</div></div>""", height=700, scrolling=True)
 
 # ─────────────────────────────────────
-# EQUIPMENT TABLE
+# TAB 2: EQUIPMENT
 # ─────────────────────────────────────
 with tab2:
     st.subheader("📦 Equipment, Pipelines & Inline")
@@ -162,7 +142,7 @@ with tab2:
     st.dataframe(inline_df)
 
 # ─────────────────────────────────────
-# VALIDATION
+# TAB 3: VALIDATION
 # ─────────────────────────────────────
 with tab3:
     st.subheader("📋 P&ID Validation")
@@ -175,7 +155,7 @@ with tab3:
             st.warning(f"⚠️ {issue}")
 
 # ─────────────────────────────────────
-# AI SUGGESTIONS
+# TAB 4: AI SUGGESTIONS
 # ─────────────────────────────────────
 with tab4:
     st.subheader("🧠 AI-Powered Suggestions")
@@ -184,56 +164,29 @@ with tab4:
         for r in recs:
             st.markdown(f"<div class='ai-suggestion'>{r}</div>", unsafe_allow_html=True)
     else:
-           st.info("AI suggestions are disabled")
+        st.info("AI suggestions are disabled")
 
 # ─────────────────────────────────────
-# HITL VALIDATION
+# TAB 5: HITL VALIDATION
 # ─────────────────────────────────────
 with tab5:
     st.subheader("🔁 Human-in-the-Loop (HITL) Validation")
-    
-    # Initialize HITLValidator and session
-    validator = None
-    session = None
-    
-    # DSL data for validation (assuming dsl.to_dsl("json") returns dict or JSON str)
     try:
-        dsl_data = dsl.to_dsl("json")
-        # If dsl_data is a JSON string, convert to dict
-        if isinstance(dsl_data, str):
-            dsl_data = json.loads(dsl_data)
+        dsl_data = json.loads(dsl.to_dsl("json"))
         validator = HITLValidator()
         session = validator.create_session(project_id="EPS", dsl_data=dsl_data)
-        
-        # Show summary info
         st.write(f"Session ID: {session.session_id}")
-        st.write(f"Project ID: {session.project_id}")
-        st.write(f"Reviewer: {session.reviewer_name if session.reviewer_name else 'Not assigned'}")
         st.progress(session.completion_percentage / 100)
-        st.caption(f"Completion: {session.completion_percentage:.1f}%")
-        
-        # Table of validation items
-        st.write("### Validation Items")
         if session.validation_items:
-            item_df = pd.DataFrame([vars(i) for i in session.validation_items])
-            st.dataframe(item_df)
+            st.dataframe(pd.DataFrame([vars(i) for i in session.validation_items]))
         else:
             st.success("No validation issues detected.")
-        
-        # Export report button
-        report = validator.export_validation_report()
-        st.download_button(
-            label="⬇️ Download Validation Report (JSON)",
-            data=json.dumps(report, indent=2),
-            file_name=f"{session.session_id}_validation_report.json",
-            mime="application/json"
-        )
+        st.download_button("⬇️ Download Validation Report", data=json.dumps(validator.export_validation_report(), indent=2), file_name="validation_report.json")
     except Exception as e:
-        st.error(f"❌ HITL Validation failed: {e}")
-
+        st.error(f"❌ HITL validation failed: {e}")
 
 # ─────────────────────────────────────
-# EXPORT
+# TAB 6: EXPORT
 # ─────────────────────────────────────
 with tab6:
     st.subheader("📤 Export Diagram")
