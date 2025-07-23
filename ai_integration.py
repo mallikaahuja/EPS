@@ -11,6 +11,29 @@ from PIL import Image
 from io import BytesIO
 import json
 
+def ai_generate_summary(data, context=None):
+    """
+    Generate a summary using AI (OpenAI GPT).
+    """
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        raise ValueError("OpenAI API key not configured.")
+
+    openai.api_key = openai_key
+
+    prompt = f"Summarize the following data for a process engineer:\n\n{data}\n\nContext: {context or ''}\n\nSummary:"
+    try:
+        response = openai.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=300
+        )
+        msg = response.choices[0].message.content.strip()
+        return msg
+    except Exception as e:
+        return f"AI summary unavailable: {e}"
+
 def ai_suggest_attribute(component_type: str, context: dict) -> str:
     """
     Suggests an attribute or tag based on component type and process context.
