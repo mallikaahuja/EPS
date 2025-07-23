@@ -5,6 +5,7 @@ import json
 import yaml
 import pandas as pd
 import logging
+import networkx as nx  # For control loop detection
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -93,7 +94,6 @@ class DSLGenerator:
         self.connections: Dict[str, DSLConnection] = {}
         self.control_loops: List[DSLControlLoop] = []
         self.metadata = {}
-         
 
     def set_metadata(self, project, drawing_number, revision, date, company="EPS"):
         self.metadata = {
@@ -103,7 +103,6 @@ class DSLGenerator:
             "date": date,
             "company": company
         }
-
 
     def _map_component_type(self, type_str: str) -> ComponentType:
         type_str = type_str.lower()
@@ -190,10 +189,8 @@ class DSLGenerator:
             try:
                 parsed = json.loads(row["waypoints"])
                 if isinstance(parsed, list):
-                    # Format 1: [[x, y], [x, y]]
                     if all(isinstance(p, list) and len(p) == 2 for p in parsed):
                         waypoints = [{"x": float(p[0]), "y": float(p[1])} for p in parsed]
-                    # Format 2: [{"x": ..., "y": ...}, ...]
                     elif all(isinstance(p, dict) and "x" in p and "y" in p for p in parsed):
                         waypoints = [{"x": float(p["x"]), "y": float(p["y"])} for p in parsed]
             except Exception as e:
@@ -204,6 +201,75 @@ class DSLGenerator:
             from_component=row.get("from_component"),
             to_component=row.get("to_component"),
             from_port=row.get("from_port", "outlet"),
+            to_port=row.get("to_port", "inlet"),
+            type=conn_type,
+            attributes={
+                "line_number": row.get("line_number", ""),
+                "with_arrow": row.get("with_arrow", "")
+            },
+            waypoints=waypoints
+        )
+        self.connections[conn.id] = conn
+
+    def generate_from_csvs(
+        self,
+        equipment_df: pd.DataFrame,
+        inline_df: pd.DataFrame,
+        pipeline_df: pd.DataFrame,
+        connection_df: pd.DataFrame,
+        layout_df: Optional[pd.DataFrame] = None
+    ) -> None:
+        for _, row in pd.concat([equipment_df, inline_df]).iterrows():
+            self.add_component_from_row(row, layout_df)
+        for _, row in connection_df.iterrows():
+            self.add_connection_from_row(row)
+
+    def detect_control_loops(self):
+        """
+        Detects control loops using ISA code logic and NetworkX graph traversal.
+        """
+        G = nx.DiGraph()
+        for conn in self.connections.values():
+            G.add_edge(conn.from_component, conn.to_component)
+
+        isa_mapping = {
+            "LT": ("LIC", "LV"),
+            "PT": ("PIC", "PV"),
+            "FT": ("FIC", "FCV"),
+            "TT": ("TIC", "TV")
+        }
+
+        for comp_id, comp in self.components.items():
+            isa = comp.attributes.get("isa_code", "").upper()
+            if isa in isa_mapping:
+                ctrl_code, act_code = isa_mapping[isa]
+                try:
+                    paths = nx.single_source_shortest_path(G, comp_id)
+                    for target_id, path in paths.items():
+                        if any(self.components[n].attributes.get("isa_code", "").startswith(ctrl_code) for n in path) and \
+                           any(self.components[n].attributes.get("isa_code", "").startswith(act_code) for n in path):
+                            ctrl_id = next(n for n in path if self.components[n].attributes.get("isa_code", "").startswith(ctrl_code))
+                            act_id = next(n for n in path if self.components[n].attributes.get("isa_code", "").startswith(act_code))
+                            loop_id = f"CL-{isa}-{comp_id}"
+                            self.control_loops.append(
+                                DSLControlLoop(
+                                    id=loop_id,
+                                    type=isa,
+                                    components=[comp_id, ctrl_id, act_id]
+                                )
+                            )
+                            break
+                except Exception as e:
+                    logging.warning(f"Loop detection failed for {comp_id}: {e}")
+
+    def to_dsl(self, format: str = "json") -> str:
+        dsl = {
+            "metadata": self.metadata,
+            "components": [c.to_dict() for c in self.components.values()],
+            "connections": [c.to_dict() for c in self.connections.values()],
+            "control_loops": [l.to_dict() for l in self.control_loops]
+        }
+        return yaml.dump(dsl) if format == "yaml" else json.dumps(dsl, indent=2)
             to_port=row.get("to_port", "inlet"),
             type=conn_type,
             attributes={
