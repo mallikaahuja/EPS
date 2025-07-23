@@ -11,7 +11,10 @@ from PIL import Image
 from io import BytesIO
 import json
 
-def ai_generate_summary(data, context=None):
+class PnIDAIAssistant:
+    """AI-powered assistant for P&ID improvements and suggestions"""
+
+    def ai_generate_summary(data, context=None):
     """
     Generate a summary using AI (OpenAI GPT).
     """
@@ -55,8 +58,6 @@ def ai_suggest_attribute(component_type: str, context: dict) -> str:
     else:
         return "No specific suggestion available"
 
-class PnIDAIAssistant:
-    """AI-powered assistant for P&ID improvements and suggestions"""
 
     def __init__(self, openai_key=None, stability_key=None):
         # Prioritize passed-in keys, then fall back to environment variables
