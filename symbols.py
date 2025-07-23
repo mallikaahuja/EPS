@@ -12,11 +12,9 @@ class SymbolRenderer:
         self.port_map = {}
 
     def export_png(self, drawing) -> bytes:
-        fig = drawing.draw(show=False)
-        buf = io.BytesIO()
-        fig.savefig(buf, format='png', bbox_inches='tight')
-        plt.close(fig)
-        return buf.getvalue()
+    buf = io.BytesIO()
+    drawing.save(buf, format='png')  # This uses Schemdraw’s internal backend
+    return buf.getvalue()
 
     def render_symbol(self, component_id: str, label: str = "", size: float = 1.0) -> Tuple[bytes, Dict]:
         draw_method = self.symbol_map().get(component_id.lower())
