@@ -809,6 +809,11 @@ class PnIDValidator:
 
             if not has_psv:
                 self.warnings.append(f"Vessel {vessel_tag} should have pressure relief protection")
+                   
+            def validate(self, dsl_json=None):
+                """Simple wrapper for compatibility with app.py"""
+                result = self.validate_all()
+            return result["errors"] + result["warnings"]
 
 # — RENDERING ENHANCEMENTS —
 
