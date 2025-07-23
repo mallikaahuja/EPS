@@ -128,14 +128,11 @@ with tab1:
         import json
         dsl_json = json.loads(dsl.to_dsl("json"))
         svg, tag_map = render_svg(dsl_json, symbol_renderer, positions, show_grid, show_legend, zoom)
-        st.components.v1.html(f"""
-        <div class='svg-container' style="overflow:auto; width:100%; height:800px;">
-        <div style="transform: scale({zoom}); transform-origin: top left;">
-        {svg}
-        </div>
-        </div>
-        """, height=800, scrolling=True)
-
+        try:
+        png = svg_to_png(svg)
+        st.image(png, caption="Generated P&ID Diagram", use_column_width=True)
+        except Exception as e:
+        st.error(f"Could not render diagram as PNG: {e}")
 # ─────────────────────────────────────
 # TAB 2: EQUIPMENT
 # ─────────────────────────────────────
