@@ -11,30 +11,29 @@ from PIL import Image
 from io import BytesIO
 import json
 
+def ai_suggest_attribute(component_type: str, context: dict) -> str:
+    """
+    Suggests an attribute or tag based on component type and process context.
+    """
+    component_type = component_type.lower()
+
+    if component_type in ['pump', 'motor']:
+        return "Consider energy-efficient models with VFD integration"
+    elif component_type in ['heat_exchanger', 'condenser']:
+        return "Optimize heat transfer by monitoring ΔT regularly"
+    elif component_type in ['valve', 'control_valve']:
+        return "Ensure compatibility with upstream control loops"
+    elif component_type in ['transmitter', 'sensor']:
+        return "Place away from vibration and heat zones"
+    elif component_type in ['scrubber', 'filter']:
+        return "Check for differential pressure to monitor fouling"
+    elif component_type in ['vessel', 'tank']:
+        return "Add level and pressure indicators for better control"
+    else:
+        return "No specific suggestion available"
+
 class PnIDAIAssistant:
     """AI-powered assistant for P&ID improvements and suggestions"""
-
-    @staticmethod
-    def ai_suggest_attribute(component_type: str, context: dict) -> str:
-        """
-        Suggests an attribute or tag based on component type and process context.
-        """
-        component_type = component_type.lower()
-
-        if component_type in ['pump', 'motor']:
-            return "Consider energy-efficient models with VFD integration"
-        elif component_type in ['heat_exchanger', 'condenser']:
-            return "Optimize heat transfer by monitoring ΔT regularly"
-        elif component_type in ['valve', 'control_valve']:
-            return "Ensure compatibility with upstream control loops"
-        elif component_type in ['transmitter', 'sensor']:
-            return "Place away from vibration and heat zones"
-        elif component_type in ['scrubber', 'filter']:
-            return "Check for differential pressure to monitor fouling"
-        elif component_type in ['vessel', 'tank']:
-            return "Add level and pressure indicators for better control"
-        else:
-            return "No specific suggestion available"
 
     def __init__(self, openai_key=None, stability_key=None):
         # Prioritize passed-in keys, then fall back to environment variables
