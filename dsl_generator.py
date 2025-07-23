@@ -5,7 +5,7 @@ import json
 import yaml
 import pandas as pd
 import logging
-import networkx as nx  # For control loop detection
+import networkx as nx
 
 logging.basicConfig(level=logging.WARNING)
 
@@ -211,74 +211,36 @@ class DSLGenerator:
         )
         self.connections[conn.id] = conn
 
-    def generate_from_csvs(
-        self,
-        equipment_df: pd.DataFrame,
-        inline_df: pd.DataFrame,
-        pipeline_df: pd.DataFrame,
-        connection_df: pd.DataFrame,
-        layout_df: Optional[pd.DataFrame] = None
-    ) -> None:
-        for _, row in pd.concat([equipment_df, inline_df]).iterrows():
-            self.add_component_from_row(row, layout_df)
-        for _, row in connection_df.iterrows():
-            self.add_connection_from_row(row)
-
     def detect_control_loops(self):
-        """
-        Detects control loops using ISA code logic and NetworkX graph traversal.
-        """
-        G = nx.DiGraph()
-        for conn in self.connections.values():
-            G.add_edge(conn.from_component, conn.to_component)
-
         isa_mapping = {
-            "LT": ("LIC", "LV"),
-            "PT": ("PIC", "PV"),
-            "FT": ("FIC", "FCV"),
-            "TT": ("TIC", "TV")
+            "LT": "LIC",
+            "FT": "FIC",
+            "PT": "PIC",
+            "TT": "TIC"
         }
 
+        isa_lookup = {}
         for comp_id, comp in self.components.items():
-            isa = comp.attributes.get("isa_code", "").upper()
-            if isa in isa_mapping:
-                ctrl_code, act_code = isa_mapping[isa]
-                try:
-                    paths = nx.single_source_shortest_path(G, comp_id)
-                    for target_id, path in paths.items():
-                        if any(self.components[n].attributes.get("isa_code", "").startswith(ctrl_code) for n in path) and \
-                           any(self.components[n].attributes.get("isa_code", "").startswith(act_code) for n in path):
-                            ctrl_id = next(n for n in path if self.components[n].attributes.get("isa_code", "").startswith(ctrl_code))
-                            act_id = next(n for n in path if self.components[n].attributes.get("isa_code", "").startswith(act_code))
-                            loop_id = f"CL-{isa}-{comp_id}"
-                            self.control_loops.append(
-                                DSLControlLoop(
-                                    id=loop_id,
-                                    type=isa,
-                                    components=[comp_id, ctrl_id, act_id]
-                                )
-                            )
-                            break
-                except Exception as e:
-                    logging.warning(f"Loop detection failed for {comp_id}: {e}")
+            isa_code = comp.attributes.get("isa_code", "").upper()
+            if isa_code:
+                isa_lookup[isa_code] = comp_id
 
-    def to_dsl(self, format: str = "json") -> str:
-        dsl = {
-            "metadata": self.metadata,
-            "components": [c.to_dict() for c in self.components.values()],
-            "connections": [c.to_dict() for c in self.connections.values()],
-            "control_loops": [l.to_dict() for l in self.control_loops]
-        }
-        return yaml.dump(dsl) if format == "yaml" else json.dumps(dsl, indent=2)
-            to_port=row.get("to_port", "inlet"),
-            type=conn_type,
-            attributes={
-                "line_number": row.get("line_number", ""),
-                "with_arrow": row.get("with_arrow", "")
-            },
-            waypoints=waypoints
-        )
-        self.connections[conn.id] = conn
+        for sensor_prefix, controller_prefix in isa_mapping.items():
+            for sensor_code, sensor_id in isa_lookup.items():
+                if sensor_code.startswith(sensor_prefix):
+                    base = sensor_code[len(sensor_prefix):]
+                    controller_code = controller_prefix + base
+                    valve_code = "V" + base
+
+                    controller_id = isa_lookup.get(controller_code)
+                    valve_id = isa_lookup.get(valve_code)
+
+                    if controller_id and valve_id:
+                        self.control_loops.append(DSLControlLoop(
+                            id=f"{sensor_code}_loop",
+                            type=controller_prefix,
+                            components=[sensor_id, controller_id, valve_id]
+                        ))
 
     def generate_from_csvs(
         self,
