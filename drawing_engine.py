@@ -84,7 +84,11 @@ def render_svg(dsl_dict: Dict, renderer: SymbolRenderer, positions: Dict,
     return svg_string, port_map
 
 def svg_to_png(svg_string: str) -> bytes:
-    return cairosvg.svg2png(bytestring=svg_string.encode("utf-8"))
+    import cairosvg
+    try:
+        return cairosvg.svg2png(bytestring=svg_string.encode("utf-8"), output_width=2400)
+    except Exception as e:
+        raise RuntimeError(f"PNG export failed: {e}")
 
 def export_dxf(dsl_dict: Dict) -> bytes:
     doc = ezdxf.new(dxfversion="R2010")
