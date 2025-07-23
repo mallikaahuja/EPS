@@ -151,7 +151,8 @@ with tab2:
 with tab3:
     st.subheader("📋 P&ID Validation")
     validator = PnIDValidator(dsl.components, dsl.connections)
-    issues = validator.validate(dsl.to_dsl("json"))
+    issues = validator.run_validation(dsl.to_dsl("json"))
+
     if not issues:
         st.success("✅ No major validation errors.")
     else:
