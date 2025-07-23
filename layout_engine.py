@@ -1,10 +1,12 @@
+# layout_engine.py
+
 import pandas as pd
 import json
 import networkx as nx
-from process_mapper import auto_sequence, detect_process_flow, get_src_dst
+from process_mapper import auto_sequence, get_src_dst
 from utils import merge_layout_hints
 
-# Load port mappings
+# Load component port mappings
 with open("component_mapping.json") as f:
     ports = json.load(f)
 PORT_MAP = {}
@@ -14,11 +16,10 @@ for item in ports:
         PORT_MAP[comp] = {}
     PORT_MAP[comp][item["Port Name"]] = (item["dx"], item["dy"])
 
-# Core layout function
 def compute_positions_and_routing(equipment_df, pipeline_df, inline_df):
     positions = {}
 
-    # Load enhanced layout if available
+    # Try to use enhanced layout if available
     try:
         layout_df = pd.read_csv('enhanced_equipment_layout.csv')
         for _, row in layout_df.iterrows():
@@ -28,25 +29,25 @@ def compute_positions_and_routing(equipment_df, pipeline_df, inline_df):
     except Exception as e:
         print(f"⚠️ Could not load enhanced layout: {e}")
 
-    # Fallback to auto-sequencing if missing
+    # Fallback to auto-sequencing if needed
     if not positions:
         process_order = auto_sequence(equipment_df, pipeline_df)
         for i, eq_id in enumerate(process_order):
             positions[eq_id] = (200 + i * 250, 400)
 
-    # Ensure all components are placed
+    # Ensure every equipment is placed
     for _, row in equipment_df.iterrows():
         if row["ID"] not in positions:
             positions[row["ID"]] = (100 + len(positions) * 100, 600)
 
-    # Build connection graph
+    # Create connection graph for route logic
     G = nx.DiGraph()
     for _, row in pipeline_df.iterrows():
         src, dst = get_src_dst(row)
         if src and dst:
             G.add_edge(src, dst)
 
-    # Route pipelines
+    # Draw pipelines
     pipelines = []
     for _, row in pipeline_df.iterrows():
         src, dst = get_src_dst(row)
@@ -57,6 +58,7 @@ def compute_positions_and_routing(equipment_df, pipeline_df, inline_df):
         dst_port = row.get("Destination Port", "suction")
         src_offset = PORT_MAP.get(src, {}).get(src_port, (0, 0))
         dst_offset = PORT_MAP.get(dst, {}).get(dst_port, (0, 0))
+
         src_xy = (positions[src][0] + src_offset[0], positions[src][1] + src_offset[1])
         dst_xy = (positions[dst][0] + dst_offset[0], positions[dst][1] + dst_offset[1])
 
@@ -69,7 +71,7 @@ def compute_positions_and_routing(equipment_df, pipeline_df, inline_df):
             "line_number": row.get("line_number", "")
         })
 
-    # Position inline components
+    # Place inline components
     inlines = []
     for _, row in inline_df.iterrows():
         inline_id = row["ID"]
@@ -97,7 +99,6 @@ def compute_positions_and_routing(equipment_df, pipeline_df, inline_df):
 
     return positions, pipelines, inlines
 
-# Fallback elbow routing
 def elbow_path(src, dst):
     x0, y0 = src
     x1, y1 = dst
