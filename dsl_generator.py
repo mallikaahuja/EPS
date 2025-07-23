@@ -221,7 +221,7 @@ class DSLGenerator:
 
         isa_lookup = {}
         for comp_id, comp in self.components.items():
-            isa_code = comp.attributes.get("isa_code", "").upper()
+            isa_code = str(comp.attributes.get("isa_code", "")).upper()
             if isa_code:
                 isa_lookup[isa_code] = comp_id
 
