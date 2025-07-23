@@ -13,39 +13,40 @@ import json
 
 class PnIDAIAssistant:
     """AI-powered assistant for P&ID improvements and suggestions"""
-    
+
+    @staticmethod
     def ai_suggest_attribute(component_type: str, context: dict) -> str:
-    """
-    Suggests an attribute or tag based on component type and process context.
-    """
-    component_type = component_type.lower()
-    
-    if component_type in ['pump', 'motor']:
-        return "Consider energy-efficient models with VFD integration"
-    elif component_type in ['heat_exchanger', 'condenser']:
-        return "Optimize heat transfer by monitoring ΔT regularly"
-    elif component_type in ['valve', 'control_valve']:
-        return "Ensure compatibility with upstream control loops"
-    elif component_type in ['transmitter', 'sensor']:
-        return "Place away from vibration and heat zones"
-    elif component_type in ['scrubber', 'filter']:
-        return "Check for differential pressure to monitor fouling"
-    elif component_type in ['vessel', 'tank']:
-        return "Add level and pressure indicators for better control"
-    else:
-        return "No specific suggestion available"
+        """
+        Suggests an attribute or tag based on component type and process context.
+        """
+        component_type = component_type.lower()
+
+        if component_type in ['pump', 'motor']:
+            return "Consider energy-efficient models with VFD integration"
+        elif component_type in ['heat_exchanger', 'condenser']:
+            return "Optimize heat transfer by monitoring ΔT regularly"
+        elif component_type in ['valve', 'control_valve']:
+            return "Ensure compatibility with upstream control loops"
+        elif component_type in ['transmitter', 'sensor']:
+            return "Place away from vibration and heat zones"
+        elif component_type in ['scrubber', 'filter']:
+            return "Check for differential pressure to monitor fouling"
+        elif component_type in ['vessel', 'tank']:
+            return "Add level and pressure indicators for better control"
+        else:
+            return "No specific suggestion available"
 
     def __init__(self, openai_key=None, stability_key=None):
         # Prioritize passed-in keys, then fall back to environment variables
         self.openai_key = openai_key if openai_key is not None else os.getenv("OPENAI_API_KEY")
         self.stability_key = stability_key if stability_key is not None else os.getenv("STABILITY_API_KEY")
-        
+
         # Set OpenAI API key globally if available
         if self.openai_key:
             openai.api_key = self.openai_key
         else:
             print("Warning: OpenAI API key not found. AI features may be limited.")
-        
+
         if not self.stability_key:
             print("Warning: Stability AI API key not found. Symbol generation may not work.")
 
@@ -67,11 +68,11 @@ class PnIDAIAssistant:
         """Get AI suggestions for process improvements"""
         if not self._check_openai_key():
             return {"error": "OpenAI API key not configured."}
-        
+
         # Build context from current P&ID
         equipment_list = equipment_df['Description'].tolist()
         equipment_types = equipment_df['type'].tolist()
-        
+
         prompt = f"""
 As a process engineering expert, analyze this P&ID configuration and provide improvement suggestions:
 
@@ -88,7 +89,7 @@ Please provide:
 
 Format your response as a JSON object with categories as keys.
 """
-        
+
         try:
             response = openai.chat.completions.create(
                 model="gpt-4",
@@ -99,7 +100,7 @@ Format your response as a JSON object with categories as keys.
                 temperature=0.7,
                 max_tokens=1000
             )
-            
+
             suggestions = response.choices[0].message.content
             return json.loads(suggestions)
         except json.JSONDecodeError:
@@ -111,7 +112,7 @@ Format your response as a JSON object with categories as keys.
         """Validate the process flow logic using AI"""
         if not self._check_openai_key():
             return {"valid": False, "issues": ["OpenAI API key not configured."]}
-        
+
         prompt = f"""
 Validate this vacuum system process flow sequence:
 
@@ -129,7 +130,7 @@ Return a JSON object with:
 - issues: list of issues found
 - recommendations: list of improvements
 """
-        
+
         try:
             response = openai.chat.completions.create(
                 model="gpt-4",
@@ -140,7 +141,7 @@ Return a JSON object with:
                 temperature=0.3,
                 max_tokens=500
             )
-            
+
             return json.loads(response.choices[0].message.content)
         except json.JSONDecodeError:
             return {"valid": False, "issues": ["Failed to parse AI response as JSON."], "error": f"AI response: {response.choices[0].message.content}"}
@@ -151,7 +152,7 @@ Return a JSON object with:
         """Generate missing P&ID symbols using Stability AI"""
         if not self._check_stability_key():
             return None
-        
+
         # Build prompt for symbol generation
         prompt = f"""
 Create a professional P&ID symbol for: {component_name}
@@ -167,7 +168,7 @@ Requirements:
         # Ensure 'symbols' directory exists
         symbols_dir = "symbols"
         os.makedirs(symbols_dir, exist_ok=True)
-        
+
         try:
             response = requests.post(
                 "https://api.stability.ai/v1/generation/stable-diffusion-v1-6/text-to-image",
@@ -191,24 +192,24 @@ Requirements:
                     "style_preset": "line-art"
                 }
             )
-            
+
             if response.status_code != 200:
                 print(f"Stability AI API error: {response.status_code} - {response.text}")
                 return None
-            
+
             data = response.json()
             if not data.get("artifacts"):
                 print("Stability AI did not return any artifacts (images).")
                 return None
 
             image_data = base64.b64decode(data["artifacts"][0]["base64"])
-            
+
             # Process image to ensure it's suitable for P&ID
             img = Image.open(BytesIO(image_data))
-            
+
             # Convert to black and white with transparency
             img = img.convert("RGBA")
-            
+
             # Make near-white pixels transparent (more robust)
             datas = img.getdata()
             newData = []
@@ -218,19 +219,19 @@ Requirements:
                     newData.append((255, 255, 255, 0)) # Fully transparent white
                 else:
                     newData.append(item)
-            
+
             img.putdata(newData)
-            
+
             # Resize to standard symbol size
             img = img.resize((100, 100), Image.Resampling.LANCZOS)
-            
+
             # Save to symbols directory
             symbol_filename = f"{component_name.lower().replace(' ', '_').replace('/', '_')}.png"
             symbol_path = os.path.join(symbols_dir, symbol_filename)
             img.save(symbol_path, "PNG")
-            
+
             return symbol_path
-            
+
         except Exception as e:
             print(f"Failed to generate symbol: {str(e)}")
             return None
@@ -239,7 +240,7 @@ Requirements:
         """Use AI to suggest optimal equipment layout"""
         if not self._check_openai_key():
             return positions
-        
+
         prompt = f"""
 Optimize this P&ID equipment layout for:
 1. Minimal pipe crossings
@@ -251,7 +252,7 @@ Current positions: {json.dumps(positions)}
 
 Return optimized positions as JSON maintaining the same format.
 """
-        
+
         try:
             response = openai.chat.completions.create(
                 model="gpt-4",
@@ -262,7 +263,7 @@ Return optimized positions as JSON maintaining the same format.
                 temperature=0.5,
                 max_tokens=1000
             )
-            
+
             return json.loads(response.choices[0].message.content)
         except json.JSONDecodeError:
             print(f"Warning: Failed to parse AI layout optimization response as JSON. Returning original positions. AI response: {response.choices[0].message.content}")
@@ -275,7 +276,7 @@ Return optimized positions as JSON maintaining the same format.
         """Generate detailed equipment datasheet using AI"""
         if not self._check_openai_key():
             return {"error": "OpenAI API key not configured."}
-        
+
         prompt = f"""
 Generate a professional equipment datasheet for:
 Equipment ID: {equipment_id}
@@ -298,7 +299,7 @@ Include:
 Format as a comprehensive JSON object with proper engineering units and clear sections.
 Ensure all relevant provided data is incorporated into the datasheet.
 """
-        
+
         try:
             response = openai.chat.completions.create(
                 model="gpt-4",
@@ -309,7 +310,7 @@ Ensure all relevant provided data is incorporated into the datasheet.
                 temperature=0.3,
                 max_tokens=1500
             )
-            
+
             return json.loads(response.choices[0].message.content)
         except json.JSONDecodeError:
             return {"error": f"Failed to parse AI datasheet response as JSON: {response.choices[0].message.content}"}
@@ -320,7 +321,7 @@ Ensure all relevant provided data is incorporated into the datasheet.
         """Check P&ID compliance with industry standards"""
         if not self._check_openai_key():
             return {"compliant": False, "issues": ["OpenAI API key not configured."]}
-        
+
         prompt = f"""
 Check this P&ID data for compliance with {', '.join(standards)} standards, focusing on common industrial practices and potential safety/operational gaps:
 
@@ -342,7 +343,7 @@ Return a comprehensive compliance report as a JSON object, including:
 - "issues": list of dictionaries, each with "type" (error/warning), "description", and "recommendation"
 - "suggestions": list of general improvements
 """
-        
+
         try:
             response = openai.chat.completions.create(
                 model="gpt-4",
@@ -353,7 +354,7 @@ Return a comprehensive compliance report as a JSON object, including:
                 temperature=0.2,
                 max_tokens=800
             )
-            
+
             return json.loads(response.choices[0].message.content)
         except json.JSONDecodeError:
             return {"compliant": False, "issues": [{"type": "error", "description": "Failed to parse AI compliance report as JSON."}], "error": f"AI response: {response.choices[0].message.content}"}
@@ -366,10 +367,10 @@ class SmartPnIDSuggestions:
 
     def __init__(self, ai_assistant):
         self.ai = ai_assistant
-        
+
     def suggest_missing_components(self, process_type, existing_equipment):
         """Suggest missing components based on process type"""
-        
+
         standard_requirements = {
             "vacuum_system": {
                 "safety": ["pressure_relief_valve", "flame_arrestor", "rupture_disk"],
@@ -390,10 +391,10 @@ class SmartPnIDSuggestions:
                 "environmental": ["waste_treatment"]
             }
         }
-        
+
         suggestions = []
         requirements = standard_requirements.get(process_type, {})
-        
+
         existing_equipment_lower = [str(eq).lower() for eq in existing_equipment]
 
         for category, items in requirements.items():
@@ -405,7 +406,7 @@ class SmartPnIDSuggestions:
                         "priority": "high" if category == "safety" else "medium",
                         "reason": f"Standard {category} requirement for a {process_type.replace('_', ' ')}."
                     })
-        
+
         if self.ai._check_openai_key() and existing_equipment:
             try:
                 ai_prompt = f"""
@@ -432,7 +433,7 @@ If no further suggestions, return an empty array [].
                 )
                 ai_suggestions_raw = ai_response.choices[0].message.content
                 ai_parsed_suggestions = json.loads(ai_suggestions_raw)
-                
+
                 for ai_sugg in ai_parsed_suggestions:
                     sugg_name_lower = ai_sugg.get('component', '').lower().replace(' ', '_')
                     if not any(sugg_name_lower in s['component'].lower().replace(' ', '_') for s in suggestions):
@@ -445,9 +446,9 @@ If no further suggestions, return an empty array [].
 
     def analyze_energy_efficiency(self, equipment_df, pipeline_df, process_type):
         """Analyze system for energy efficiency improvements"""
-        
+
         suggestions = []
-        
+
         pumps = equipment_df[equipment_df['type'].str.contains('pump', case=False)]
         for _, pump in pumps.iterrows():
             if 'vfd' not in str(pump.get('default_properties', '')).lower() and \
@@ -458,7 +459,7 @@ If no further suggestions, return an empty array [].
                     "savings": "Estimated 15-30% energy reduction on pump operation.",
                     "cost": "Typically $5,000-$15,000 per pump installation (varies by size)."
                 })
-        
+
         condensers = equipment_df[equipment_df['type'].str.contains('condenser', case=False)]
         if len(condensers) > 1:
             suggestions.append({
@@ -467,7 +468,7 @@ If no further suggestions, return an empty array [].
                 "savings": "Potential 10-20% reduction in cooling water demand or pre-heating utility costs.",
                 "cost": "Estimated $10,000-$25,000 (varies by system complexity)."
             })
-        
+
         if not pipeline_df.empty:
             if not any('insulated' in str(row).lower() for _, row in pipeline_df.iterrows()) and \
                not any('insulation' in str(row).lower() for _, row in equipment_df[
@@ -511,7 +512,7 @@ If no further suggestions, return an empty array [].
 
             except Exception as e:
                 print(f"Warning: AI energy efficiency suggestion failed: {e}")
-        
+
         return suggestions
 
 def generate_ai_safety_warnings(component):
