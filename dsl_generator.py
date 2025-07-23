@@ -93,6 +93,17 @@ class DSLGenerator:
         self.connections: Dict[str, DSLConnection] = {}
         self.control_loops: List[DSLControlLoop] = []
         self.metadata = {}
+         
+
+    def set_metadata(self, project, drawing_number, revision, date, company="EPS"):
+        self.metadata = {
+            "project": project,
+            "drawing_number": drawing_number,
+            "revision": revision,
+            "date": date,
+            "company": company
+        }
+
 
     def _map_component_type(self, type_str: str) -> ComponentType:
         type_str = type_str.lower()
