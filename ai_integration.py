@@ -14,51 +14,6 @@ import json
 class PnIDAIAssistant:
     """AI-powered assistant for P&ID improvements and suggestions"""
 
-    def ai_generate_summary(data, context=None):
-    """
-    Generate a summary using AI (OpenAI GPT).
-    """
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if not openai_key:
-        raise ValueError("OpenAI API key not configured.")
-
-    openai.api_key = openai_key
-
-    prompt = f"Summarize the following data for a process engineer:\n\n{data}\n\nContext: {context or ''}\n\nSummary:"
-    try:
-        response = openai.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4,
-            max_tokens=300
-        )
-        msg = response.choices[0].message.content.strip()
-        return msg
-    except Exception as e:
-        return f"AI summary unavailable: {e}"
-
-def ai_suggest_attribute(component_type: str, context: dict) -> str:
-    """
-    Suggests an attribute or tag based on component type and process context.
-    """
-    component_type = component_type.lower()
-
-    if component_type in ['pump', 'motor']:
-        return "Consider energy-efficient models with VFD integration"
-    elif component_type in ['heat_exchanger', 'condenser']:
-        return "Optimize heat transfer by monitoring ΔT regularly"
-    elif component_type in ['valve', 'control_valve']:
-        return "Ensure compatibility with upstream control loops"
-    elif component_type in ['transmitter', 'sensor']:
-        return "Place away from vibration and heat zones"
-    elif component_type in ['scrubber', 'filter']:
-        return "Check for differential pressure to monitor fouling"
-    elif component_type in ['vessel', 'tank']:
-        return "Add level and pressure indicators for better control"
-    else:
-        return "No specific suggestion available"
-
-
     def __init__(self, openai_key=None, stability_key=None):
         # Prioritize passed-in keys, then fall back to environment variables
         self.openai_key = openai_key if openai_key is not None else os.getenv("OPENAI_API_KEY")
@@ -72,6 +27,29 @@ def ai_suggest_attribute(component_type: str, context: dict) -> str:
 
         if not self.stability_key:
             print("Warning: Stability AI API key not found. Symbol generation may not work.")
+
+    def ai_generate_summary(self, data, context=None):
+        """
+        Generate a summary using AI (OpenAI GPT).
+        """
+        openai_key = os.getenv("OPENAI_API_KEY")
+        if not openai_key:
+            raise ValueError("OpenAI API key not configured.")
+
+        openai.api_key = openai_key
+
+        prompt = f"Summarize the following data for a process engineer:\n\n{data}\n\nContext: {context or ''}\n\nSummary:"
+        try:
+            response = openai.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.4,
+                max_tokens=300
+            )
+            msg = response.choices[0].message.content.strip()
+            return msg
+        except Exception as e:
+            return f"AI summary unavailable: {e}"
 
     def _check_openai_key(self):
         """Internal helper to check if OpenAI key is configured."""
@@ -384,6 +362,26 @@ Return a comprehensive compliance report as a JSON object, including:
         except Exception as e:
             return {"compliant": False, "issues": [{"type": "error", "description": f"Error during compliance check: {str(e)}"}], "error": str(e)}
 
+def ai_suggest_attribute(component_type: str, context: dict) -> str:
+    """
+    Suggests an attribute or tag based on component type and process context.
+    """
+    component_type = component_type.lower()
+
+    if component_type in ['pump', 'motor']:
+        return "Consider energy-efficient models with VFD integration"
+    elif component_type in ['heat_exchanger', 'condenser']:
+        return "Optimize heat transfer by monitoring ΔT regularly"
+    elif component_type in ['valve', 'control_valve']:
+        return "Ensure compatibility with upstream control loops"
+    elif component_type in ['transmitter', 'sensor']:
+        return "Place away from vibration and heat zones"
+    elif component_type in ['scrubber', 'filter']:
+        return "Check for differential pressure to monitor fouling"
+    elif component_type in ['vessel', 'tank']:
+        return "Add level and pressure indicators for better control"
+    else:
+        return "No specific suggestion available"
 
 class SmartPnIDSuggestions:
     """Context-aware suggestions for P&ID improvements"""
