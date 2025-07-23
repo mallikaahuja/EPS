@@ -115,12 +115,30 @@ with tab1:
     with st.spinner("Generating DSL → Layout → SVG..."):
         dsl = DSLGenerator()
         dsl.set_metadata(project="EPS", drawing_number="001", revision="00", date=datetime.now().strftime("%Y-%m-%d"))
-        for _, row in equipment_df.iterrows(): dsl.add_component(row.to_dict())
-        for _, row in inline_df.iterrows(): dsl.add_component(row.to_dict())
-        for _, row in pipeline_df.iterrows(): dsl.add_connection(row.to_dict())
+
+        # Try loading enhanced layout
+        try:
+            layout_df = pd.read_csv("enhanced_equipment_layout.csv")
+        except FileNotFoundError:
+            layout_df = None
+
+        # Add equipment and inline components with layout info
+        for _, row in equipment_df.iterrows():
+            dsl.add_component_from_row(row, layout_df)
+
+        for _, row in inline_df.iterrows():
+            dsl.add_component_from_row(row, layout_df)
+
+        # Add connections
+        for _, row in pipeline_df.iterrows():
+            dsl.add_connection_from_row(row)
+
         dsl.detect_control_loops()
 
+        # Compute positions + routes
         positions, routes, inlines = compute_positions_and_routing(equipment_df, pipeline_df, inline_df)
+
+        # Generate SVG
         svg, tag_map = render_svg(dsl.to_dsl("json"), symbol_renderer, positions, show_grid, show_legend, zoom)
 
         st.components.v1.html(f"""
