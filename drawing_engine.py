@@ -1,92 +1,105 @@
-import networkx as nx
-import plotly.graph_objects as go
-from symbols import SymbolRenderer
+# drawing_engine.py
+
 import io
-from PIL import Image
+import ezdxf
+import cairosvg
+import networkx as nx
+from symbols import SymbolRenderer
+from typing import Dict, Tuple
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import base64
 
-class DrawingEngine:
-    def __init__(self):
-        self.symbol_renderer = SymbolRenderer()
-        self.graph = nx.DiGraph()
-        self.positions = {}
-        self.layout_spacing = (3, 3)
-        self.symbol_size = 1.0
-        self.tag_counter = {}
+def render_svg(dsl_dict: Dict, renderer: SymbolRenderer, positions: Dict, show_grid=True, show_legend=True, zoom=1.0) -> Tuple[str, Dict]:
+    """
+    Renders a complete P&ID diagram in SVG format using port-aware symbol rendering
+    and routing with NetworkX.
 
-    def add_equipment(self, node_id: str, component_type: str, label: str = "", position=None):
-        """Adds a component to the internal graph with optional fixed position"""
-        label_with_tag = self.generate_tag(component_type, label)
-        self.graph.add_node(node_id, type=component_type, label=label_with_tag)
-        if position:
-            self.positions[node_id] = position
+    Args:
+        dsl_dict: The DSL dictionary containing components and connections.
+        renderer: SymbolRenderer instance.
+        positions: Dict mapping component IDs to (x, y) positions.
+        show_grid: Whether to render a background grid.
+        show_legend: Whether to include a symbol legend.
+        zoom: Scaling factor.
 
-    def add_connection(self, from_node: str, to_node: str):
-        """Adds directional connection between two nodes"""
-        self.graph.add_edge(from_node, to_node)
+    Returns:
+        svg_string: SVG image as string.
+        port_map: Dict of component_id → port positions.
+    """
+    fig, ax = plt.subplots(figsize=(20, 14))
+    ax.set_aspect('equal')
+    ax.axis('off')
 
-    def generate_tag(self, component_type, label):
-        """Auto-generates ISA-style tag like PT-101"""
-        base = ''.join([w[0].upper() for w in component_type.split('_')[:2]])
-        count = self.tag_counter.get(base, 100)
-        self.tag_counter[base] = count + 1
-        return f"{base}-{count}\n{label}"
+    if show_grid:
+        ax.set_xlim(0, 2000)
+        ax.set_ylim(0, 1500)
+        ax.set_xticks(range(0, 2000, 100))
+        ax.set_yticks(range(0, 1500, 100))
+        ax.grid(True, which='both', linestyle='--', linewidth=0.3)
 
-    def compute_layout(self):
-        """Uses NetworkX spring layout if positions are not manually given"""
-        if not self.positions:
-            self.positions = nx.spring_layout(self.graph, scale=10, k=2)
+    port_map = {}
+    image_cache = {}
 
-    def render(self) -> go.Figure:
-        """Main rendering function using Plotly"""
-        self.compute_layout()
-        fig = go.Figure()
-        fig.update_layout(
-            width=1600,
-            height=1000,
-            plot_bgcolor='white',
-            xaxis=dict(visible=False),
-            yaxis=dict(visible=False),
-            showlegend=False,
-            margin=dict(l=20, r=20, t=20, b=20)
-        )
+    # Render equipment
+    for comp in dsl_dict["components"]:
+        comp_id = comp["id"]
+        label = comp.get("label", comp_id)
+        x, y = positions.get(comp_id, (0, 0))
+        image_bytes, ports = renderer.render_symbol(comp_id.lower(), label, size=zoom)
 
-        # Draw connections (lines)
-        for src, dst in self.graph.edges():
-            x0, y0 = self.positions[src]
-            x1, y1 = self.positions[dst]
-            fig.add_trace(go.Scatter(
-                x=[x0, x1], y=[y0, y1],
-                mode='lines+markers',
-                line=dict(color='black', width=2),
-                marker=dict(size=4),
-                hoverinfo='skip'
-            ))
+        port_map[comp_id] = {k: (x*100 + dx*100, y*100 + dy*100) for k, (dx, dy) in ports.items()}
 
-        # Draw nodes (symbols)
-        for node_id, attrs in self.graph.nodes(data=True):
-            comp_type = attrs.get("type", "box")
-            label = attrs.get("label", "")
-            img_bytes, ports = self.symbol_renderer.render_symbol(comp_type, label, self.symbol_size)
+        # Draw the image
+        image = plt.imread(io.BytesIO(image_bytes), format='png')
+        ax.imshow(image, extent=[x*100, x*100+100, y*100, y*100+100])
+        image_cache[comp_id] = (x*100, y*100)
 
-            # Decode image
-            encoded = base64.b64encode(img_bytes).decode('utf-8')
-            img_uri = f'data:image/png;base64,{encoded}'
-            x, y = self.positions[node_id]
+        # Add tag
+        ax.text(x*100 + 50, y*100 - 10, label, fontsize=10, ha='center')
 
-            fig.add_layout_image(
-                dict(
-                    source=f"{img_uri}",
-                    xref="x", yref="y",
-                    x=x - 1.5, y=y + 1.5,
-                    sizex=3, sizey=3,
-                    xanchor="left", yanchor="top",
-                    layer="above"
-                )
-            )
+    # Draw connections using port mapping
+    for conn in dsl_dict.get("connections", []):
+        src = conn["from"]
+        dst = conn["to"]
+        src_pos = port_map.get(src, {}).get("out", None)
+        dst_pos = port_map.get(dst, {}).get("in", None)
 
-        return fig
+        if src_pos and dst_pos:
+            ax.annotate("",
+                        xy=dst_pos, xycoords='data',
+                        xytext=src_pos, textcoords='data',
+                        arrowprops=dict(arrowstyle="->", color='black', lw=1.5))
 
-    def export_png(self, fig: go.Figure, path="output.png"):
-        """Save Plotly figure as PNG"""
-        fig.write_image(path, format='png')
+    # Draw legend
+    if show_legend:
+        ax.text(1800, 1400, "LEGEND", fontsize=12, weight='bold')
+        y_cursor = 1350
+        for comp in dsl_dict["components"][:10]:  # limit for demo
+            ax.text(1800, y_cursor, f"{comp['id']} → {comp['type']}", fontsize=8)
+            y_cursor -= 20
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format='svg', bbox_inches='tight')
+    plt.close(fig)
+    svg_string = buf.getvalue().decode('utf-8')
+    return svg_string, port_map
+
+def svg_to_png(svg_string: str) -> bytes:
+    """Convert SVG string to PNG bytes."""
+    return cairosvg.svg2png(bytestring=svg_string.encode("utf-8"))
+
+def export_dxf(dsl_dict: Dict) -> bytes:
+    """Convert P&ID components to a basic DXF."""
+    doc = ezdxf.new(dxfversion="R2010")
+    msp = doc.modelspace()
+
+    for comp in dsl_dict.get("components", []):
+        x, y = comp.get("x", 0), comp.get("y", 0)
+        label = comp.get("label", comp["id"])
+        msp.add_circle((x * 10, y * 10), radius=5)
+        msp.add_text(label, dxfattribs={"height": 2.5}).set_pos((x * 10 + 6, y * 10), align="LEFT")
+
+    buf = io.BytesIO()
+    doc.write(buf)
+    return buf.getvalue()
