@@ -10,23 +10,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import base64
 
-def render_svg(dsl_dict: Dict, renderer: SymbolRenderer, positions: Dict, show_grid=True, show_legend=True, zoom=1.0) -> Tuple[str, Dict]:
-    """
-    Renders a complete P&ID diagram in SVG format using port-aware symbol rendering
-    and routing with NetworkX.
-
-    Args:
-        dsl_dict: The DSL dictionary containing components and connections.
-        renderer: SymbolRenderer instance.
-        positions: Dict mapping component IDs to (x, y) positions.
-        show_grid: Whether to render a background grid.
-        show_legend: Whether to include a symbol legend.
-        zoom: Scaling factor.
-
-    Returns:
-        svg_string: SVG image as string.
-        port_map: Dict of component_id → port positions.
-    """
+def render_svg(dsl_dict: Dict, renderer: SymbolRenderer, positions: Dict,
+               show_grid=True, show_legend=True, zoom=1.0) -> Tuple[str, Dict]:
     fig, ax = plt.subplots(figsize=(20, 14))
     ax.set_aspect('equal')
     ax.axis('off')
@@ -41,42 +26,55 @@ def render_svg(dsl_dict: Dict, renderer: SymbolRenderer, positions: Dict, show_g
     port_map = {}
     image_cache = {}
 
-    # Render equipment
+    # Render components
     for comp in dsl_dict["components"]:
         comp_id = comp["id"]
-        label = comp.get("label", comp_id)
+        tag = comp.get("tag", comp_id)
         x, y = positions.get(comp_id, (0, 0))
-        image_bytes, ports = renderer.render_symbol(comp_id.lower(), label, size=zoom)
+        image_bytes, ports = renderer.render_symbol(comp_id.lower(), tag, size=zoom)
 
         port_map[comp_id] = {k: (x*100 + dx*100, y*100 + dy*100) for k, (dx, dy) in ports.items()}
 
-        # Draw the image
         image = plt.imread(io.BytesIO(image_bytes), format='png')
         ax.imshow(image, extent=[x*100, x*100+100, y*100, y*100+100])
+        ax.text(x*100 + 50, y*100 - 10, tag, fontsize=10, ha='center')
         image_cache[comp_id] = (x*100, y*100)
 
-        # Add tag
-        ax.text(x*100 + 50, y*100 - 10, label, fontsize=10, ha='center')
-
-    # Draw connections using port mapping
+    # Draw connections
     for conn in dsl_dict.get("connections", []):
-        src = conn["from"]
-        dst = conn["to"]
-        src_pos = port_map.get(src, {}).get("out", None)
-        dst_pos = port_map.get(dst, {}).get("in", None)
+        src = conn["from"]["component"]
+        dst = conn["to"]["component"]
+        src_port = conn["from"].get("port", "outlet")
+        dst_port = conn["to"].get("port", "inlet")
+        conn_type = conn.get("type", "Process")
+
+        src_pos = port_map.get(src, {}).get(src_port, None)
+        dst_pos = port_map.get(dst, {}).get(dst_port, None)
 
         if src_pos and dst_pos:
+            style = "dashed" if conn_type.lower() in ["instrument", "electrical", "pneumatic"] else "solid"
+            color = "blue" if conn_type.lower() == "instrument" else "black"
             ax.annotate("",
                         xy=dst_pos, xycoords='data',
                         xytext=src_pos, textcoords='data',
-                        arrowprops=dict(arrowstyle="->", color='black', lw=1.5))
+                        arrowprops=dict(arrowstyle="->", linestyle=style, color=color, lw=1.5))
+
+    # Draw control loop highlights
+    for loop in dsl_dict.get("control_loops", []):
+        for comp_id in loop["components"]:
+            if comp_id in positions:
+                x, y = positions[comp_id]
+                ax.add_patch(patches.Circle((x*100 + 50, y*100 + 50), radius=60, fill=False,
+                                            edgecolor='orange', linestyle='dashed', linewidth=2))
+                ax.text(x*100 + 50, y*100 + 110, loop["id"], fontsize=8, ha='center', color='orange')
 
     # Draw legend
     if show_legend:
         ax.text(1800, 1400, "LEGEND", fontsize=12, weight='bold')
         y_cursor = 1350
-        for comp in dsl_dict["components"][:10]:  # limit for demo
-            ax.text(1800, y_cursor, f"{comp['id']} → {comp['type']}", fontsize=8)
+        for comp in dsl_dict["components"][:12]:
+            isa = comp.get("attributes", {}).get("isa_code", "")
+            ax.text(1800, y_cursor, f"{comp['tag']} → {isa}", fontsize=8)
             y_cursor -= 20
 
     buf = io.BytesIO()
@@ -86,19 +84,18 @@ def render_svg(dsl_dict: Dict, renderer: SymbolRenderer, positions: Dict, show_g
     return svg_string, port_map
 
 def svg_to_png(svg_string: str) -> bytes:
-    """Convert SVG string to PNG bytes."""
     return cairosvg.svg2png(bytestring=svg_string.encode("utf-8"))
 
 def export_dxf(dsl_dict: Dict) -> bytes:
-    """Convert P&ID components to a basic DXF."""
     doc = ezdxf.new(dxfversion="R2010")
     msp = doc.modelspace()
 
     for comp in dsl_dict.get("components", []):
-        x, y = comp.get("x", 0), comp.get("y", 0)
-        label = comp.get("label", comp["id"])
+        pos = comp.get("position", {})
+        x, y = pos.get("x", 0), pos.get("y", 0)
+        tag = comp.get("tag", comp["id"])
         msp.add_circle((x * 10, y * 10), radius=5)
-        msp.add_text(label, dxfattribs={"height": 2.5}).set_pos((x * 10 + 6, y * 10), align="LEFT")
+        msp.add_text(tag, dxfattribs={"height": 2.5}).set_pos((x * 10 + 6, y * 10), align="LEFT")
 
     buf = io.BytesIO()
     doc.write(buf)
