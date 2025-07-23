@@ -1,18 +1,14 @@
-
 import os
 import uuid
 from datetime import datetime
 from lxml import etree as ET
-from ai_integration import (
-    ai_suggest_attribute,
-    ai_generate_summary,
-    ai_suggest_recommendations
-)
+from ai_integration import PnIDAIAssistant  # Import the class
 
 class DEXPIConverter:
     def __init__(self):
         self.root = None
         self.ai_logs = []
+        self.ai = PnIDAIAssistant()  # Create an instance of the assistant
 
     def convert(self, dsl_data):
         NSMAP = {
@@ -81,8 +77,8 @@ class DEXPIConverter:
                 attr.set("Value", str(value))
 
         # Add AI summary + optimization suggestions
-        summary = ai_generate_summary(component)
-        rec = ai_suggest_recommendations(summary, goal="efficiency")
+        summary = self.ai.ai_generate_summary(component)  # Use class method
+        rec = self.ai.ai_suggest_recommendations(summary, goal="efficiency")  # Use class method
         self.ai_logs.append((component["id"], summary, rec))
 
         rec_block = ET.SubElement(equip, "AISuggestions")
@@ -112,10 +108,10 @@ class DEXPIConverter:
         attributes = connection.get("attributes", {})
         prompt_base = f"pipeline between {connection['from']['component']} and {connection['to']['component']}"
 
-        diameter = attributes.get("size") or ai_suggest_attribute(f"Typical diameter for {prompt_base}", "100")
-        material = attributes.get("material") or ai_suggest_attribute(f"Best material for {prompt_base}", "CS")
-        pressure = attributes.get("design_pressure") or ai_suggest_attribute(f"Design pressure for {prompt_base}", "1.0")
-        temperature = attributes.get("design_temperature") or ai_suggest_attribute(f"Design temperature for {prompt_base}", "25")
+        diameter = attributes.get("size") or self.ai.ai_suggest_attribute(f"Typical diameter for {prompt_base}", "100")
+        material = attributes.get("material") or self.ai.ai_suggest_attribute(f"Best material for {prompt_base}", "CS")
+        pressure = attributes.get("design_pressure") or self.ai.ai_suggest_attribute(f"Design pressure for {prompt_base}", "1.0")
+        temperature = attributes.get("design_temperature") or self.ai.ai_suggest_attribute(f"Design temperature for {prompt_base}", "25")
 
         spec = ET.SubElement(pipe, "PipingSpecification")
         spec.set("NominalDiameter", str(diameter))
