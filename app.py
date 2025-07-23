@@ -12,7 +12,7 @@ from symbols import SymbolRenderer
 from layout_engine import compute_positions_and_routing
 from dsl_generator import DSLGenerator
 from dexpi_converter import DEXPIConverter
-from hitl_validator import create_hitl_ui
+from hitl_validation import create_hitl_ui
 from ai_integration import PnIDAIAssistant, SmartPnIDSuggestions
 from control_systems import ControlSystemAnalyzer, PnIDValidator
 
