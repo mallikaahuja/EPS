@@ -2,13 +2,24 @@ import os
 import uuid
 from datetime import datetime
 from lxml import etree as ET
-from ai_integration import PnIDAIAssistant  # Import the class
-from ai_integration import SmartPnIDSuggestions
+from ai_integration import PnIDAIAssistant, SmartPnIDSuggestions  # Import both classes
+
 class DEXPIConverter:
     def __init__(self):
         self.root = None
         self.ai_logs = []
-        self.ai = PnIDAIAssistant()  # Create an instance of the assistant
+        self.ai = PnIDAIAssistant()
+        self.suggestions = SmartPnIDSuggestions(self.ai)  # Pass the AI assistant to SmartPnIDSuggestions
+
+    def some_method(self):
+        process_type = "vacuum_system"
+        existing_equipment = ["Pump", "Condenser"]
+        missing = self.suggestions.suggest_missing_components(process_type, existing_equipment)
+        # Do something with missing...
+
+        # For energy efficiency analysis:
+        suggestions = self.suggestions.analyze_energy_efficiency(equipment_df, pipeline_df, process_type)
+        # Do something with 
 
     def convert(self, dsl_data):
         NSMAP = {
