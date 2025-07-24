@@ -1,4 +1,4 @@
-# EPS Interactive P&ID Generator - Full Streamlit App with Dropdowns & Control Loop Fix
+# EPS Interactive P&ID Generator - Full Streamlit App with Debugging
 
 import streamlit as st
 import pandas as pd
@@ -113,6 +113,8 @@ with tab1:
 
         for _, row in equipment_df.iterrows():
             if row["ID"] not in optional_ids:
+                if layout_df is not None and not layout_df["ID"].str.contains(row["ID"]).any():
+                    st.warning(f"⚠️ Layout mapping missing for: {row['ID']}")
                 dsl.add_component_from_row(row, layout_df)
 
         for _, row in inline_df.iterrows():
@@ -122,17 +124,33 @@ with tab1:
         for _, row in pipeline_df.iterrows():
             dsl.add_connection_from_row(row)
 
+        # Diagnostic info
+        st.write("✅ DSL Components:", len(dsl.components))
+        st.write("✅ DSL Connections:", len(dsl.connections))
+        if len(dsl.components) == 0:
+            st.error("❌ No components were added to the DSL. Diagram will be blank.")
+
         dsl.detect_control_loops()
 
         positions, routes, inlines = compute_positions_and_routing(equipment_df, pipeline_df, inline_df)
-        import json
         dsl_json = json.loads(dsl.to_dsl("json"))
-        svg, tag_map = render_svg(dsl_json, symbol_renderer, positions, show_grid, show_legend, zoom)
+
+        st.write("📍 Computed Positions:", positions)
+        st.json(dsl_json)
+
+        if not dsl_json.get("components"):
+            st.error("❌ DSL JSON has no components. Rendering will fail.")
+
         try:
-            png = svg_to_png(svg)
-            st.image(png, caption="Generated P&ID Diagram", use_column_width=True)
+            svg, tag_map = render_svg(dsl_json, symbol_renderer, positions, show_grid, show_legend, zoom)
+            if not svg:
+                st.error("❌ Empty SVG returned from renderer.")
+            else:
+                png = svg_to_png(svg)
+                st.image(png, caption="Generated P&ID Diagram", use_column_width=True)
         except Exception as e:
-            st.error(f"Could not render diagram as PNG: {e}")
+            st.error(f"❌ Could not render diagram as PNG: {e}")
+
 # ─────────────────────────────────────
 # TAB 2: EQUIPMENT
 # ─────────────────────────────────────
