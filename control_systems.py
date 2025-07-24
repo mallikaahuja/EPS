@@ -738,8 +738,8 @@ class PnIDValidator:
                         to_comp_data = self.components[to_id]
                         to_tag = getattr(to_comp_data, 'ID', getattr(to_comp_data, 'tag', ''))
                         if 'PSV' in to_tag or 'PRV' in to_tag:
-                        has_psv = True
-                        break
+                            has_psv = True
+                            break
 
             if not has_psv:
                 self.warnings.append(f"Vessel {vessel_tag} should have pressure relief protection")
