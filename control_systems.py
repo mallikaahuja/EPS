@@ -712,39 +712,37 @@ class PnIDValidator:
             if not loop.final_element:
                 self.errors.append(f"Control loop {loop.loop_id} missing final control element")
 
-   def validate_safety_systems(self):
-       """Validate safety instrumentation"""
-       vessels = []
-       for comp_id, comp in self.components.items():
-           comp_type = getattr(comp, 'component_type', '')  # for DSLComponent
-           if 'vessel' in comp_type or 'tank' in comp_type:
-             vessels.append((comp_id, comp))
+    def validate_safety_systems(self):
+        """Validate safety instrumentation"""
+        # Check for relief valves on pressure vessels
+        vessels = []
+        for comp_id, comp in self.components.items():
+            comp_type = getattr(comp, 'component_type', '')
+            if 'vessel' in comp_type or 'tank' in comp_type:
+                vessels.append((comp_id, comp))
 
-       for vessel_id, vessel in vessels:
-        vessel_tag = getattr(vessel, 'tag', '')  # fix here too
+        for vessel_id, vessel in vessels:
+            vessel_tag = getattr(vessel, 'ID', getattr(vessel, 'tag', ''))
 
-        has_psv = False
-        for pipe in self.pipes:
-            from_comp = getattr(pipe, 'from_component', None)
-            to_comp = getattr(pipe, 'to_component', None)
+            # Look for connected relief valve or pressure safety valve
+            has_psv = False
+            for pipe in self.pipes:
+                from_comp = getattr(pipe, 'from_component', None)
+                to_comp = getattr(pipe, 'to_component', None)
 
-            from_id = from_comp.id if hasattr(from_comp, 'id') else from_comp
-            to_id = to_comp.id if hasattr(to_comp, 'id') else to_comp
+                from_id = from_comp if isinstance(from_comp, str) else getattr(from_comp, 'ID', None)
+                to_id = to_comp if isinstance(to_comp, str) else getattr(to_comp, 'ID', None)
 
-            if from_id == vessel_id and to_id:
-                if to_id in self.components:
-                    to_comp_data = self.components[to_id]
-                    to_tag = getattr(to_comp_data, 'tag', '')
-                    if 'PSV' in to_tag or 'PRV' in to_tag:
+                if from_id == vessel_id and to_id:
+                    if to_id in self.components:
+                        to_comp_data = self.components[to_id]
+                        to_tag = getattr(to_comp_data, 'ID', getattr(to_comp_data, 'tag', ''))
+                        if 'PSV' in to_tag or 'PRV' in to_tag:
                         has_psv = True
                         break
 
-        if not has_psv:
-            self.warnings.append(f"Vessel {vessel_tag} should have pressure relief protection")
-
-
-
-
+            if not has_psv:
+                self.warnings.append(f"Vessel {vessel_tag} should have pressure relief protection")
                 
 # — RENDERING ENHANCEMENTS —
 
