@@ -713,25 +713,34 @@ class PnIDValidator:
                 self.errors.append(f"Control loop {loop.loop_id} missing final control element")
 
     def validate_safety_systems(self):
-        vessels = [(cid, comp) for cid, comp in self.components.items()
-                   if 'vessel' in comp.get('type', '') or 'tank' in comp.get('type', '')]
+    """Validate safety instrumentation"""
+    vessels = []
+    for comp_id, comp in self.components.items():
+        comp_type = getattr(comp, 'component_type', '')  # for DSLComponent
+        if 'vessel' in comp_type or 'tank' in comp_type:
+            vessels.append((comp_id, comp))
 
-        for vessel_id, vessel in vessels:
-            vessel_tag = vessel.get('ID', '')
-            has_psv = False
-            for pipe in self.pipes:
-                from_comp = pipe.get('from_component', '') if isinstance(pipe, dict) else getattr(pipe, 'from_component', None)
-                to_comp = pipe.get('to_component', '') if isinstance(pipe, dict) else getattr(pipe, 'to_component', None)
+    for vessel_id, vessel in vessels:
+        vessel_tag = getattr(vessel, 'tag', '')  # fix here too
 
-                if from_comp == vessel_id:
-                    to_data = self.components.get(to_comp, {})
-                    to_tag = to_data.get('ID', '')
+        has_psv = False
+        for pipe in self.pipes:
+            from_comp = getattr(pipe, 'from_component', None)
+            to_comp = getattr(pipe, 'to_component', None)
+
+            from_id = from_comp.id if hasattr(from_comp, 'id') else from_comp
+            to_id = to_comp.id if hasattr(to_comp, 'id') else to_comp
+
+            if from_id == vessel_id and to_id:
+                if to_id in self.components:
+                    to_comp_data = self.components[to_id]
+                    to_tag = getattr(to_comp_data, 'tag', '')
                     if 'PSV' in to_tag or 'PRV' in to_tag:
                         has_psv = True
                         break
 
-            if not has_psv:
-                self.warnings.append(f"Vessel {vessel_tag} missing pressure relief protection")
+        if not has_psv:
+            self.warnings.append(f"Vessel {vessel_tag} should have pressure relief protection")
                 
 # — RENDERING ENHANCEMENTS —
 
