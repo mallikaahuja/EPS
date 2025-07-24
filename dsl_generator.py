@@ -142,7 +142,7 @@ class DSLGenerator:
 
         position = None
         if layout_df is not None:
-            match = layout_df[layout_df["id"] == comp_id]
+            match = layout_df[layout_df["ID"] == comp_id]
             if not match.empty:
                 position = {"x": float(match.iloc[0]["x"]), "y": float(match.iloc[0]["y"])}
 
