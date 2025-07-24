@@ -1,4 +1,4 @@
-Component,id,tag,x,y,Width,Height,Description,rotation
+Component,ID,tag,x,y,Width,Height,Description,rotation
 expansion_bellows,EB-001,EB-001,300,400,80,40,EXPANSION BELLOWS,0
 y_strainer,YS-001,YS-001,450,400,60,60,Y STRAINER,0
 gate_valve_1,V-001,V-001,550,400,50,50,GATE VALVE,0
