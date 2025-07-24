@@ -1,4 +1,4 @@
-id,from_component,to_component,from_port,to_port,line_type,line_number,with_arrow,waypoints
+ID,from_component,to_component,from_port,to_port,line_type,line_number,with_arrow,waypoints
 L-001,INLET,EB-001,outlet,inlet,process,"100 NB",true,"[]"
 L-002,EB-001,YS-001,outlet,inlet,process,"100 NB",true,"[]"
 L-003,YS-001,V-001,outlet,left,process,"100 NB",true,"[]"
