@@ -712,15 +712,15 @@ class PnIDValidator:
             if not loop.final_element:
                 self.errors.append(f"Control loop {loop.loop_id} missing final control element")
 
-    def validate_safety_systems(self):
-    """Validate safety instrumentation"""
-    vessels = []
-    for comp_id, comp in self.components.items():
-        comp_type = getattr(comp, 'component_type', '')  # for DSLComponent
-        if 'vessel' in comp_type or 'tank' in comp_type:
-            vessels.append((comp_id, comp))
+   def validate_safety_systems(self):
+       """Validate safety instrumentation"""
+       vessels = []
+       for comp_id, comp in self.components.items():
+           comp_type = getattr(comp, 'component_type', '')  # for DSLComponent
+           if 'vessel' in comp_type or 'tank' in comp_type:
+             vessels.append((comp_id, comp))
 
-    for vessel_id, vessel in vessels:
+       for vessel_id, vessel in vessels:
         vessel_tag = getattr(vessel, 'tag', '')  # fix here too
 
         has_psv = False
@@ -741,6 +741,10 @@ class PnIDValidator:
 
         if not has_psv:
             self.warnings.append(f"Vessel {vessel_tag} should have pressure relief protection")
+
+
+
+
                 
 # — RENDERING ENHANCEMENTS —
 
