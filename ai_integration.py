@@ -390,38 +390,38 @@ class SmartPnIDSuggestions:
         self.ai = ai_assistant
 
     def generate_suggestions(self, dsl_json, process_type="vacuum_system"):
-    """
-    Master method to generate AI-driven improvement suggestions for the P&ID.
-    Calls submodules: missing components, energy efficiency, etc.
-    """
-    try:
-        # Parse JSON if needed (string to dict)
-        if isinstance(dsl_json, str):
-            dsl_data = json.loads(dsl_json)
-        else:
-            dsl_data = dsl_json
+        """
+        Master method to generate AI-driven improvement suggestions for the P&ID.
+        Calls submodules: missing components, energy efficiency, etc.
+        """
+        try:
+            # Parse JSON if needed (string to dict)
+            if isinstance(dsl_json, str):
+                dsl_data = json.loads(dsl_json)
+            else:
+                dsl_data = dsl_json
 
-        # Extract components
-        equipment = dsl_data.get("equipment", [])
-        pipelines = dsl_data.get("pipelines", [])
+            # Extract components
+            equipment = dsl_data.get("equipment", [])
+            pipelines = dsl_data.get("pipelines", [])
 
-        # Collect basic equipment names
-        equipment_names = [comp.get("ID", comp.get("id", "")) for comp in equipment]
+            # Collect basic equipment names
+            equipment_names = [comp.get("ID", comp.get("id", "")) for comp in equipment]
 
-        # Suggestions
-        suggestions = {
-            "missing_components": self.suggest_missing_components(process_type, equipment_names),
-            "energy_efficiency": self.analyze_energy_efficiency(
-                equipment_df=pd.DataFrame(equipment),
-                pipeline_df=pd.DataFrame(pipelines),
-                process_type=process_type
+            # Suggestions
+            suggestions = {
+                "missing_components": self.suggest_missing_components(process_type, equipment_names),
+                "energy_efficiency": self.analyze_energy_efficiency(
+                    equipment_df=pd.DataFrame(equipment),
+                    pipeline_df=pd.DataFrame(pipelines),
+                    process_type=process_type
             )
         }
 
-        return suggestions
+            return suggestions
 
-    except Exception as e:
-        return {"error": f"Failed to generate suggestions: {str(e)}"}
+        except Exception as e:
+            return {"error": f"Failed to generate suggestions: {str(e)}"}
 
     def suggest_missing_components(self, process_type, existing_equipment):
         """Suggest missing components based on process type"""
