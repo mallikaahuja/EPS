@@ -194,50 +194,103 @@ st.write(schemdraw_msg)
 st.header("📊 Data Loading")
 
 data_loaded_successfully = True # Flag to track overall data loading
+
+# Initialize all DataFrames to empty DataFrames at the start.
+# This ensures they are always defined, even if loading fails for non-critical files.
 equipment_df = pd.DataFrame()
 pipeline_df = pd.DataFrame()
 inline_df = pd.DataFrame()
-connection_df = pd.DataFrame()
+connection_df = pd.DataFrame() # This needs to be populated with pipes_connections.csv
+layout_df = pd.DataFrame()     # This needs to be populated with enhanced_equipment_layout.csv
 
+# 1. Load Equipment Data (assuming 'equipment_list.csv' is your main equipment list)
 try:
-    equipment_df = pd.read_csv("enhanced_equipment_layout.csv")
-    st.success(f"Equipment: {len(equipment_df)} rows")
+    st.info("Attempting to load equipment_list.csv...")
+    # Based on your file list, you should have equipment_list.csv for equipment
+    equipment_df = pd.read_csv("equipment_list.csv")
+    st.success(f"Equipment: {len(equipment_df)} rows loaded from equipment_list.csv.")
     st.write("**First few equipment rows:**")
     st.dataframe(equipment_df.head())
 except FileNotFoundError:
-    st.error("❌ `enhanced_equipment_layout.csv` not found. Please ensure it's in the same directory.")
+    st.error("❌ `equipment_list.csv` not found. This file is critical for components.")
+    st.info("Current working directory for app.py: " + os.getcwd())
     data_loaded_successfully = False
+    st.stop() # Stop if main equipment list is missing
 except Exception as e:
-    st.error(f"Equipment loading failed: {e}")
+    st.error(f"Equipment loading failed from equipment_list.csv: {e}")
+    st.code(traceback.format_exc())
     data_loaded_successfully = False
+    st.stop()
 
+# 2. Load Pipeline Connections Data (this is your pipes_connections.csv)
 try:
-    pipeline_df = pd.read_csv("pipes_connections.csv")
-    st.success(f"Pipelines: {len(pipeline_df)} rows")
-    st.write("**First few pipeline rows:**")
-    st.dataframe(pipeline_df.head())
+    st.info("Attempting to load pipes_connections.csv into connection_df...")
+    # This is the file that should populate connection_df
+    connection_df = pd.read_csv("pipes_connections.csv")
+    st.success(f"Connections: {len(connection_df)} rows loaded from pipes_connections.csv.")
+    st.write("**First few connection rows:**")
+    st.dataframe(connection_df.head())
 except FileNotFoundError:
-    st.error("❌ `pipes_connections.csv` not found. Please ensure it's in the same directory.")
+    st.error("❌ `pipes_connections.csv` not found. This file is critical for connections.")
+    st.info("Current working directory for app.py: " + os.getcwd())
     data_loaded_successfully = False
+    st.stop() # Stop if main connection list is missing
+except pd.errors.EmptyDataError:
+    st.error("❌ `pipes_connections.csv` is empty or contains no data. Please check its content.")
+    data_loaded_successfully = False
+    st.stop()
 except Exception as e:
-    st.error(f"Pipeline loading failed: {e}")
+    st.error(f"An error occurred while loading `pipes_connections.csv`: {e}")
+    st.code(traceback.format_exc())
     data_loaded_successfully = False
+    st.stop()
 
+# 3. Load Inline Components (inline_component_list.csv)
 try:
+    st.info("Attempting to load inline_component_list.csv...")
     inline_df = pd.read_csv("inline_component_list.csv")
-    st.success(f"Inline: {len(inline_df)} rows")
+    st.success(f"Inline Components: {len(inline_df)} rows loaded from inline_component_list.csv.")
     st.write("**First few inline rows:**")
     st.dataframe(inline_df.head())
 except FileNotFoundError:
-    st.error("❌ `inline_component_list.csv` not found. Please ensure it's in the same directory.")
-    data_loaded_successfully = False
+    st.warning("⚠️ `inline_component_list.csv` not found. Inline components might be missing.")
 except Exception as e:
-    st.error(f"Inline loading failed: {e}")
-    data_loaded_successfully = False
+    st.error(f"Inline Component loading failed from inline_component_list.csv: {e}")
+    st.code(traceback.format_exc())
+
+# 4. Load Layout Data (enhanced_equipment_layout.csv)
+try:
+    st.info("Attempting to load enhanced_equipment_layout.csv into layout_df...")
+    # This file should populate layout_df for component positioning
+    layout_df = pd.read_csv("enhanced_equipment_layout.csv")
+    st.success(f"Layout: {len(layout_df)} rows loaded from enhanced_equipment_layout.csv.")
+    st.write("**First few layout rows:**")
+    st.dataframe(layout_df.head())
+except FileNotFoundError:
+    st.warning("⚠️ `enhanced_equipment_layout.csv` not found. Component positions will use defaults if not provided by the layout engine.")
+except Exception as e:
+    st.error(f"Layout loading failed from enhanced_equipment_layout.csv: {e}")
+    st.code(traceback.format_exc())
+
+# 5. Load Pipeline List (if separate from connections, otherwise pipeline_df will remain empty)
+# This `pipeline_list.csv` often contains high-level pipeline data, not connections.
+# If you don't have it, pipeline_df will remain an empty DataFrame, which is usually fine.
+try:
+    st.info("Attempting to load pipeline_list.csv (optional)...")
+    pipeline_df = pd.read_csv("pipeline_list.csv")
+    st.success(f"Pipelines: {len(pipeline_df)} rows loaded from pipeline_list.csv.")
+    st.write("**First few pipeline rows:**")
+    st.dataframe(pipeline_df.head())
+except FileNotFoundError:
+    st.info("ℹ️ `pipeline_list.csv` not found. If this file is not essential for your DSL generation or routing, you can ignore this.")
+except Exception as e:
+    st.error(f"Pipeline loading failed from pipeline_list.csv: {e}")
+    st.code(traceback.format_exc())
+
 
 if not data_loaded_successfully:
-    st.error("❌ Critical data missing. Cannot proceed with diagram generation.")
-    st.stop()
+    st.error("❌ Critical data missing from loaded CSVs. Please check the files and logs above.")
+    st.stop() # Ensure the app stops if a critical file failed to load
 
 
 # ─────────────────────────────────────
