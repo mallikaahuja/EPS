@@ -95,6 +95,14 @@ class DSLGenerator:
         self.control_loops: List[DSLControlLoop] = []
         self.metadata = {}
 
+    # ADDED HELPER METHOD: get_csv_value
+    def get_csv_value(self, row: pd.Series, possible_columns: list, default=""):
+        """Get value from CSV row, trying multiple possible column names"""
+        for col in possible_columns:
+            if col in row.index and pd.notna(row[col]):
+                return row[col]
+        return default
+
     def set_metadata(self, project, drawing_number, revision, date, company="EPS"):
         self.metadata = {
             "project": project,
@@ -117,6 +125,7 @@ class DSLGenerator:
             "instrument": ComponentType.INSTRUMENT,
             "compressor": ComponentType.COMPRESSOR,
             "pipe": ComponentType.PIPE,
+            "nozzle": ComponentType.NOZZLE,
             "fitting": ComponentType.FITTING,
             "safety": ComponentType.SAFETY,
         }
@@ -134,82 +143,113 @@ class DSLGenerator:
         }
         return mapping.get(type_str.lower(), ConnectionType.PROCESS)
 
+    # REPLACED METHOD: add_component_from_row
     def add_component_from_row(self, row: pd.Series, layout_df: Optional[pd.DataFrame] = None) -> None:
-        comp_id = row["ID"]
-        comp_type = self._map_component_type(str(row.get("type", "")))
-        tag_prefix = row.get("tag_prefix", "U")
-        tag = f"{tag_prefix}-{comp_id}"
-
+        """FIXED - handles various CSV column name formats"""
+        
+        # Get ID from various possible column names
+        comp_id = self.get_csv_value(row, ['ID', 'id', 'component_id'])
+        if not comp_id:
+            raise ValueError(f"No ID found in row: {dict(row)}")
+        
+        # Get type from various possible column names  
+        type_str = self.get_csv_value(row, ['type', 'Type', 'component_type', 'subtype'])
+        comp_type = self._map_component_type(type_str)
+        
+        # Generate tag
+        tag_prefix = self.get_csv_value(row, ['tag_prefix'], comp_id.split('-')[0] if '-' in comp_id else 'U')
+        tag = f"{tag_prefix}-{comp_id}" if not comp_id.startswith(tag_prefix) else comp_id
+        
+        # Get position from layout_df
         position = None
-        if layout_df is not None:
-            match = layout_df[layout_df["ID"] == comp_id]
-            if not match.empty:
-                position = {"x": float(match.iloc[0]["x"]), "y": float(match.iloc[0]["y"])}
-
-        ports = []
-        if isinstance(row.get("port_definitions"), str):
-            try:
-                parsed_ports = json.loads(row["port_definitions"])
-                for name, coords in parsed_ports.items():
-                    ports.append({
-                        "name": name,
-                        "type": "process",
-                        "position": {"dx": coords[0], "dy": coords[1]}
-                    })
-            except Exception as e:
-                logging.warning(f"Port parsing failed for {comp_id}: {e}")
-
+        if layout_df is not None and not layout_df.empty:
+            # Try different ID column names in layout
+            layout_row = None
+            for id_col in ['ID', 'id', 'component_id']:
+                if id_col in layout_df.columns:
+                    matches = layout_df[layout_df[id_col] == comp_id]
+                    if not matches.empty:
+                        layout_row = matches.iloc[0]
+                        break
+            
+            if layout_row is not None:
+                x = self.get_csv_value(layout_row, ['x', 'X', 'pos_x', 'x_position'], 0)
+                y = self.get_csv_value(layout_row, ['y', 'Y', 'pos_y', 'y_position'], 0)
+                position = {"x": float(x), "y": float(y)}
+        
+        # Default position if none found
+        if position is None:
+            num_existing = len(self.components)
+            position = {
+                "x": float(100 + (num_existing % 5) * 150),
+                "y": float(100 + (num_existing // 5) * 100)
+            }
+        
+        # Create the DSLComponent object (NOT a string!)
         component = DSLComponent(
             id=comp_id,
             tag=tag,
             type=comp_type,
-            subtype=row.get("subtype", ""),
+            subtype=self.get_csv_value(row, ['subtype', 'Subtype']),
             attributes={
-                "name": row.get("name", ""),
-                "manufacturer": row.get("manufacturer", ""),
-                "cost": row.get("cost_usd", ""),
-                "efficiency": row.get("efficiency_pct", ""),
-                "isa_code": row.get("isa_code", ""),
-                "description": row.get("Description", ""),
-                "width": row.get("default_width_px", ""),
-                "height": row.get("default_height_px", "")
+                "name": self.get_csv_value(row, ['name', 'Name']),
+                "description": self.get_csv_value(row, ['Description', 'description']),
+                "isa_code": self.get_csv_value(row, ['isa_code', 'ISA_Code']),
+                "manufacturer": self.get_csv_value(row, ['manufacturer']),
+                "width": self.get_csv_value(row, ['default_width_px', 'width'], 80),
+                "height": self.get_csv_value(row, ['default_height_px', 'height'], 60)
             },
             position=position,
-            ports=ports
+            ports=[
+                {"name": "inlet", "type": "process", "position": {"dx": 0, "dy": 0.5}},
+                {"name": "outlet", "type": "process", "position": {"dx": 1, "dy": 0.5}}
+            ]
         )
-
+        
+        # Store the DSLComponent object (verify this!)
         self.components[comp_id] = component
+        print(f"✅ Stored component {comp_id} as {type(component)}")
 
+    # REPLACED METHOD: add_connection_from_row
     def add_connection_from_row(self, row: pd.Series) -> None:
-        conn_id = row.get("id", f"CONN-{len(self.connections)+1:03d}")
-        conn_type = self._map_connection_type(row.get("line_type", "process"))
-
-        waypoints = []
-        if isinstance(row.get("waypoints"), str):
-            try:
-                parsed = json.loads(row["waypoints"])
-                if isinstance(parsed, list):
-                    if all(isinstance(p, list) and len(p) == 2 for p in parsed):
-                        waypoints = [{"x": float(p[0]), "y": float(p[1])} for p in parsed]
-                    elif all(isinstance(p, dict) and "x" in p and "y" in p for p in parsed):
-                        waypoints = [{"x": float(p["x"]), "y": float(p["y"])} for p in parsed]
-            except Exception as e:
-                logging.warning(f"Waypoint parsing failed for connection {conn_id}: {e}")
-
-        conn = DSLConnection(
+        """FIXED - handles various CSV connection formats"""
+        
+        # Get connection ID
+        conn_id = self.get_csv_value(row, ['ID', 'id', 'connection_id'], f"CONN-{len(self.connections)+1:03d}")
+        
+        # Get from/to components with various column names
+        from_comp = self.get_csv_value(row, ['From', 'from', 'from_component', 'source'])
+        to_comp = self.get_csv_value(row, ['To', 'to', 'to_component', 'target'])
+        
+        if not from_comp or not to_comp:
+            print(f"⚠️  Skipping connection {conn_id} - missing from ({from_comp}) or to ({to_comp})")
+            return
+        
+        # Verify components exist  
+        if from_comp not in self.components:
+            print(f"⚠️  Warning: from_component '{from_comp}' not in DSL components")
+        if to_comp not in self.components:
+            print(f"⚠️  Warning: to_component '{to_comp}' not in DSL components")
+        
+        conn_type = self._map_connection_type(self.get_csv_value(row, ['line_type', 'type'], 'process'))
+        
+        # Create DSLConnection object
+        connection = DSLConnection(
             id=conn_id,
-            from_component=row.get("from_component"),
-            to_component=row.get("to_component"),
-            from_port=row.get("from_port", "outlet"),
-            to_port=row.get("to_port", "inlet"),
+            from_component=from_comp,
+            to_component=to_comp, 
+            from_port=self.get_csv_value(row, ['from_port'], 'outlet'),
+            to_port=self.get_csv_value(row, ['to_port'], 'inlet'),
             type=conn_type,
             attributes={
-                "line_number": row.get("line_number", ""),
-                "with_arrow": row.get("with_arrow", "")
-            },
-            waypoints=waypoints
+                "line_number": self.get_csv_value(row, ['line_number']),
+                "with_arrow": True
+            }
         )
-        self.connections[conn.id] = conn
+        
+        # Store the DSLConnection object
+        self.connections[conn_id] = connection
+        print(f"✅ Added connection: {from_comp} → {to_comp}")
 
     def detect_control_loops(self):
         isa_mapping = {
@@ -246,12 +286,21 @@ class DSLGenerator:
         self,
         equipment_df: pd.DataFrame,
         inline_df: pd.DataFrame,
-        pipeline_df: pd.DataFrame,
+        pipeline_df: pd.DataFrame, # This might be unused now if connection_df is primary
         connection_df: pd.DataFrame,
         layout_df: Optional[pd.DataFrame] = None
     ) -> None:
-        for _, row in pd.concat([equipment_df, inline_df]).iterrows():
+        # Concatenate equipment and inline components for processing
+        # Ensure both are not empty before concatenating
+        all_components_df = pd.DataFrame()
+        if not equipment_df.empty:
+            all_components_df = pd.concat([all_components_df, equipment_df])
+        if not inline_df.empty:
+            all_components_df = pd.concat([all_components_df, inline_df])
+
+        for _, row in all_components_df.iterrows():
             self.add_component_from_row(row, layout_df)
+            
         for _, row in connection_df.iterrows():
             self.add_connection_from_row(row)
 
@@ -263,3 +312,4 @@ class DSLGenerator:
             "control_loops": [l.to_dict() for l in self.control_loops]
         }
         return yaml.dump(dsl) if format == "yaml" else json.dumps(dsl, indent=2)
+
