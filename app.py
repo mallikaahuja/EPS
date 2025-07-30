@@ -574,7 +574,7 @@ if st.button("Generate Simple Test Diagram"):
     except Exception as e:
         st.error(f"Even simple test failed: {e}")
 
----
+
 ### **🧪 Quick Test: Test Fixed DSL System**
 
 ```python
