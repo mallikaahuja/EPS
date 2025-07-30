@@ -327,6 +327,25 @@ try:
     st.write("**Detecting control loops...**")
     dsl.detect_control_loops()
 
+    # ADD THIS DEBUG CODE after "dsl.detect_control_loops()":
+    
+    st.write("**🔍 DSL Debug Information:**")
+    
+    # Check component types
+    st.write(f"Components created: {len(dsl.components)}")
+    for comp_id, comp in list(dsl.components.items())[:3]:  # Show first 3
+        st.write(f"  • {comp_id}: {type(comp)} - {'✅ DSLComponent' if hasattr(comp, 'to_dict') else '❌ Not DSLComponent'}")
+        if hasattr(comp, 'id'):
+            st.write(f"    ID: {comp.id}, Type: {comp.type}, Position: {comp.position}")
+    
+    # Check connections
+    st.write(f"Connections created: {len(dsl.connections)}")
+    for conn_id, conn in list(dsl.connections.items())[:3]:  # Show first 3
+        st.write(f"  • {conn_id}: {type(conn)} - {'✅ DSLConnection' if hasattr(conn, 'to_dict') else '❌ Not DSLConnection'}")
+        if hasattr(conn, 'from_component'):
+            st.write(f"    {conn.from_component} → {conn.to_component}")
+    # END OF ADDED DEBUG CODE
+
     st.success(f"DSL created with {len(dsl.components)} components, {len(dsl.connections)} connections, {len(dsl.control_loops)} control loops.")
 
     # Show DSL components (CRITICAL FIX HERE: Iterate over .values() or .items())
@@ -555,3 +574,78 @@ if st.button("Generate Simple Test Diagram"):
     except Exception as e:
         st.error(f"Even simple test failed: {e}")
 
+---
+### **🧪 Quick Test: Test Fixed DSL System**
+
+```python
+# ═══════════════════════════════════════════════════════════════════════════════
+# QUICK TEST: Add this to your diagnostic app to test the fixes
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ADD this button at the end of your diagnostic:
+
+if st.button("🧪 Test Fixed DSL System"):
+    st.write("Testing DSL with first few rows…")
+
+    try:
+        # Ensure DSLGenerator is imported and available (it is, at the top)
+        test_dsl = DSLGenerator()
+        test_dsl.set_metadata(project="EPS", drawing_number="001", revision="00", date="2025-07-30")
+        
+        # Test with first 2 equipment rows
+        # Ensure equipment_df is available (it is, loaded earlier)
+        for idx, row in equipment_df.head(2).iterrows():
+            try:
+                # `None` for layout_info_df is fine if add_component_from_row handles it
+                # or if your DSLGenerator is expecting layout_df in a different method.
+                # Assuming your current DSLGenerator.add_component_from_row can take `None` for layout.
+                test_dsl.add_component_from_row(row, None) # Or pass layout_df if add_component_from_row expects it
+                st.write(f"✅ Added {row.get('ID', 'unknown')}")
+            except Exception as e:
+                st.write(f"❌ Failed {row.get('ID', 'unknown')}: {e}")
+        
+        # Test with first 2 pipeline rows  
+        # Ensure pipeline_df is available (it is, loaded earlier)
+        for idx, row in connection_df.head(2).iterrows(): # Changed to connection_df as per your loading
+            try:
+                test_dsl.add_connection_from_row(row)
+                st.write(f"✅ Added connection {row.get('ID', 'unknown')}")
+            except Exception as e:
+                st.write(f"❌ Failed connection: {e}")
+        
+        # Test JSON conversion
+        # json is already imported at the top of app.py
+        json_str = test_dsl.to_dsl("json")
+        parsed = json.loads(json_str)
+        
+        st.success(f"✅ DSL Test Complete: {len(parsed['components'])} components, {len(parsed['connections'])} connections")
+        
+        # Test render call
+        if parsed['components']:
+            # Ensure render_svg and symbol_renderer are accessible
+            # They are initialized globally at the top of your app.py
+            # positions is also accessible from the main app flow
+            try:
+                # You might need to pass `positions` and other arguments as they are in your main render_svg call.
+                # For this isolated test, if `render_svg` expects `positions`, it might fail if `positions`
+                # here is empty. However, the quick test is meant to test DSL generation, not full rendering.
+                # Let's use the main `positions` and `symbol_renderer` from the global scope.
+                # If these are empty/None from upstream failures, this part will still show that.
+                
+                # Use the positions from the main app run, or an empty dict if not available
+                current_positions = positions if positions else {}
+
+                svg_test_render, tags_test_render = render_svg(parsed, symbol_renderer, current_positions, True, True, 1.0)
+                st.write(f"SVG length for test render: {len(svg_test_render)}")
+                display_svg_safely(svg_test_render, "Quick Test DSL Render")
+            except NameError:
+                st.warning("`render_svg` function or `symbol_renderer` not found in this scope. Skipping SVG rendering test.")
+                st.write("Please ensure `render_svg` and `symbol_renderer` are accessible for this test to function fully.")
+            except Exception as render_e:
+                st.error(f"Error during SVG rendering test in Quick Test: {render_e}")
+                st.code(traceback.format_exc())
+            
+    except Exception as e:
+        # traceback is already imported at the top of app.py
+        st.error(f"DSL test failed: {e}")
+        st.code(traceback.format_exc())
