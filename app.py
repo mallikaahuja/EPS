@@ -237,8 +237,9 @@ if not data_loaded_successfully:
     st.error("❌ Critical data missing. Cannot proceed with diagram generation.")
     st.stop()
 
+
 # ─────────────────────────────────────
-# STEP-BY-STEP DIAGRAM GENERATION
+# STEP-BY-STEP DIAGRAM GENERATION (Modified in app.py)
 # ─────────────────────────────────────
 
 st.header("🔧 Step-by-Step Diagram Generation")
@@ -251,32 +252,58 @@ symbol_renderer = SymbolRenderer()
 dsl = None # Initialize dsl to None
 dsl_json = None # Initialize dsl_json to None
 
-# Step 1: DSL Generation
+# Step 1: DSL Generation (MODIFIED FOR DATACLASS DSLGENERATOR)
 st.subheader("Step 1: DSL Generation")
 try:
     dsl = DSLGenerator()
     dsl.set_metadata(project="EPS", drawing_number="001", revision="00", date=datetime.now().strftime("%Y-%m-%d"))
 
-    # Add a few components manually for testing
-    if not equipment_df.empty:
-        for idx, row in equipment_df.head(3).iterrows():  # Only first 3 for testing
-            try:
-                dsl.add_component_from_row(row, None) # Assuming None for connections for simple test
-                st.write(f"✅ Added component: {row['ID']}")
-            except Exception as e:
-                st.write(f"❌ Failed to add {row['ID']}: {e}")
-    else:
-        st.warning("Equipment DataFrame is empty. No components added to DSL.")
+    # Use the generate_from_csvs method from the advanced DSLGenerator
+    st.write("**Calling `dsl.generate_from_csvs()`...**")
+    dsl.generate_from_csvs(
+        equipment_df=equipment_df,
+        inline_df=inline_df,
+        pipeline_df=pipeline_df,
+        connection_df=connection_df,
+        layout_df=layout_df # Pass layout data if available
+    )
 
-    st.success(f"DSL created with {len(dsl.components)} components, {len(dsl.connections)} connections")
+    # After generation, detect control loops
+    st.write("**Detecting control loops...**")
+    dsl.detect_control_loops()
 
-    # Show DSL components
+    st.success(f"DSL created with {len(dsl.components)} components, {len(dsl.connections)} connections, {len(dsl.control_loops)} control loops.")
+
+    # Show DSL components (CRITICAL FIX HERE: Iterate over .values() or .items())
     if dsl.components:
-        st.write("**DSL Components:**")
-        for comp in dsl.components:
-            st.write(f"  • {comp.id} ({comp.type})")
+        st.write("**DSL Components (first 3):**")
+        # --- THIS IS THE CRUCIAL LINE TO CHANGE ---
+        for comp_obj in list(dsl.components.values())[:3]: # Iterate over the actual DSLComponent objects
+            # --- AND THIS LINE TO ACCESS ID AND TYPE VALUE ---
+            st.write(f"  • {comp_obj.id} ({comp_obj.type.value})") # Access attributes from the object, .type.value for Enum
+            st.json(comp_obj.to_dict()) # Show the full dict representation for debugging
     else:
-        st.error("❌ No components in DSL!")
+        st.error("❌ No components in DSL after generation!")
+
+    # Show DSL connections (Fix here too, for consistency)
+    if dsl.connections:
+        st.write("**DSL Connections (first 3):**")
+        # --- FIX HERE TOO ---
+        for conn_obj in list(dsl.connections.values())[:3]: # Iterate over the actual DSLConnection objects
+            st.write(f"  • {conn_obj.id} ({conn_obj.from_component} -> {conn_obj.to_component})")
+            st.json(conn_obj.to_dict())
+    else:
+        st.warning("⚠️ No connections in DSL after generation.")
+
+    # Show DSL control loops (this part was likely already correct if using list)
+    if dsl.control_loops:
+        st.write("**DSL Control Loops:**")
+        for loop_obj in dsl.control_loops:
+            st.write(f"  • {loop_obj.id} ({loop_obj.type})")
+            st.json(loop_obj.to_dict())
+    else:
+        st.info("ℹ️ No control loops detected.")
+
 
 except Exception as e:
     st.error(f"DSL Generation failed: {e}")
