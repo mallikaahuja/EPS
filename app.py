@@ -198,24 +198,24 @@ pipeline_df = pd.DataFrame()
 inline_df = pd.DataFrame()
 
 try:
-    equipment_df = pd.read_csv("equipment_list.csv")
+    equipment_df = pd.read_csv("enhanced_equipment_layout.csv")
     st.success(f"Equipment: {len(equipment_df)} rows")
     st.write("**First few equipment rows:**")
     st.dataframe(equipment_df.head())
 except FileNotFoundError:
-    st.error("❌ `equipment_list.csv` not found. Please ensure it's in the same directory.")
+    st.error("❌ `enhanced_equipment_layout.csv` not found. Please ensure it's in the same directory.")
     data_loaded_successfully = False
 except Exception as e:
     st.error(f"Equipment loading failed: {e}")
     data_loaded_successfully = False
 
 try:
-    pipeline_df = pd.read_csv("pipeline_list.csv")
+    pipeline_df = pd.read_csv("pipes_connections.csv")
     st.success(f"Pipelines: {len(pipeline_df)} rows")
     st.write("**First few pipeline rows:**")
     st.dataframe(pipeline_df.head())
 except FileNotFoundError:
-    st.error("❌ `pipeline_list.csv` not found. Please ensure it's in the same directory.")
+    st.error("❌ `pipes_connections.csv` not found. Please ensure it's in the same directory.")
     data_loaded_successfully = False
 except Exception as e:
     st.error(f"Pipeline loading failed: {e}")
