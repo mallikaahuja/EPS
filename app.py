@@ -4,6 +4,7 @@ import streamlit as st
 import pandas as pd
 import json
 import os
+import traceback
 import tempfile
 import platform
 from datetime import datetime
@@ -196,6 +197,7 @@ data_loaded_successfully = True # Flag to track overall data loading
 equipment_df = pd.DataFrame()
 pipeline_df = pd.DataFrame()
 inline_df = pd.DataFrame()
+connection_df = pd.DataFrame()
 
 try:
     equipment_df = pd.read_csv("enhanced_equipment_layout.csv")
