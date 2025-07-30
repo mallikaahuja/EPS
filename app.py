@@ -1,242 +1,194 @@
-# EPS Interactive P&ID Generator - Streamlit App with Debugging & Diagram Fixes
+# EPS Interactive P&ID Generator - Streamlit App with Enhanced Debugging
 
 import streamlit as st
 import pandas as pd
 import json
-import os
-import tempfile
 import platform
 from datetime import datetime
 
-# ─────────────────────────────────────
-# MODULE IMPORTS
-# ─────────────────────────────────────
 from drawing_engine import render_svg, svg_to_png, export_dxf
 from symbols import SymbolRenderer
 from layout_engine import compute_positions_and_routing
 from dsl_generator import DSLGenerator
 from dexpi_converter import DEXPIConverter
 from ai_integration import PnIDAIAssistant, SmartPnIDSuggestions
-from control_systems import ControlSystemAnalyzer, PnIDValidator
+from control_systems import PnIDValidator
 from hitl_validation import HITLValidator
 
-# Optional Visio (Windows only)
+# Optional Visio support
+VISIO_AVAILABLE = False
 if platform.system() == "Windows":
     try:
         from visio_generator import VisioP_IDGenerator
         VISIO_AVAILABLE = True
     except ImportError:
-        VISIO_AVAILABLE = False
-else:
-    VISIO_AVAILABLE = False
+        pass
 
-# ─────────────────────────────────────
-# PAGE CONFIG & CSS
-# ─────────────────────────────────────
-st.set_page_config(page_title="EPS P&ID Generator", layout="wide", initial_sidebar_state="expanded")
+# Config
+st.set_page_config(page_title="EPS P&ID Generator", layout="wide")
 st.markdown("""
 <style>
     .svg-container { border: 2px solid #ccc; border-radius: 8px; background: white; padding: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
     .ai-suggestion { background-color: #e7f3ff; border-left: 4px solid #2196F3; padding: 10px; margin: 10px 0; border-radius: 5px; }
+    .debug-info { font-family: monospace; background: #f9f9f9; padding: 10px; border: 1px dashed #ccc; border-radius: 5px; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─────────────────────────────────────
-# INIT
-# ─────────────────────────────────────
+# Init
 @st.cache_resource
 def init_ai():
     return PnIDAIAssistant()
-
 ai_assistant = init_ai()
 smart_suggestions = SmartPnIDSuggestions(ai_assistant)
 symbol_renderer = SymbolRenderer()
-svg = ""  # fallback to avoid unbound error
+dsl = DSLGenerator()
+svg = ""
 
-# ─────────────────────────────────────
-# LOAD DATA
-# ─────────────────────────────────────
-try:
-    equipment_df = pd.read_csv("equipment_list.csv")
-    pipeline_df = pd.read_csv("pipeline_list.csv")
-    inline_df = pd.read_csv("inline_component_list.csv")
-    st.success(f"✅ Loaded {len(equipment_df)} equipment, {len(pipeline_df)} pipelines, {len(inline_df)} inline components")
-except Exception as e:
-    st.error(f"❌ Failed to load CSV files: {e}")
-    st.stop()
+# Load CSVs
+def load_data():
+    try:
+        equipment_df = pd.read_csv("equipment_list.csv")
+        pipeline_df = pd.read_csv("pipeline_list.csv")
+        inline_df = pd.read_csv("inline_component_list.csv")
+        return equipment_df, pipeline_df, inline_df
+    except Exception as e:
+        st.error(f"❌ Error loading data: {e}")
+        st.stop()
 
-# ─────────────────────────────────────
-# SIDEBAR CONFIG
-# ─────────────────────────────────────
+equipment_df, pipeline_df, inline_df = load_data()
+
+# Layout fallback
+def fallback_layout(df):
+    layout = []
+    x, y = 50, 50
+    for _, row in df.iterrows():
+        layout.append({'ID': row['ID'], 'X': x, 'Y': y, 'Width': 100, 'Height': 60})
+        x += 150
+        if x > 800: x, y = 50, y + 100
+    return pd.DataFrame(layout)
+
+# Sidebar
 with st.sidebar:
-    st.header("⚙️ Diagram Configuration")
+    st.header("⚙️ Settings")
     show_grid = st.checkbox("Show Grid", True)
     show_legend = st.checkbox("Show Legend", True)
-    show_control_loops = st.checkbox("Show Control Loops", True)
-    show_validation = st.checkbox("Show HITL Validation", True)
     zoom = st.slider("Zoom", 0.5, 3.0, 1.0, 0.1)
-    export_format = st.selectbox("Export Format", ["PNG", "SVG", "DXF", "DEXPI", "PDF"])
-    process_type = st.selectbox("Process Type", ["vacuum_system", "distillation", "reaction", "utilities"])
+    export_format = st.selectbox("Export Format", ["PNG", "SVG", "DXF", "DEXPI"])
     enable_ai = st.checkbox("Enable AI Suggestions", True)
+    process_type = st.selectbox("Process Type", ["vacuum_system", "reaction", "distillation"])
 
-    st.markdown("### Optional Components")
-    include_condenser = st.checkbox("Vapour Condenser + Catch Pot", True)
-    include_acg = st.checkbox("ACG Filter", True)
-    include_silencer = st.checkbox("Discharge Silencer + Catch Pot", True)
-
-# ─────────────────────────────────────
-# TABS
-# ─────────────────────────────────────
+# Tabs
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "📐 Diagram", "📦 Equipment", "📋 Validation", "🧠 AI Suggestions", "🔁 HITL", "📤 Export", "🧰 DSL Debug"
+    "📐 Diagram", "📦 Equipment", "📋 Validation", "🧠 AI", "🔁 HITL", "📤 Export", "🧰 Debug"
 ])
 
-# ─────────────────────────────────────
-# TAB 1: DIAGRAM
-# ─────────────────────────────────────
+# ───────────────────────────────
+# 📐 TAB 1: Diagram
+# ───────────────────────────────
 with tab1:
     st.subheader("📐 Generated P&ID Diagram")
 
-    with st.spinner("Generating DSL → Layout → SVG..."):
-        dsl = DSLGenerator()
-        dsl.set_metadata(project="EPS", drawing_number="001", revision="00", date=datetime.now().strftime("%Y-%m-%d"))
+    dsl.set_metadata(project="EPS", drawing_number="001", revision="00", date=datetime.now().strftime("%Y-%m-%d"))
+    try:
+        layout_df = pd.read_csv("enhanced_equipment_layout.csv")
+    except:
+        layout_df = fallback_layout(equipment_df)
 
+    for _, row in equipment_df.iterrows():
         try:
-            layout_df = pd.read_csv("enhanced_equipment_layout.csv")
-        except FileNotFoundError:
-            layout_df = None
-
-        optional_ids = []
-        if not include_condenser:
-            optional_ids += ["vapour_condenser", "catch_pot_1"]
-        if not include_acg:
-            optional_ids.append("acg_filter")
-        if not include_silencer:
-            optional_ids += ["discharge_silencer", "catch_pot_2"]
-
-        for _, row in equipment_df.iterrows():
-            if row["ID"] not in optional_ids:
-                if layout_df is not None and not layout_df["ID"].str.contains(row["ID"]).any():
-                    st.warning(f"⚠️ Layout mapping missing for: {row['ID']}")
-                dsl.add_component_from_row(row, layout_df)
-
-        for _, row in inline_df.iterrows():
-            if row["ID"] not in optional_ids:
-                dsl.add_component_from_row(row, layout_df)
-
-        for _, row in pipeline_df.iterrows():
-            dsl.add_connection_from_row(row)
-
-        st.success(f"✅ DSL Components: {len(dsl.components)} | DSL Connections: {len(dsl.connections)}")
-        if len(dsl.components) == 0:
-            st.error("❌ No components were added to the DSL. Diagram will be blank.")
-
-        dsl.detect_control_loops()
-
-        positions, routes, inlines = compute_positions_and_routing(equipment_df, pipeline_df, inline_df)
-        dsl_json = json.loads(dsl.to_dsl("json"))
-
-        if not dsl_json.get("components"):
-            st.error("❌ DSL JSON has no components. Rendering will fail.")
-
-        try:
-            svg, tag_map = render_svg(dsl_json, symbol_renderer, positions, show_grid, show_legend, zoom)
-            if not svg:
-                st.error("❌ Empty SVG returned from renderer.")
-            else:
-                png = svg_to_png(svg)
-                st.image(png, caption="Generated P&ID Diagram", use_column_width=True)
+            dsl.add_component_from_row(row, layout_df)
         except Exception as e:
-            st.error(f"❌ Could not render diagram as PNG: {e}")
+            st.warning(f"⚠️ Failed to add {row['ID']}: {e}")
 
-# ─────────────────────────────────────
-# TAB 2: EQUIPMENT
-# ─────────────────────────────────────
+    for _, row in inline_df.iterrows():
+        try:
+            dsl.add_component_from_row(row, layout_df)
+        except:
+            pass
+
+    for _, row in pipeline_df.iterrows():
+        try:
+            dsl.add_connection_from_row(row)
+        except:
+            pass
+
+    if len(dsl.components) == 0:
+        st.error("❌ No components found. Check layout or CSV input.")
+        st.stop()
+
+    dsl.detect_control_loops()
+    dsl_json = json.loads(dsl.to_dsl("json"))
+    positions, routes, inlines = compute_positions_and_routing(equipment_df, pipeline_df, inline_df)
+
+    if not dsl_json.get("components"):
+        st.error("❌ DSL JSON is empty")
+        st.stop()
+
+    try:
+        svg, tag_map = render_svg(dsl_json, symbol_renderer, positions, show_grid, show_legend, zoom)
+        if not svg:
+            st.error("❌ SVG is blank. Render failed.")
+        else:
+            png = svg_to_png(svg)
+            st.image(png, use_column_width=True)
+    except Exception as e:
+        st.error(f"❌ Diagram render failed: {e}")
+
+# 📦 TAB 2: Equipment Data
 with tab2:
-    st.subheader("📦 Equipment, Pipelines & Inline")
-    st.write("### Equipment")
     st.dataframe(equipment_df)
-    st.write("### Pipelines")
     st.dataframe(pipeline_df)
-    st.write("### Inline Components")
     st.dataframe(inline_df)
 
-# ─────────────────────────────────────
-# TAB 3: VALIDATION
-# ─────────────────────────────────────
+# 📋 TAB 3: Validation
 with tab3:
-    st.subheader("📋 P&ID Validation")
     validator = PnIDValidator(dsl.components, dsl.connections)
     issues = validator.run_validation(dsl.to_dsl("json"))
-
     if not issues:
-        st.success("✅ No major validation errors.")
+        st.success("✅ No issues found.")
     else:
-        for issue in issues:
-            st.warning(f"⚠️ {issue}")
+        for i in issues:
+            st.warning(i)
 
-# ─────────────────────────────────────
-# TAB 4: AI SUGGESTIONS
-# ─────────────────────────────────────
+# 🧠 TAB 4: AI Suggestions
 with tab4:
-    st.subheader("🧠 AI-Powered Suggestions")
     if enable_ai:
-        try:
-            recs = smart_suggestions.generate(dsl.to_dsl("json"), process_type)
-            for r in recs:
-                st.markdown(f"<div class='ai-suggestion'>{r}</div>", unsafe_allow_html=True)
-        except Exception as e:
-            st.error(f"AI suggestion error: {e}")
+        recs = smart_suggestions.generate_suggestions(dsl.to_dsl("json"), process_type)
+        for r in recs:
+            st.markdown(f"<div class='ai-suggestion'>{r}</div>", unsafe_allow_html=True)
     else:
-        st.info("AI suggestions are disabled")
+        st.info("AI suggestions disabled.")
 
-# ─────────────────────────────────────
-# TAB 5: HITL VALIDATION
-# ─────────────────────────────────────
+# 🔁 TAB 5: HITL
 with tab5:
-    st.subheader("🔁 Human-in-the-Loop (HITL) Validation")
-    try:
-        dsl_data = json.loads(dsl.to_dsl("json"))
-        validator = HITLValidator()
-        session = validator.create_session(project_id="EPS", dsl_data=dsl_data)
-        st.write(f"Session ID: {session.session_id}")
-        st.progress(session.completion_percentage / 100)
-        if session.validation_items:
-            st.dataframe(pd.DataFrame([vars(i) for i in session.validation_items]))
-        else:
-            st.success("No validation issues detected.")
-        st.download_button("⬇️ Download Validation Report", data=json.dumps(validator.export_validation_report(), indent=2), file_name="validation_report.json")
-    except Exception as e:
-        st.error(f"❌ HITL validation failed: {e}")
+    validator = HITLValidator()
+    session = validator.create_session("EPS", dsl_json)
+    st.write(f"Session ID: {session.session_id}")
+    st.progress(session.completion_percentage / 100)
+    if session.validation_items:
+        st.dataframe(pd.DataFrame([vars(i) for i in session.validation_items]))
+    st.download_button("⬇️ Download Report", data=json.dumps(validator.export_validation_report(), indent=2), file_name="validation.json")
 
-# ─────────────────────────────────────
-# TAB 6: EXPORT
-# ─────────────────────────────────────
+# 📤 TAB 6: Export
 with tab6:
-    st.subheader("📤 Export Diagram")
-    if export_format == "SVG" and svg:
-        st.download_button("⬇️ Download SVG", svg, file_name="pid.svg", mime="image/svg+xml")
-    elif export_format == "PNG" and svg:
-        png = svg_to_png(svg)
-        st.download_button("⬇️ Download PNG", png, file_name="pid.png", mime="image/png")
-    elif export_format == "DXF":
-        dxf = export_dxf(dsl.to_dsl("json"))
-        st.download_button("⬇️ Download DXF", dxf, file_name="pid.dxf", mime="application/dxf")
-    elif export_format == "DEXPI":
-        dexpi = DEXPIConverter().convert(json.loads(dsl.to_dsl("json")))
-        st.download_button("⬇️ Download DEXPI", dexpi, file_name="pid.dexpi", mime="application/xml")
-    elif export_format == "PDF":
-        st.warning("PDF export coming soon.")
+    if svg:
+        if export_format == "PNG":
+            st.download_button("Download PNG", svg_to_png(svg), file_name="diagram.png")
+        elif export_format == "SVG":
+            st.download_button("Download SVG", svg, file_name="diagram.svg")
+        elif export_format == "DXF":
+            dxf = export_dxf(dsl.to_dsl("json"))
+            st.download_button("Download DXF", dxf, file_name="diagram.dxf")
+        elif export_format == "DEXPI":
+            dexpi = DEXPIConverter().convert(dsl_json)
+            st.download_button("Download DEXPI", dexpi, file_name="diagram.dexpi")
 
-# ─────────────────────────────────────
-# TAB 7: DEBUG INFO
-# ─────────────────────────────────────
+# 🧰 TAB 7: Debug Info
 with tab7:
-    st.subheader("🧰 DSL Debug Info")
-    st.write("### DSL JSON")
+    st.subheader("🧰 Debug")
+    st.write("DSL JSON")
     st.json(dsl_json)
-    st.write("### Computed Positions")
-    st.write(positions)
-
-st.markdown("---")
-st.caption("EPS P&ID Generator – powered by Schemdraw, DEXPI, Visio, and AI | v2.0")
+    st.write("Positions")
+    st.json(positions)
+    st.write("SVG (First 500 chars)")
+    st.code(svg[:500])
