@@ -1,260 +1,451 @@
-# EPS Interactive P&ID Generator - v2.2 Final Version with Debug Tab, Fallback Layout, JSON Fixes
+# EPS P&ID Generator - DIAGNOSTIC VERSION for blank diagram debugging
 
 import streamlit as st
 import pandas as pd
 import json
+import os
+import tempfile
 import platform
 from datetime import datetime
 import traceback
+import io
+import base64
 
-from drawing_engine import render_svg, svg_to_png, export_dxf
-from symbols import SymbolRenderer
-from layout_engine import compute_positions_and_routing
-from dsl_generator import DSLGenerator
-from dexpi_converter import DEXPIConverter
-from ai_integration import PnIDAIAssistant, SmartPnIDSuggestions
-from control_systems import ControlSystemAnalyzer, PnIDValidator
-from hitl_validation import HITLValidator
+# ─────────────────────────────────────
+# MODULE IMPORTS
+# ─────────────────────────────────────
 
-if platform.system() == "Windows":
-    try:
-        from visio_generator import VisioP_IDGenerator
-        VISIO_AVAILABLE = True
-    except ImportError:
-        VISIO_AVAILABLE = False
-else:
-    VISIO_AVAILABLE = False
+# Ensure these modules are available in your environment
+try:
+    from drawing_engine import render_svg, svg_to_png, export_dxf
+    from symbols import SymbolRenderer
+    from layout_engine import compute_positions_and_routing
+    from dsl_generator import DSLGenerator
+    from dexpi_converter import DEXPIConverter
+    from ai_integration import PnIDAIAssistant, SmartPnIDSuggestions
+    from control_systems import ControlSystemAnalyzer, PnIDValidator
+    from hitl_validation import HITLValidator
+except ImportError as e:
+    st.error(f"Failed to import a critical module: {e}. Please ensure all required Python files (drawing_engine.py, symbols.py, etc.) are in your project directory and their dependencies are installed.")
+    st.stop() # Stop execution if core modules are missing
 
-st.set_page_config(page_title="EPS P&ID Generator", layout="wide", initial_sidebar_state="expanded")
-st.markdown("""
-<style>
-    .svg-container { border: 2px solid #ccc; border-radius: 8px; background: white; padding: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .ai-suggestion { background-color: #e7f3ff; border-left: 4px solid #2196F3; padding: 10px; margin: 10px 0; border-radius: 5px; }
-    .debug-info { background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; margin: 10px 0; border-radius: 5px; font-family: monospace; }
-</style>
-""", unsafe_allow_html=True)
+# ─────────────────────────────────────
+# DIAGNOSTIC FUNCTIONS
+# ─────────────────────────────────────
 
-@st.cache_resource
-def init_ai():
-    return PnIDAIAssistant()
+def analyze_svg_content(svg_content):
+    """Analyze SVG content to understand why it might be blank"""
+    if not svg_content:
+        return "❌ SVG is None or empty string"
 
-ai_assistant = init_ai()
-smart_suggestions = SmartPnIDSuggestions(ai_assistant)
-symbol_renderer = SymbolRenderer()
-svg = ""
+    if len(svg_content) < 50:
+        return f"❌ SVG too short ({len(svg_content)} chars): {svg_content}"
 
-def debug_log(message, data=None):
-    st.write(f"🔍 **DEBUG**: {message}")
-    if data is not None:
-        if isinstance(data, (dict, list)):
-            st.json(data)
-        else:
-            st.code(str(data))
-
-def validate_csv_data(df, name):
+    # Check for basic SVG structure
     issues = []
-    if df.empty:
-        issues.append(f"{name} is empty")
-    required_columns = {
-        'equipment': ['ID', 'Type', 'Description'],
-        'pipeline': ['ID', 'From', 'To'],
-        'inline': ['ID', 'Type']
+    if "<svg" not in svg_content:
+        issues.append("Missing <svg> tag")
+    if "viewBox" not in svg_content:
+        issues.append("Missing viewBox attribute")
+    if "<g" not in svg_content and "<rect" not in svg_content and "<circle" not in svg_content and "<path" not in svg_content and "<line" not in svg_content and "<text" not in svg_content:
+        issues.append("No common drawing elements found (g, rect, circle, path, line, text)")
+
+    # Count drawing elements
+    element_counts = {
+        "rect": svg_content.count("<rect"),
+        "circle": svg_content.count("<circle"),
+        "path": svg_content.count("<path"),
+        "line": svg_content.count("<line"),
+        "text": svg_content.count("<text"),
+        "g": svg_content.count("<g")
     }
-    if name.lower() in required_columns:
-        missing_cols = [col for col in required_columns[name.lower()] if col not in df.columns]
-        if missing_cols:
-            issues.append(f"{name} missing columns: {missing_cols}")
-    return issues
 
-def create_fallback_layout(equipment_df, inline_df):
-    layout_data = []
-    x_pos, y_pos = 50, 50
-    for _, row in equipment_df.iterrows():
-        layout_data.append({'ID': row['ID'], 'X': x_pos, 'Y': y_pos, 'Width': 100, 'Height': 60})
-        x_pos += 150
-        if x_pos > 600:
-            x_pos = 50
-            y_pos += 100
-    for _, row in inline_df.iterrows():
-        layout_data.append({'ID': row['ID'], 'X': x_pos, 'Y': y_pos, 'Width': 40, 'Height': 40})
-        x_pos += 80
-        if x_pos > 600:
-            x_pos = 50
-            y_pos += 100
-    return pd.DataFrame(layout_data)
+    total_elements = sum(element_counts.values())
 
-with st.sidebar:
-    st.header("⚙️ Settings")
-    show_grid = st.checkbox("Show Grid", True)
-    show_legend = st.checkbox("Show Legend", True)
-    zoom = st.slider("Zoom", 0.5, 3.0, 1.0, 0.1)
-    export_format = st.selectbox("Export Format", ["PNG", "SVG", "DXF", "DEXPI", "PDF"])
-    process_type = st.selectbox("Process Type", ["vacuum_system", "distillation", "reaction", "utilities"])
-    enable_ai = st.checkbox("Enable AI Suggestions", True)
+    if total_elements == 0:
+        issues.append("No drawing elements found")
 
-st.header("EPS P&ID Generator")
+    result = f"✅ SVG length: {len(svg_content)} chars, Elements: {total_elements}"
+    if element_counts:
+        result += f"\nElement breakdown: {element_counts}"
+    if issues:
+        result += f"\n❌ Issues: {', '.join(issues)}"
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["📐 Diagram", "📦 Equipment", "📋 Validation", "🧠 AI Suggestions", "🔁 HITL", "📤 Export", "🧰 Debug"])
+    return result
 
-# Load data
+def create_test_svg():
+    """Create a simple test SVG to verify display functionality"""
+    return '''<svg width="400" height="200" xmlns="http://www.w3.org/2000/svg">
+<rect x="10" y="10" width="100" height="60" fill="lightblue" stroke="black" stroke-width="2"/>
+<circle cx="200" cy="50" r="30" fill="lightgreen" stroke="black" stroke-width="2"/>
+<text x="50" y="120" text-anchor="middle" font-family="Arial" font-size="14">Test Equipment</text>
+<text x="200" y="120" text-anchor="middle" font-family="Arial" font-size="14">Test Vessel</text>
+<line x1="110" y1="40" x2="170" y2="50" stroke="black" stroke-width="2"/>
+</svg>'''
+
+def test_schemdraw_basic():
+    """Test basic schemdraw functionality"""
+    try:
+        import schemdraw
+        import schemdraw.elements as elm
+
+        d = schemdraw.Drawing()
+        d.add(elm.Resistor().label('Test'))
+        d.add(elm.Capacitor())
+        
+        svg_content = d.get_imagedata('svg')
+        return True, f"✅ Schemdraw test successful, SVG length: {len(svg_content)}"
+    except ImportError:
+        return False, "❌ Schemdraw not installed. Please install with `pip install schemdraw`"
+    except Exception as e:
+        return False, f"❌ Schemdraw test failed: {str(e)}"
+
+# ─────────────────────────────────────
+# PAGE CONFIG
+# ─────────────────────────────────────
+
+st.set_page_config(page_title="EPS P&ID Generator - DIAGNOSTIC", layout="wide")
+
+st.title("🔍 EPS P&ID Generator - DIAGNOSTIC MODE")
+st.warning("This is a diagnostic version to identify why your diagram is blank.")
+
+# ─────────────────────────────────────
+# DIAGNOSTIC TESTS FIRST
+# ─────────────────────────────────────
+
+st.header("🧪 Diagnostic Tests")
+
+# Test 1: Basic Streamlit image display
+st.subheader("Test 1: Basic Image Display")
+test_svg = create_test_svg()
+st.write("**Test SVG Analysis:**")
+st.write(analyze_svg_content(test_svg))
+
+col1, col2 = st.columns(2)
+with col1:
+    st.write("**Raw SVG (should show shapes):**")
+    st.markdown(f'<div style="border:1px solid #ccc; padding:10px;">{test_svg}</div>', unsafe_allow_html=True)
+
+with col2:
+    st.write("**As Streamlit Image (should show shapes):**")
+    try:
+        # Convert SVG to bytes for st.image
+        svg_bytes = test_svg.encode('utf-8')
+        st.image(svg_bytes, caption="Test SVG")
+        st.success("✅ Streamlit image display works")
+    except Exception as e:
+        st.error(f"❌ Streamlit image display failed: {e}")
+
+# Test 2: Schemdraw availability
+st.subheader("Test 2: Schemdraw Basic Test")
+schemdraw_works, schemdraw_msg = test_schemdraw_basic()
+st.write(schemdraw_msg)
+
+# ─────────────────────────────────────
+# LOAD DATA
+# ─────────────────────────────────────
+
+st.header("📊 Data Loading")
+
+data_loaded_successfully = True # Flag to track overall data loading
+equipment_df = pd.DataFrame()
+pipeline_df = pd.DataFrame()
+inline_df = pd.DataFrame()
+
 try:
     equipment_df = pd.read_csv("equipment_list.csv")
-    pipeline_df = pd.read_csv("pipeline_list.csv")
-    inline_df = pd.read_csv("inline_component_list.csv")
+    st.success(f"Equipment: {len(equipment_df)} rows")
+    st.write("**First few equipment rows:**")
+    st.dataframe(equipment_df.head())
+except FileNotFoundError:
+    st.error("❌ `equipment_list.csv` not found. Please ensure it's in the same directory.")
+    data_loaded_successfully = False
 except Exception as e:
-    st.error(f"Failed to load input files: {e}")
+    st.error(f"Equipment loading failed: {e}")
+    data_loaded_successfully = False
+
+try:
+    pipeline_df = pd.read_csv("pipeline_list.csv")
+    st.success(f"Pipelines: {len(pipeline_df)} rows")
+    st.write("**First few pipeline rows:**")
+    st.dataframe(pipeline_df.head())
+except FileNotFoundError:
+    st.error("❌ `pipeline_list.csv` not found. Please ensure it's in the same directory.")
+    data_loaded_successfully = False
+except Exception as e:
+    st.error(f"Pipeline loading failed: {e}")
+    data_loaded_successfully = False
+
+try:
+    inline_df = pd.read_csv("inline_component_list.csv")
+    st.success(f"Inline: {len(inline_df)} rows")
+    st.write("**First few inline rows:**")
+    st.dataframe(inline_df.head())
+except FileNotFoundError:
+    st.error("❌ `inline_component_list.csv` not found. Please ensure it's in the same directory.")
+    data_loaded_successfully = False
+except Exception as e:
+    st.error(f"Inline loading failed: {e}")
+    data_loaded_successfully = False
+
+if not data_loaded_successfully:
+    st.error("❌ Critical data missing. Cannot proceed with diagram generation.")
     st.stop()
 
-layout_df = None
+# ─────────────────────────────────────
+# STEP-BY-STEP DIAGRAM GENERATION
+# ─────────────────────────────────────
+
+st.header("🔧 Step-by-Step Diagram Generation")
+
+# Initialize components
+ai_assistant = PnIDAIAssistant()
+smart_suggestions = SmartPnIDSuggestions(ai_assistant)
+symbol_renderer = SymbolRenderer()
+
+dsl = None # Initialize dsl to None
+dsl_json = None # Initialize dsl_json to None
+
+# Step 1: DSL Generation
+st.subheader("Step 1: DSL Generation")
 try:
-    layout_df = pd.read_csv("enhanced_equipment_layout.csv")
-except FileNotFoundError:
-    layout_df = create_fallback_layout(equipment_df, inline_df)
-    st.warning("⚠️ Layout file missing. Using fallback.")
-
-with tab1:
-    st.subheader("📐 Generated P&ID Diagram")
-
     dsl = DSLGenerator()
     dsl.set_metadata(project="EPS", drawing_number="001", revision="00", date=datetime.now().strftime("%Y-%m-%d"))
 
-    for _, row in equipment_df.iterrows():
-        try:
-            dsl.add_component_from_row(row, layout_df)
-        except:
-            continue
+    # Add a few components manually for testing
+    if not equipment_df.empty:
+        for idx, row in equipment_df.head(3).iterrows():  # Only first 3 for testing
+            try:
+                dsl.add_component_from_row(row, None) # Assuming None for connections for simple test
+                st.write(f"✅ Added component: {row['ID']}")
+            except Exception as e:
+                st.write(f"❌ Failed to add {row['ID']}: {e}")
+    else:
+        st.warning("Equipment DataFrame is empty. No components added to DSL.")
 
-    for _, row in inline_df.iterrows():
-        try:
-            dsl.add_component_from_row(row, layout_df)
-        except:
-            continue
+    st.success(f"DSL created with {len(dsl.components)} components, {len(dsl.connections)} connections")
 
-    for _, row in pipeline_df.iterrows():
-        try:
-            dsl.add_connection_from_row(row)
-        except:
-            continue
+    # Show DSL components
+    if dsl.components:
+        st.write("**DSL Components:**")
+        for comp in dsl.components:
+            st.write(f"  • {comp.id} ({comp.type})")
+    else:
+        st.error("❌ No components in DSL!")
 
-    if len(dsl.components) == 0:
-        st.error("No components detected in DSL.")
-        st.stop()
+except Exception as e:
+    st.error(f"DSL Generation failed: {e}")
+    st.write("**Traceback:**")
+    st.code(traceback.format_exc())
+    st.stop()
 
-    try:
-        dsl.detect_control_loops()
-    except Exception as e:
-        st.warning(f"Control loop detection failed: {e}")
-
-    try:
-        positions, routes, inlines = compute_positions_and_routing(equipment_df, pipeline_df, inline_df)
-    except:
-        positions, routes, inlines = {}, {}, {}
-
+# Step 2: DSL to JSON
+st.subheader("Step 2: DSL to JSON Conversion")
+if dsl: # Ensure DSL object exists from previous step
     try:
         dsl_json_str = dsl.to_dsl("json")
         dsl_json = json.loads(dsl_json_str)
+
+        st.success(f"JSON conversion successful")
+        st.write(f"Components in JSON: {len(dsl_json.get('components', []))}")
+
+        # Show first component
+        if dsl_json.get('components'):
+            st.write("**First component in JSON:**")
+            st.json(dsl_json['components'][0])
+        else:
+            st.error("❌ No components in JSON!")
+
     except Exception as e:
-        st.error(f"DSL to JSON failed: {e}")
+        st.error(f"JSON conversion failed: {e}")
+        st.code(traceback.format_exc())
         st.stop()
+else:
+    st.error("DSL object not created in previous step. Cannot proceed with JSON conversion.")
+    st.stop()
 
+# Step 3: DEXPI Conversion
+st.subheader("Step 3: DEXPI Conversion")
+dexpi_xml = None # Initialize dexpi_xml
+if dsl_json: # Ensure dsl_json exists
     try:
-        svg, tag_map = render_svg(dsl_json, symbol_renderer, positions, show_grid, show_legend, zoom)
-        if not svg or len(svg) < 100:
-            st.error("Empty or invalid SVG returned.")
+        dexpi_converter = DEXPIConverter()
+        dexpi_xml = dexpi_converter.convert(dsl_json)
+
+        if dexpi_xml:
+            st.success(f"DEXPI conversion successful, XML length: {len(dexpi_xml)}")
+            st.write("**DEXPI XML (first 500 chars):**")
+            st.code(dexpi_xml[:500], language="xml")
         else:
-            png = svg_to_png(svg)
-            st.success("✅ Diagram generated!")
-            st.image(png, caption="Generated P&ID", use_column_width=True)
+            st.error("❌ DEXPI conversion returned empty result!")
+
     except Exception as e:
-        st.error(f"SVG Rendering failed: {e}")
+        st.error(f"DEXPI conversion failed: {e}")
+        st.code(traceback.format_exc())
+else:
+    st.warning("Skipping DEXPI conversion as DSL JSON was not generated.")
 
-with tab2:
-    st.write("### Equipment")
-    st.dataframe(equipment_df)
-    st.write("### Pipelines")
-    st.dataframe(pipeline_df)
-    st.write("### Inline Components")
-    st.dataframe(inline_df)
+# Step 4: Position Computation
+st.subheader("Step 4: Position Computation")
+positions, routes, inlines = {}, {}, {} # Initialize to empty
+try:
+    # Ensure dataframes are not empty before passing
+    if not equipment_df.empty and not pipeline_df.empty and not inline_df.empty:
+        positions, routes, inlines = compute_positions_and_routing(equipment_df, pipeline_df, inline_df)
+        st.success(f"Position computation successful")
+        st.write(f"Positions computed: {len(positions) if positions else 0}")
 
-with tab3:
-    st.subheader("📋 P&ID Validation")
-    validator = PnIDValidator(dsl.components, dsl.connections)
-    try:
-        issues = validator.run_validation(dsl.to_dsl("json"))
-        if not issues:
-            st.success("✅ No major validation errors.")
+        if positions:
+            st.write("**Sample positions:**")
+            sample_positions = dict(list(positions.items())[:3])  # First 3
+            st.json(sample_positions)
         else:
-            st.warning(f"{len(issues)} validation issues:")
-            for issue in issues:
-                st.write(f"• {issue}")
-    except Exception as e:
-        st.error(f"Validation failed: {e}")
-
-with tab4:
-    st.subheader("🧠 AI Suggestions")
-    if enable_ai:
-        try:
-            recs = smart_suggestions.generate(dsl.to_dsl("json"), process_type)
-            for r in recs:
-                st.markdown(f"<div class='ai-suggestion'>{r}</div>", unsafe_allow_html=True)
-        except Exception as e:
-            st.error(f"AI suggestion error: {e}")
+            st.warning("⚠️ No positions computed - will use default positions if implemented in render_svg.")
     else:
-        st.info("AI disabled")
+        st.warning("Cannot compute positions: one or more input DataFrames (equipment_df, pipeline_df, inline_df) are empty.")
 
-with tab5:
-    st.subheader("🔁 HITL Validation")
+except Exception as e:
+    st.error(f"Position computation failed: {e}")
+    st.code(traceback.format_exc())
+    positions, routes, inlines = {}, {}, {} # Reset in case of failure
+
+# Step 5: SVG Rendering - THE CRITICAL STEP
+st.subheader("Step 5: SVG Rendering (CRITICAL)")
+svg = None
+tag_map = None # Initialize tag_map
+
+if dsl_json: # Ensure dsl_json is available
     try:
-        dsl_data = json.loads(dsl.to_dsl("json"))
-        validator = HITLValidator()
-        session = validator.create_session(project_id="EPS", dsl_data=dsl_data)
-        st.write(f"Session ID: {session.session_id}")
-        st.progress(session.completion_percentage / 100)
-        if session.validation_items:
-            st.dataframe(pd.DataFrame([vars(i) for i in session.validation_items]))
-        else:
-            st.success("No validation issues.")
-        st.download_button(
-            "⬇️ Download Report",
-            data=json.dumps(validator.export_validation_report(), indent=2, default=str),
-            file_name="validation_report.json"
+        st.write("**Calling render_svg with:**")
+        st.write(f"  • DSL JSON components: {len(dsl_json.get('components', []))}")
+        st.write(f"  • Symbol renderer: {type(symbol_renderer)}")
+        st.write(f"  • Positions: {len(positions) if positions else 0}")
+
+        svg, tag_map = render_svg(
+            dsl_json, 
+            symbol_renderer, 
+            positions, 
+            True,  # show_grid
+            True,  # show_legend
+            1.0    # zoom
         )
+
+        st.write("**SVG Analysis:**")
+        svg_analysis = analyze_svg_content(svg)
+        st.write(svg_analysis)
+
+        if svg and len(svg) > 100:
+            st.success("✅ SVG generation successful!")
+            
+            # Show raw SVG
+            st.write("**Raw SVG (first 1000 chars):**")
+            st.code(svg[:1000], language="xml")
+            
+            # Test SVG display
+            st.write("**SVG Display Test:**")
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Method 1: Direct HTML**")
+                st.markdown(f'<div style="border:1px solid #ccc; padding:10px; background:white;">{svg}</div>', unsafe_allow_html=True)
+            
+            with col2:
+                st.write("**Method 2: Streamlit Image (via PNG conversion)**")
+                try:
+                    # Check if svg_to_png is successful
+                    if svg_to_png: # Check if the function itself is not None/failed import
+                        png = svg_to_png(svg)
+                        if png:
+                            st.image(png, caption="Generated Diagram (PNG)", use_container_width=True)
+                            st.success("✅ PNG conversion and display successful.")
+                        else:
+                            st.error("❌ svg_to_png returned empty/None PNG data.")
+                            st.write("Attempting direct SVG display as fallback...")
+                            svg_bytes = svg.encode('utf-8')
+                            st.image(svg_bytes, caption="Generated Diagram (Direct SVG Fallback)")
+                    else:
+                        st.error("❌ svg_to_png function not available or failed to import.")
+                        st.write("Attempting direct SVG display as fallback...")
+                        svg_bytes = svg.encode('utf-8')
+                        st.image(svg_bytes, caption="Generated Diagram (Direct SVG Fallback)")
+                except Exception as e:
+                    st.error(f"PNG conversion/display failed: {e}")
+                    st.write("Attempting direct SVG display as fallback...")
+                    svg_bytes = svg.encode('utf-8')
+                    st.image(svg_bytes, caption="Generated Diagram (Direct SVG Fallback)")
+                    
+        else:
+            st.error("❌ SVG generation failed or returned empty content!")
+            st.write("**Debug: Direct symbol renderer test**")
+            
+            # Test symbol renderer directly
+            try:
+                # Try to render a single symbol
+                test_component = {"id": "test", "type": "pump", "x": 100, "y": 100} # Assuming a 'pump' type exists
+                test_svg = symbol_renderer.render_symbol(test_component)
+                st.write(f"Direct symbol render result: {analyze_svg_content(test_svg)}")
+                if test_svg:
+                    st.code(test_svg[:500], language="xml")
+                else:
+                    st.error("Direct symbol render returned empty SVG.")
+            except Exception as e:
+                st.error(f"Direct symbol rendering failed: {e}")
+
     except Exception as e:
-        st.error(f"HITL failed: {e}")
+        st.error(f"❌ SVG rendering failed: {e}")
+        st.code(traceback.format_exc())
+else:
+    st.error("Cannot perform SVG rendering as DSL JSON was not generated.")
 
-with tab6:
-    st.subheader("📤 Export")
-    if export_format == "SVG":
-        st.download_button("⬇️ Download SVG", svg, file_name="pid.svg", mime="image/svg+xml")
-    elif export_format == "PNG":
-        try:
-            png = svg_to_png(svg)
-            st.download_button("⬇️ Download PNG", png, file_name="pid.png", mime="image/png")
-        except Exception as e:
-            st.error(f"PNG export failed: {e}")
-    elif export_format == "DXF":
-        try:
-            dxf = export_dxf(dsl.to_dsl("json"))
-            st.download_button("⬇️ Download DXF", dxf, file_name="pid.dxf", mime="application/dxf")
-        except Exception as e:
-            st.error(f"DXF export failed: {e}")
-    elif export_format == "DEXPI":
-        try:
-            dexpi_converter = DEXPIConverter()
-            dexpi_xml = dexpi_converter.convert(dsl_json)
-            st.download_button("⬇️ Download DEXPI", dexpi_xml, file_name="pid.dexpi", mime="application/xml")
-        except Exception as e:
-            st.error(f"DEXPI export failed: {e}")
-    elif export_format == "PDF":
-        st.warning("PDF export coming soon.")
+# ─────────────────────────────────────
+# SUMMARY & RECOMMENDATIONS
+# ─────────────────────────────────────
 
-with tab7:
-    st.subheader("🧰 Debug Info")
-    st.json(dsl.to_dsl("json"))
-    if layout_df is not None:
-        st.dataframe(layout_df)
-    if svg:
-        st.code(svg[:1000], language="xml")
+st.header("📋 Summary & Next Steps")
 
-st.markdown("---")
-st.caption("EPS Generator | DSL → DEXPI → Schemdraw | v2.2 (with fallback layout, debug tab, JSON fix)")
+# Use a more robust check for svg_analysis
+if 'svg_analysis' in locals() and svg_analysis:
+    st.write("**Diagram Generation Pipeline Status:**")
+    st.write(f"✅ Data Loading: {'SUCCESS' if data_loaded_successfully else 'FAILED'}")
+    st.write(f"✅ DSL Generation: {'SUCCESS' if dsl and dsl.components else 'FAILED'}")
+    st.write(f"✅ JSON Conversion: {'SUCCESS' if dsl_json else 'FAILED'}")
+    st.write(f"✅ DEXPI Conversion: {'SUCCESS' if dexpi_xml else 'FAILED or SKIPPED'}")
+    st.write(f"✅ Position Computation: {'SUCCESS' if positions else '⚠️ EMPTY/FAILED'}")
+    st.write(f"✅ SVG Rendering: {'SUCCESS' if svg and len(svg) > 100 else '❌ FAILED'}")
+
+st.subheader("🎯 Specific Issues to Check:")
+
+st.markdown("""
+1.  **If basic Streamlit image display fails (Test 1)**: There might be an issue with your Streamlit installation or environment, or how `st.image` handles SVG bytes.
+2.  **If `schemdraw` test fails (Test 2)**: Ensure `schemdraw` is installed (`pip install schemdraw`). While not directly used for the main P&ID generation in this code, it's a good general SVG rendering library test.
+3.  **If data loading fails**: Ensure `equipment_list.csv`, `pipeline_list.csv`, and `inline_component_list.csv` exist in the same directory as `app.py`. Check their content for correct formatting.
+4.  **If DSL generation fails**: Review `dsl_generator.py`, especially `DSLGenerator.add_component_from_row()`. Check the input `equipment_df` structure.
+5.  **If JSON conversion fails**: Review `dsl_generator.py`'s `to_dsl()` method for JSON output.
+6.  **If DEXPI conversion fails**: Review `dexpi_converter.py` and `DEXPIConverter.convert()`. This step might not directly impact SVG generation if the `render_svg` function doesn't depend on DEXPI XML.
+7.  **If position computation fails or returns empty**: Review `layout_engine.py`'s `compute_positions_and_routing()` function. Incorrect or insufficient data in your CSVs can lead to this. The `render_svg` function might need to handle empty positions gracefully (e.g., by placing components at default coordinates).
+8.  **If SVG rendering fails (CRITICAL Step 5)**: This is likely the core issue for a blank diagram.
+    * **Check `drawing_engine.py`'s `render_svg()`**: Is it receiving the correct `dsl_json`? Does it correctly iterate through components and call `symbol_renderer.render_symbol`? Are there any hardcoded dimensions preventing elements from showing?
+    * **Check `symbols.py`'s `SymbolRenderer`**: Is `render_symbol()` correctly generating SVG for each component type? Are the symbol definitions correct (e.g., paths, rectangles, circles)? Check for correct SVG namespaces and well-formedness. The "Direct symbol renderer test" in the diagnostic output is crucial here.
+    * **Check `svg_to_png()`**: If `st.image` is failing, the conversion from SVG to PNG might be the problem. Ensure `cairosvg` or similar (if used) is installed and working.
+9.  **If the generated SVG is very short or has "No drawing elements found"**: This strongly indicates that `render_svg` or `SymbolRenderer` is not producing any graphic elements, or elements are being rendered outside the `viewBox`.
+""")
+
+st.subheader("🔧 Manual Override Test")
+if st.button("Generate Simple Test Diagram"):
+    st.write("Creating a minimal test diagram…")
+    try:
+        # Create minimal test data
+        test_svg = '''<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg">
+<rect x="50" y="50" width="100" height="60" fill="lightblue" stroke="black" stroke-width="2"/>
+<rect x="250" y="50" width="100" height="60" fill="lightgreen" stroke="black" stroke-width="2"/>
+<line x1="150" y1="80" x2="250" y2="80" stroke="black" stroke-width="3"/>
+<text x="100" y="85" text-anchor="middle" font-size="12">PUMP-01</text>
+<text x="300" y="85" text-anchor="middle" font-size="12">TANK-01</text>
+</svg>'''
+
+        st.markdown(f'<div style="border:2px solid #ccc; padding:10px; background:white;">{test_svg}</div>', unsafe_allow_html=True)
+        st.success("If you see a simple pump-tank diagram above, then Streamlit SVG display works!")
+        
+    except Exception as e:
+        st.error(f"Even simple test failed: {e}")
+
