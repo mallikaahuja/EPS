@@ -51,7 +51,4 @@ pylint>=2.17.0
 pytest>=7.3.0
 
 # Environment management
-python-dotenv
-
-# Removed iso-symbol-lib (not available on PyPI)
-# iso-symbol-lib>=0.1.0
+python-dotenv==1.0.0
