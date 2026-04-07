@@ -53,6 +53,3 @@ A modern, AI-powered, Streamlit-based tool for creating industry-grade P&ID diag
 - If you see warnings about missing symbols, use the “Validate Symbols” button or generate with AI.
 - For errors with AI features, check your API key setup in Railway.
 
-## 📄 License
-
-MIT License (or your chosen license here)
